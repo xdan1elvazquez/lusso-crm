@@ -1,4 +1,6 @@
 // src/services/consultationsStorage.js
+import { normalizeRxValue } from "../utils/rxOptions";
+
 const KEY = "lusso_consultations";
 
 function normalizeConsultation(raw) {
@@ -9,6 +11,7 @@ function normalizeConsultation(raw) {
     ...base,
     createdAt,
     visitDate,
+    rx: normalizeRxValue(base.rx),
   };
 }
 
@@ -65,6 +68,7 @@ export function createConsultation(data) {
     diagnosis: data.diagnosis?.trim?.() || "",
     notes: data.notes?.trim?.() || "",
     visitDate: toVisitDateISO(data.visitDate, now),
+    rx: normalizeRxValue(data.rx),
   };
   const next = [consultation, ...list];
   write(next);
@@ -84,6 +88,7 @@ export function updateConsultation(id, patch) {
       diagnosis: patch.diagnosis?.trim?.() ?? item.diagnosis,
       notes: patch.notes?.trim?.() ?? item.notes,
       visitDate: toVisitDateISO(patch.visitDate, item.visitDate || item.createdAt),
+      rx: patch.rx ? normalizeRxValue(patch.rx) : item.rx,
     };
     return updated;
   });

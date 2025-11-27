@@ -56,7 +56,7 @@ function normalizeItem(item, saleFallback) {
     unitPrice,
     requiresLab,
     consultationId: base.consultationId ?? saleFallback?.consultationId ?? null,
-    rxSnapshot: base.rxSnapshot || "",
+    rxSnapshot: base.rxSnapshot ?? null,
     labName: base.labName || "",
     dueDate: base.dueDate || null,
   };
@@ -151,6 +151,10 @@ function ensureWorkOrdersForSale(sale) {
     .forEach((item) => {
       const key = `${sale.id || ""}::${item.id}`;
       if (existingKeys.has(key)) return;
+      const rxNotes =
+        item.rxSnapshot && typeof item.rxSnapshot === "object"
+          ? JSON.stringify(item.rxSnapshot)
+          : item.rxSnapshot || "";
       createWorkOrder({
         patientId: sale.patientId,
         saleId: sale.id,
@@ -158,7 +162,7 @@ function ensureWorkOrdersForSale(sale) {
         type: item.kind === "CONTACT_LENS" ? "LC" : item.kind === "LENSES" ? "LENTES" : "OTRO",
         status: "TO_PREPARE",
         labName: item.labName || "",
-        rxNotes: item.rxSnapshot || "",
+        rxNotes,
         dueDate: item.dueDate || null,
         createdAt: sale.createdAt,
       });

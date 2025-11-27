@@ -4,6 +4,8 @@ import {
   getConsultationById,
   updateConsultation,
 } from "../services/consultationsStorage";
+import RxPicker from "../components/RxPicker";
+import { normalizeRxValue } from "../utils/rxOptions";
 
 function toDateInput(isoString) {
   if (!isoString) return "";
@@ -24,6 +26,7 @@ export default function ConsultationDetailPage() {
     reason: "",
     diagnosis: "",
     notes: "",
+    rx: normalizeRxValue(),
   });
 
   useEffect(() => {
@@ -39,6 +42,7 @@ export default function ConsultationDetailPage() {
       reason: c.reason || "",
       diagnosis: c.diagnosis || "",
       notes: c.notes || "",
+      rx: normalizeRxValue(c.rx),
     });
   }, [patientId, consultationId]);
 
@@ -51,6 +55,7 @@ export default function ConsultationDetailPage() {
       reason: form.reason,
       diagnosis: form.diagnosis,
       notes: form.notes,
+      rx: form.rx,
     });
     if (!updated) {
       setNotFound(true);
@@ -127,6 +132,11 @@ export default function ConsultationDetailPage() {
             onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
           />
         </label>
+
+        <div style={{ display: "grid", gap: 8 }}>
+          <strong>Rx</strong>
+          <RxPicker value={form.rx} onChange={(rx) => setForm((f) => ({ ...f, rx }))} />
+        </div>
 
         <div style={{ display: "flex", gap: 12 }}>
           <button type="submit">Guardar</button>

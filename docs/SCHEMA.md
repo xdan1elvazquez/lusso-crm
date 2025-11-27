@@ -23,6 +23,7 @@ Estado actual y plan inmediato (MVP 1.6: Rx estructurado + EyeExam).
 - `visitDate` (ISO date string) fallback a `createdAt`
 - `createdAt` (ISO string) **req**
 - `reason`, `diagnosis`, `notes` (string)
+- `rx` (estructura optativa, ver abajo)
 
 ### Anamnesis (versionable)
 - `id` (string, uuid) **req**
@@ -50,7 +51,7 @@ Estado actual y plan inmediato (MVP 1.6: Rx estructurado + EyeExam).
 - `unitPrice` (number) **req**
 - `requiresLab` (boolean, true para LENSES/CONTACT_LENS) **req**
 - `consultationId` (string, uuid | null)
-- `rxSnapshot` (string | json serializado)
+- `rxSnapshot` (json estructurado, copia estática de la Rx al momento de la venta)
 - `labName` (string)
 - `dueDate` (ISO date string | null)
 - `inventoryItemId` (string | null) [planeado]
@@ -85,6 +86,17 @@ Estado actual y plan inmediato (MVP 1.6: Rx estructurado + EyeExam).
 - `sphere`, `cylinder`, `axis`, `add`, `va`, `pd` por ojo (estructura a definir)
 - `notes` (string)
 - `createdAt` (ISO string)
+
+### Rx (estructura usada en Consultation.rx y SaleItem.rxSnapshot)
+- `od` / `os`:
+  - `sph` (number | null)
+  - `cyl` (number | null)
+  - `axis` (number | null; null cuando `cyl` es 0)
+  - `add` (number | null)
+- `pd`:
+  - `distance` (number | null)
+  - `near` (number | null)
+- `notes` (string)
 
 ### Relaciones y reglas
 - `patientId` presente en Consultation, Anamnesis, Sale, WorkOrder, EyeExam.

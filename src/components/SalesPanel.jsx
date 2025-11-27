@@ -6,6 +6,8 @@ import {
   getSalesByPatientId,
 } from "../services/salesStorage";
 import { getConsultationsByPatient } from "../services/consultationsStorage";
+import RxPicker from "./RxPicker";
+import { normalizeRxValue } from "../utils/rxOptions";
 
 const KIND_OPTIONS = ["LENSES", "CONTACT_LENS", "MEDICATION", "ACCESSORY", "CONSULTATION", "OTHER"];
 const PAYMENT_METHODS = ["EFECTIVO", "TARJETA", "TRANSFERENCIA", "OTRO"];
@@ -23,6 +25,7 @@ export default function SalesPanel({ patientId }) {
     dueDate: "",
     rxNotes: "",
     consultationId: "",
+    rxManual: normalizeRxValue(),
   });
   const [paymentForms, setPaymentForms] = useState({});
 
@@ -40,6 +43,7 @@ export default function SalesPanel({ patientId }) {
       dueDate: "",
       rxNotes: "",
       consultationId: "",
+      rxManual: normalizeRxValue(),
     });
 
   const onCreate = (e) => {
@@ -58,6 +62,13 @@ export default function SalesPanel({ patientId }) {
           ]
         : [];
     const requiresLab = LAB_KINDS.has(form.kind);
+    const consultationSelected = consultations.find((c) => c.id === form.consultationId);
+    const rxSnapshot =
+      requiresLab && consultationSelected?.rx
+        ? normalizeRxValue(consultationSelected.rx)
+        : requiresLab
+        ? normalizeRxValue(form.rxManual)
+        : null;
     createSale({
       patientId,
       kind: form.kind,
@@ -72,7 +83,7 @@ export default function SalesPanel({ patientId }) {
           unitPrice: total,
           requiresLab,
           consultationId: form.consultationId || null,
-          rxSnapshot: form.rxNotes || "",
+          rxSnapshot,
           labName: requiresLab ? form.labName : "",
           dueDate: requiresLab ? form.dueDate : null,
         },
@@ -196,6 +207,19 @@ export default function SalesPanel({ patientId }) {
                 placeholder="Graduación, especificaciones..."
               />
             </label>
+            {form.consultationId ? (
+              <div style={{ fontSize: 13, opacity: 0.8 }}>
+                Usando Rx de la consulta seleccionada (copia estática en la venta).
+              </div>
+            ) : (
+              <div style={{ display: "grid", gap: 6 }}>
+                <strong>Rx para la venta</strong>
+                <RxPicker
+                  value={form.rxManual}
+                  onChange={(rx) => setForm((f) => ({ ...f, rxManual: rx }))}
+                />
+              </div>
+            )}
           </>
         )}
 
