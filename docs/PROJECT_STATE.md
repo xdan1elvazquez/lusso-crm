@@ -2,7 +2,7 @@
 
 ## Stack actual
 - React + React Router (SPA)
-- Persistencia en localStorage vía `patientsStorage`, `consultationsStorage`, `anamnesisStorage` y `salesStorage`
+- Persistencia en localStorage vía `patientsStorage`, `consultationsStorage`, `anamnesisStorage`, `salesStorage` y `workOrdersStorage`
 - Auth demo con `RequireAuth` en el router (sin backend real)
 
 ## Rutas actuales
@@ -11,6 +11,7 @@
 - `/patients`
 - `/patients/:id`
 - `/patients/:patientId/consultations/:consultationId`
+- `/work-orders`
 - `/unauthorized` (placeholder)
 - comodín `*` → NotFound
 
@@ -27,6 +28,13 @@
   - `getAnamnesisByPatientId(patientId)`
   - `createAnamnesis(payload)` → requiere `patientId`, crea `{ id, patientId, createdAt, diabetes, hypertension, asthma, allergies, currentMeds, surgeries, ocularHistory, notes }`
   - `deleteAnamnesis(id)`
+- `src/services/workOrdersStorage.js`
+  - `getAllWorkOrders()`
+  - `getWorkOrdersByPatientId(patientId)`
+  - `createWorkOrder(payload)` → requiere `patientId`, crea `{ id, patientId, saleId, type, labName, rxNotes, status, createdAt, updatedAt, dueDate? }`
+  - `updateWorkOrder(id, patch)` → actualiza campos y `status`, refresca `updatedAt`
+  - `deleteWorkOrder(id)`
+  - `nextStatus(current)` → workflow `TO_PREPARE -> SENT_TO_LAB -> READY -> DELIVERED`
 - `src/services/salesStorage.js`
   - `getAllSales()`
   - `getSalesByPatientId(patientId)`
@@ -48,6 +56,7 @@
 - Consultas: creación desde `ConsultationsPanel`, listado por paciente, eliminación, nueva página de detalle/edición con navegación desde cada ítem.
 - Anamnesis: secciones por paciente con formulario de alta y listado histórico (creación y eliminación).
 - Ventas: ventas por paciente con total, abonos, saldo y estado (pendiente/pagado); listado y abonos adicionales en `SalesPanel`.
+- Work Orders: trabajos por paciente con vínculo opcional a venta, status en flujo (`TO_PREPARE`, `SENT_TO_LAB`, `READY`, `DELIVERED`, `CANCELLED`), fechas estimadas y notas Rx.
 - Rutas protegidas por auth demo; layout aplicado en zona protegida.
 
 ## Qué se agregó/cambió en MVP 1.1 (actual)
@@ -78,14 +87,30 @@
 - `src/pages/DashboardPage.jsx`
 - `docs/PROJECT_STATE.md`
 
+## Archivos tocados en MVP 1.4
+- `src/services/workOrdersStorage.js`
+- `src/components/WorkOrdersPanel.jsx`
+- `src/pages/WorkOrdersPage.jsx`
+- `src/pages/PatientDetailPage.jsx`
+- `src/pages/DashboardPage.jsx`
+- `src/router.jsx`
+- `src/layouts/AppLayout.jsx`
+- `docs/PROJECT_STATE.md`
+
 ## Próximos pasos (backlog corto)
 - Validar inputs (campos requeridos, normalización) antes de guardar.
-- Agregar filtros/búsqueda de consultas, anamnesis, ventas y pacientes.
+- Agregar filtros/búsqueda de consultas, anamnesis, ventas, work orders y pacientes.
 - Persistencia remota o sync (API/backend) en lugar de solo localStorage.
 - Mejorar manejo de errores/estados de carga en páginas (spinners, toasts).
 - Tests básicos de storages y componentes clave.
 
 ## Changelog
+- [2025-11-27] MVP 1.4:
+  - Añadido storage de work orders con flujo de status y fecha estimada.
+  - Nueva página global `/work-orders` con filtros por estado y búsqueda por paciente/lab.
+  - `WorkOrdersPanel` en `PatientDetailPage` para crear trabajos ligados a ventas y avanzar status.
+  - Dashboard incluye contadores por estado de work orders.
+  - Archivos clave: `src/services/workOrdersStorage.js`, `src/components/WorkOrdersPanel.jsx`, `src/pages/WorkOrdersPage.jsx`, `src/pages/PatientDetailPage.jsx`, `src/pages/DashboardPage.jsx`, `src/router.jsx`, `src/layouts/AppLayout.jsx`, `docs/PROJECT_STATE.md`.
 - [2025-11-27] MVP 1.3:
   - Añadido storage de ventas con pagos/abonos y cálculo de saldo/estado.
   - Nuevo `SalesPanel` para crear ventas, aplicar anticipos y agregar abonos posteriores por paciente.

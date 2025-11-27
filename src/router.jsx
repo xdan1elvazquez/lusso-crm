@@ -9,6 +9,7 @@ import DashboardPage from "./pages/DashboardPage.jsx";
 import PatientsPage from "./pages/PatientsPage.jsx";
 import PatientDetailPage from "./pages/PatientDetailPage.jsx";
 import ConsultationDetailPage from "./pages/ConsultationDetailPage.jsx";
+import WorkOrdersPage from "./pages/WorkOrdersPage.jsx";
 import LoginPage from "./pages/LoginPage.jsx";
 import NotFound from "./pages/NotFound.jsx";
 
@@ -40,6 +41,7 @@ const router = createBrowserRouter([
       { path: "patients", element: <PatientsPage /> },
       { path: "patients/:id", element: <PatientDetailPage /> },
       { path: "patients/:patientId/consultations/:consultationId", element: <ConsultationDetailPage /> },
+      { path: "work-orders", element: <WorkOrdersPage /> },
 
       // (Opcional) más adelante para roles/permisos
       { path: "unauthorized", element: <UnauthorizedPage /> },

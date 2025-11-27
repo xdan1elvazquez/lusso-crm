@@ -4,6 +4,7 @@ import { getPatientById, updatePatient } from "../services/patientsStorage";
 import ConsultationsPanel from "../components/ConsultationsPanel";
 import AnamnesisPanel from "../components/AnamnesisPanel";
 import SalesPanel from "../components/SalesPanel";
+import WorkOrdersPanel from "../components/WorkOrdersPanel";
 
 export default function PatientDetailPage() {
   const { id } = useParams();
@@ -45,6 +46,7 @@ export default function PatientDetailPage() {
       <ConsultationsPanel patientId={id} />
       <AnamnesisPanel patientId={id} />
       <SalesPanel patientId={id} />
+      <WorkOrdersPanel patientId={id} />
     </div>
   );
 }

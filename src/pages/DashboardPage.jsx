@@ -5,6 +5,7 @@ import {
   getAllConsultations,
 } from "../services/consultationsStorage";
 import { getAllSales } from "../services/salesStorage";
+import { getAllWorkOrders } from "../services/workOrdersStorage";
 
 export default function DashboardPage() {
   const [stats, setStats] = useState({
@@ -14,12 +15,14 @@ export default function DashboardPage() {
     pendingSalesCount: 0,
     pendingSalesBalance: 0,
     lastPendingSales: [],
+    workOrdersByStatus: {},
   });
 
   useEffect(() => {
     const patients = getPatients();
     const consultations = getAllConsultations() || [];
     const sales = getAllSales() || [];
+    const workOrders = getAllWorkOrders() || [];
 
     // ordenar consultas de más reciente a más antigua
     const sorted = [...consultations].sort(
@@ -43,6 +46,12 @@ export default function DashboardPage() {
 
     const pendingBalanceSum = pendingSales.reduce((acc, s) => acc + (Number(s.balance) || 0), 0);
 
+    const workOrdersByStatus = workOrders.reduce((acc, w) => {
+      const key = w.status || "UNKNOWN";
+      acc[key] = (acc[key] || 0) + 1;
+      return acc;
+    }, {});
+
     setStats({
       totalPatients: patients.length,
       totalConsultations: consultations.length,
@@ -50,6 +59,7 @@ export default function DashboardPage() {
       pendingSalesCount: pendingSales.length,
       pendingSalesBalance: pendingBalanceSum,
       lastPendingSales: pendingSales.slice(0, 5),
+      workOrdersByStatus,
     });
   }, []);
 
@@ -80,6 +90,14 @@ export default function DashboardPage() {
         <StatCard
           label="Saldo por cobrar"
           value={formatCurrency(stats.pendingSalesBalance)}
+        />
+        <StatCard
+          label="Work orders activos"
+          value={
+            (stats.workOrdersByStatus.TO_PREPARE || 0) +
+            (stats.workOrdersByStatus.SENT_TO_LAB || 0) +
+            (stats.workOrdersByStatus.READY || 0)
+          }
         />
       </div>
 
@@ -153,6 +171,19 @@ export default function DashboardPage() {
           </ul>
         )}
       </section>
+
+      <section style={{ marginTop: 24 }}>
+        <h2 style={{ fontSize: 20, marginBottom: 12 }}>
+          Work orders por estado
+        </h2>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10 }}>
+          <Metric label="Por preparar" value={stats.workOrdersByStatus.TO_PREPARE || 0} />
+          <Metric label="Enviado a laboratorio" value={stats.workOrdersByStatus.SENT_TO_LAB || 0} />
+          <Metric label="Listo para entregar" value={stats.workOrdersByStatus.READY || 0} />
+          <Metric label="Entregado" value={stats.workOrdersByStatus.DELIVERED || 0} />
+          <Metric label="Cancelado" value={stats.workOrdersByStatus.CANCELLED || 0} />
+        </div>
+      </section>
     </div>
   );
 }
@@ -177,4 +208,13 @@ function StatCard({ label, value }) {
 function formatCurrency(value) {
   const num = Number(value) || 0;
   return num.toLocaleString("es-MX", { style: "currency", currency: "MXN", maximumFractionDigits: 2 });
+}
+
+function Metric({ label, value }) {
+  return (
+    <div style={{ display: "grid", gap: 2 }}>
+      <div style={{ fontSize: 13, opacity: 0.7 }}>{label}</div>
+      <div style={{ fontWeight: 700 }}>{value}</div>
+    </div>
+  );
 }

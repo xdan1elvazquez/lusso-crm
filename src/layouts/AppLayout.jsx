@@ -28,6 +28,10 @@ export default function AppLayout() {
           <NavLink to="patients" className={linkClass}>
             Patients
           </NavLink>
+
+          <NavLink to="work-orders" className={linkClass}>
+            Work Orders
+          </NavLink>
         </nav>
 
         <div className="sidebarBottom">
