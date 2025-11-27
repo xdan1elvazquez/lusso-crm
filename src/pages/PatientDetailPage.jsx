@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import { getPatientById, updatePatient } from "../services/patientsStorage";
 import ConsultationsPanel from "../components/ConsultationsPanel";
 import AnamnesisPanel from "../components/AnamnesisPanel";
+import SalesPanel from "../components/SalesPanel";
 
 export default function PatientDetailPage() {
   const { id } = useParams();
@@ -43,6 +44,7 @@ export default function PatientDetailPage() {
       </div>
       <ConsultationsPanel patientId={id} />
       <AnamnesisPanel patientId={id} />
+      <SalesPanel patientId={id} />
     </div>
   );
 }

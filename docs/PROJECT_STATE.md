@@ -2,7 +2,7 @@
 
 ## Stack actual
 - React + React Router (SPA)
-- Persistencia en localStorage vía `patientsStorage`, `consultationsStorage` y `anamnesisStorage`
+- Persistencia en localStorage vía `patientsStorage`, `consultationsStorage`, `anamnesisStorage` y `salesStorage`
 - Auth demo con `RequireAuth` en el router (sin backend real)
 
 ## Rutas actuales
@@ -27,6 +27,13 @@
   - `getAnamnesisByPatientId(patientId)`
   - `createAnamnesis(payload)` → requiere `patientId`, crea `{ id, patientId, createdAt, diabetes, hypertension, asthma, allergies, currentMeds, surgeries, ocularHistory, notes }`
   - `deleteAnamnesis(id)`
+- `src/services/salesStorage.js`
+  - `getAllSales()`
+  - `getSalesByPatientId(patientId)`
+  - `getSaleById(id)`
+  - `createSale(payload)` → requiere `patientId`, crea `{ id, patientId, consultationId?, category, description, total, payments[], createdAt }`
+  - `addPaymentToSale(saleId, payment)` → agrega abono con `{ id, amount, method, paidAt }`, clampa saldo restante
+  - `deleteSale(id)`
 - `src/services/consultationsStorage.js`
   - `getAllConsultations()`
   - `getConsultationById(id)`
@@ -40,6 +47,7 @@
 - Pacientes: listado, detalle y edición básica (`PatientDetailPage`).
 - Consultas: creación desde `ConsultationsPanel`, listado por paciente, eliminación, nueva página de detalle/edición con navegación desde cada ítem.
 - Anamnesis: secciones por paciente con formulario de alta y listado histórico (creación y eliminación).
+- Ventas: ventas por paciente con total, abonos, saldo y estado (pendiente/pagado); listado y abonos adicionales en `SalesPanel`.
 - Rutas protegidas por auth demo; layout aplicado en zona protegida.
 
 ## Qué se agregó/cambió en MVP 1.1 (actual)
@@ -63,14 +71,27 @@
 - `src/pages/PatientDetailPage.jsx`
 - `docs/PROJECT_STATE.md`
 
+## Archivos tocados en MVP 1.3
+- `src/services/salesStorage.js`
+- `src/components/SalesPanel.jsx`
+- `src/pages/PatientDetailPage.jsx`
+- `src/pages/DashboardPage.jsx`
+- `docs/PROJECT_STATE.md`
+
 ## Próximos pasos (backlog corto)
 - Validar inputs (campos requeridos, normalización) antes de guardar.
-- Agregar filtros/búsqueda de consultas, anamnesis y pacientes.
+- Agregar filtros/búsqueda de consultas, anamnesis, ventas y pacientes.
 - Persistencia remota o sync (API/backend) en lugar de solo localStorage.
 - Mejorar manejo de errores/estados de carga en páginas (spinners, toasts).
 - Tests básicos de storages y componentes clave.
 
 ## Changelog
+- [2025-11-27] MVP 1.3:
+  - Añadido storage de ventas con pagos/abonos y cálculo de saldo/estado.
+  - Nuevo `SalesPanel` para crear ventas, aplicar anticipos y agregar abonos posteriores por paciente.
+  - `PatientDetailPage` integra sección de Ventas junto a Consultas y Anamnesis.
+  - Dashboard muestra métricas de ventas pendientes (conteo y saldo) y lista las últimas pendientes.
+  - Archivos clave: `src/services/salesStorage.js`, `src/components/SalesPanel.jsx`, `src/pages/PatientDetailPage.jsx`, `src/pages/DashboardPage.jsx`, `docs/PROJECT_STATE.md`.
 - [2025-11-27] MVP 1.2:
   - Añadido storage de anamnesis versionable por paciente.
   - Nuevo `AnamnesisPanel` con alta y listado histórico (DM/HTA/Asma + textos) y eliminación.

@@ -4,17 +4,22 @@ import { getPatients } from "../services/patientsStorage";
 import {
   getAllConsultations,
 } from "../services/consultationsStorage";
+import { getAllSales } from "../services/salesStorage";
 
 export default function DashboardPage() {
   const [stats, setStats] = useState({
     totalPatients: 0,
     totalConsultations: 0,
     lastConsultations: [],
+    pendingSalesCount: 0,
+    pendingSalesBalance: 0,
+    lastPendingSales: [],
   });
 
   useEffect(() => {
     const patients = getPatients();
     const consultations = getAllConsultations() || [];
+    const sales = getAllSales() || [];
 
     // ordenar consultas de más reciente a más antigua
     const sorted = [...consultations].sort(
@@ -23,10 +28,28 @@ export default function DashboardPage() {
         new Date(a.visitDate || a.createdAt || 0)
     );
 
+    const pendingSales = sales
+      .map((s) => {
+        const paidAmount =
+          s.paidAmount ??
+          (Array.isArray(s.payments)
+            ? s.payments.reduce((acc, p) => acc + (Number(p.amount) || 0), 0)
+            : 0);
+        const balance = s.balance ?? Math.max((Number(s.total) || 0) - paidAmount, 0);
+        return { ...s, paidAmount, balance };
+      })
+      .filter((s) => s.balance > 0)
+      .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+
+    const pendingBalanceSum = pendingSales.reduce((acc, s) => acc + (Number(s.balance) || 0), 0);
+
     setStats({
       totalPatients: patients.length,
       totalConsultations: consultations.length,
       lastConsultations: sorted.slice(0, 5),
+      pendingSalesCount: pendingSales.length,
+      pendingSalesBalance: pendingBalanceSum,
+      lastPendingSales: pendingSales.slice(0, 5),
     });
   }, []);
 
@@ -49,6 +72,14 @@ export default function DashboardPage() {
         <StatCard
           label="Consultas registradas"
           value={stats.totalConsultations}
+        />
+        <StatCard
+          label="Ventas pendientes"
+          value={stats.pendingSalesCount}
+        />
+        <StatCard
+          label="Saldo por cobrar"
+          value={formatCurrency(stats.pendingSalesBalance)}
         />
       </div>
 
@@ -88,6 +119,40 @@ export default function DashboardPage() {
           </ul>
         )}
       </section>
+
+      <section style={{ marginTop: 24 }}>
+        <h2 style={{ fontSize: 20, marginBottom: 12 }}>
+          Últimas ventas pendientes
+        </h2>
+
+        {stats.lastPendingSales.length === 0 ? (
+          <p style={{ opacity: 0.7 }}>No hay ventas pendientes.</p>
+        ) : (
+          <ul style={{ display: "grid", gap: 8, padding: 0, listStyle: "none" }}>
+            {stats.lastPendingSales.map((s) => {
+              const created = s.createdAt ? new Date(s.createdAt).toLocaleString() : "Sin fecha";
+              const balanceText = formatCurrency(s.balance);
+              return (
+                <li
+                  key={s.id}
+                  style={{
+                    padding: 12,
+                    borderRadius: 8,
+                    background: "rgba(255,255,255,0.03)",
+                    border: "1px solid rgba(255,255,255,0.08)",
+                  }}
+                >
+                  <div style={{ fontSize: 14, opacity: 0.7 }}>{created}</div>
+                  <div style={{ fontWeight: 600 }}>{s.description || "Venta"}</div>
+                  <div style={{ fontSize: 14, opacity: 0.8 }}>
+                    Saldo: {balanceText}
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </section>
     </div>
   );
 }
@@ -107,4 +172,9 @@ function StatCard({ label, value }) {
       <div style={{ fontSize: 28, fontWeight: 700 }}>{value}</div>
     </div>
   );
+}
+
+function formatCurrency(value) {
+  const num = Number(value) || 0;
+  return num.toLocaleString("es-MX", { style: "currency", currency: "MXN", maximumFractionDigits: 2 });
 }
