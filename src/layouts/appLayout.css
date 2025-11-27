@@ -21,6 +21,9 @@
   padding: 18px 14px;
   background: var(--panel);
   border-right: 1px solid var(--border);
+
+  display: flex;              /* 👈 agrega */
+  flex-direction: column;
 }
 
 .brand {
@@ -57,4 +60,24 @@
 
 .content {
   padding: 28px;
+}
+
+.sidebarBottom {
+  margin-top: auto; /* 👈 esto lo empuja hasta abajo */
+  padding-top: 16px;
+}
+
+.logoutBtn {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(255,255,255,.10);
+  background: rgba(255,255,255,.06);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.logoutBtn:hover {
+  background: rgba(255,255,255,.10);
+  border-color: rgba(255,255,255,.16);
 }
