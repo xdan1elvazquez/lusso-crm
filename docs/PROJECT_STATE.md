@@ -31,7 +31,7 @@
 - `src/services/workOrdersStorage.js`
   - `getAllWorkOrders()`
   - `getWorkOrdersByPatientId(patientId)`
-  - `createWorkOrder(payload)` → requiere `patientId`, crea `{ id, patientId, saleId, type, labName, rxNotes, status, createdAt, updatedAt, dueDate? }`
+  - `createWorkOrder(payload)` → requiere `patientId`, crea `{ id, patientId, saleId, saleItemId, type, labName, rxNotes, status, createdAt, updatedAt, dueDate? }`
   - `updateWorkOrder(id, patch)` → actualiza campos y `status`, refresca `updatedAt`
   - `deleteWorkOrder(id)`
   - `nextStatus(current)` → workflow `TO_PREPARE -> SENT_TO_LAB -> READY -> DELIVERED`
@@ -39,7 +39,7 @@
   - `getAllSales()`
   - `getSalesByPatientId(patientId)`
   - `getSaleById(id)`
-  - `createSale(payload)` → requiere `patientId`, crea `{ id, patientId, consultationId?, category, description, total, payments[], createdAt }`
+  - `createSale(payload)` → requiere `patientId`, crea `{ id, patientId, consultationId?, kind, items[], total, payments[], createdAt }`; auto-crea work orders para items con `requiresLab`
   - `addPaymentToSale(saleId, payment)` → agrega abono con `{ id, amount, method, paidAt }`, clampa saldo restante
   - `deleteSale(id)`
 - `src/services/consultationsStorage.js`
@@ -55,8 +55,8 @@
 - Pacientes: listado, detalle y edición básica (`PatientDetailPage`).
 - Consultas: creación desde `ConsultationsPanel`, listado por paciente, eliminación, nueva página de detalle/edición con navegación desde cada ítem.
 - Anamnesis: secciones por paciente con formulario de alta y listado histórico (creación y eliminación).
-- Ventas: ventas por paciente con total, abonos, saldo y estado (pendiente/pagado); listado y abonos adicionales en `SalesPanel`.
-- Work Orders: trabajos por paciente con vínculo opcional a venta, status en flujo (`TO_PREPARE`, `SENT_TO_LAB`, `READY`, `DELIVERED`, `CANCELLED`), fechas estimadas y notas Rx.
+- Ventas: ventas por paciente con items y tipo; total, abonos, saldo y estado (pendiente/pagado); listado y abonos adicionales en `SalesPanel`. Ventas con items que requieren laboratorio generan Work Orders automáticamente.
+- Work Orders: trabajos por paciente con vínculo a venta/item, status en flujo (`TO_PREPARE`, `SENT_TO_LAB`, `READY`, `DELIVERED`, `CANCELLED`), fechas estimadas y notas Rx. Listado global con filtros y búsqueda.
 - Rutas protegidas por auth demo; layout aplicado en zona protegida.
 
 ## Qué se agregó/cambió en MVP 1.1 (actual)
@@ -97,6 +97,15 @@
 - `src/layouts/AppLayout.jsx`
 - `docs/PROJECT_STATE.md`
 
+## Archivos tocados en MVP 1.5
+- `src/services/salesStorage.js`
+- `src/services/workOrdersStorage.js`
+- `src/components/SalesPanel.jsx`
+- `src/components/WorkOrdersPanel.jsx`
+- `src/pages/WorkOrdersPage.jsx`
+- `src/pages/PatientDetailPage.jsx`
+- `docs/PROJECT_STATE.md`
+
 ## Próximos pasos (backlog corto)
 - Validar inputs (campos requeridos, normalización) antes de guardar.
 - Agregar filtros/búsqueda de consultas, anamnesis, ventas, work orders y pacientes.
@@ -105,6 +114,12 @@
 - Tests básicos de storages y componentes clave.
 
 ## Changelog
+- [2025-11-27] MVP 1.5:
+  - Ventas ahora soportan items con `kind` y `requiresLab`; si el item es de LENSES/CONTACT_LENS se crea automáticamente un Work Order ligado al item.
+  - `SalesPanel` muestra campos condicionales (lab, entrega, notas/Rx, consulta opcional) según el tipo.
+  - Work Orders almacenan `saleItemId`; panel global muestra referencia a venta/item y permite avanzar status.
+  - Data contracts actualizados para sales con items y work orders auto-generados.
+  - Archivos clave: `src/services/salesStorage.js`, `src/services/workOrdersStorage.js`, `src/components/SalesPanel.jsx`, `src/components/WorkOrdersPanel.jsx`, `src/pages/WorkOrdersPage.jsx`, `src/pages/PatientDetailPage.jsx`, `docs/PROJECT_STATE.md`.
 - [2025-11-27] MVP 1.4:
   - Añadido storage de work orders con flujo de status y fecha estimada.
   - Nueva página global `/work-orders` con filtros por estado y búsqueda por paciente/lab.

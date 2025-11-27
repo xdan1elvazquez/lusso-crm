@@ -5,30 +5,41 @@ import {
   deleteSale,
   getSalesByPatientId,
 } from "../services/salesStorage";
+import { getConsultationsByPatient } from "../services/consultationsStorage";
 
-const CATEGORY_OPTIONS = ["LENTES", "CONSULTA", "MEDICAMENTO", "ACCESORIO", "OTRO"];
+const KIND_OPTIONS = ["LENSES", "CONTACT_LENS", "MEDICATION", "ACCESSORY", "CONSULTATION", "OTHER"];
 const PAYMENT_METHODS = ["EFECTIVO", "TARJETA", "TRANSFERENCIA", "OTRO"];
+const LAB_KINDS = new Set(["LENSES", "CONTACT_LENS"]);
 
 export default function SalesPanel({ patientId }) {
   const [tick, setTick] = useState(0);
   const [form, setForm] = useState({
-    category: "LENTES",
+    kind: "LENSES",
     description: "",
     total: "",
     initialPayment: "",
     method: "EFECTIVO",
+    labName: "",
+    dueDate: "",
+    rxNotes: "",
+    consultationId: "",
   });
   const [paymentForms, setPaymentForms] = useState({});
 
   const sales = useMemo(() => getSalesByPatientId(patientId), [patientId, tick]);
+  const consultations = useMemo(() => getConsultationsByPatient(patientId), [patientId]);
 
   const resetForm = () =>
     setForm({
-      category: "LENTES",
+      kind: "LENSES",
       description: "",
       total: "",
       initialPayment: "",
       method: "EFECTIVO",
+      labName: "",
+      dueDate: "",
+      rxNotes: "",
+      consultationId: "",
     });
 
   const onCreate = (e) => {
@@ -46,12 +57,26 @@ export default function SalesPanel({ patientId }) {
             },
           ]
         : [];
+    const requiresLab = LAB_KINDS.has(form.kind);
     createSale({
       patientId,
-      category: form.category,
+      kind: form.kind,
       description: form.description,
       total,
       payments,
+      items: [
+        {
+          kind: form.kind,
+          description: form.description,
+          qty: 1,
+          unitPrice: total,
+          requiresLab,
+          consultationId: form.consultationId || null,
+          rxSnapshot: form.rxNotes || "",
+          labName: requiresLab ? form.labName : "",
+          dueDate: requiresLab ? form.dueDate : null,
+        },
+      ],
     });
     resetForm();
     setTick((t) => t + 1);
@@ -86,18 +111,29 @@ export default function SalesPanel({ patientId }) {
     }));
   };
 
+  const isLabKind = LAB_KINDS.has(form.kind);
+
   return (
     <section style={{ marginTop: 28, display: "grid", gap: 14 }}>
       <h2 style={{ margin: 0 }}>Ventas</h2>
 
       <form onSubmit={onCreate} style={{ display: "grid", gap: 10, maxWidth: 720 }}>
         <label style={{ display: "grid", gap: 4 }}>
-          <span>Categoría</span>
+          <span>Tipo</span>
           <select
-            value={form.category}
-            onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))}
+            value={form.kind}
+            onChange={(e) => {
+              const nextKind = e.target.value;
+              setForm((f) => ({
+                ...f,
+                kind: nextKind,
+                labName: LAB_KINDS.has(nextKind) ? f.labName : "",
+                dueDate: LAB_KINDS.has(nextKind) ? f.dueDate : "",
+                rxNotes: LAB_KINDS.has(nextKind) ? f.rxNotes : "",
+              }));
+            }}
           >
-            {CATEGORY_OPTIONS.map((opt) => (
+            {KIND_OPTIONS.map((opt) => (
               <option key={opt} value={opt}>
                 {opt}
               </option>
@@ -113,6 +149,55 @@ export default function SalesPanel({ patientId }) {
             onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
           />
         </label>
+
+        {consultations.length > 0 && (
+          <label style={{ display: "grid", gap: 4 }}>
+            <span>Consulta relacionada (opcional)</span>
+            <select
+              value={form.consultationId}
+              onChange={(e) => setForm((f) => ({ ...f, consultationId: e.target.value }))}
+            >
+              <option value="">Sin consulta</option>
+              {consultations.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {new Date(c.visitDate || c.createdAt).toLocaleDateString()} · {c.reason || "Consulta"}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+
+        {isLabKind && (
+          <>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 10 }}>
+              <label style={{ display: "grid", gap: 4 }}>
+                <span>Laboratorio</span>
+                <input
+                  value={form.labName}
+                  onChange={(e) => setForm((f) => ({ ...f, labName: e.target.value }))}
+                  placeholder="Nombre del laboratorio"
+                />
+              </label>
+              <label style={{ display: "grid", gap: 4 }}>
+                <span>Entrega estimada</span>
+                <input
+                  type="date"
+                  value={form.dueDate}
+                  onChange={(e) => setForm((f) => ({ ...f, dueDate: e.target.value }))}
+                />
+              </label>
+            </div>
+            <label style={{ display: "grid", gap: 4 }}>
+              <span>Notas / Rx</span>
+              <textarea
+                rows={3}
+                value={form.rxNotes}
+                onChange={(e) => setForm((f) => ({ ...f, rxNotes: e.target.value }))}
+                placeholder="Graduación, especificaciones..."
+              />
+            </label>
+          </>
+        )}
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 10 }}>
           <label style={{ display: "grid", gap: 4 }}>
@@ -174,7 +259,7 @@ export default function SalesPanel({ patientId }) {
                   <div>
                     <strong>{s.description || "Venta sin descripción"}</strong>
                     <div style={{ fontSize: 13, opacity: 0.8 }}>
-                      {s.category} · {new Date(s.createdAt).toLocaleString()}
+                      {(s.items?.[0]?.kind || s.kind || "VENTA")} · {new Date(s.createdAt).toLocaleString()}
                     </div>
                   </div>
                   <button onClick={() => onDelete(s.id)}>Eliminar</button>

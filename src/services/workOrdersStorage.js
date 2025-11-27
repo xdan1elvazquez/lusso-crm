@@ -39,6 +39,7 @@ function normalize(item) {
     id: base.id,
     patientId: base.patientId ?? null,
     saleId: base.saleId ?? null,
+    saleItemId: base.saleItemId ?? null,
     type: base.type || "OTRO",
     labName: base.labName || "",
     rxNotes: base.rxNotes || "",
@@ -68,12 +69,13 @@ export function createWorkOrder(payload) {
     id: globalThis.crypto?.randomUUID?.() ?? String(Date.now()),
     patientId: payload.patientId,
     saleId: payload.saleId ?? null,
+    saleItemId: payload.saleItemId ?? null,
     type: payload.type || "OTRO",
     labName: payload.labName?.trim?.() || "",
     rxNotes: payload.rxNotes?.trim?.() || "",
     status: normalizeStatus(payload.status || "TO_PREPARE"),
-    createdAt: now,
-    updatedAt: now,
+    createdAt: payload.createdAt || now,
+    updatedAt: payload.updatedAt || now,
     dueDate: toISODate(payload.dueDate),
   });
   const next = [workOrder, ...list];

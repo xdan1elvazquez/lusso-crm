@@ -24,6 +24,7 @@ export default function WorkOrdersPanel({ patientId }) {
     labName: "",
     rxNotes: "",
     saleId: "",
+    saleItemId: "",
     dueDate: "",
   });
 
@@ -36,6 +37,7 @@ export default function WorkOrdersPanel({ patientId }) {
       labName: "",
       rxNotes: "",
       saleId: "",
+      saleItemId: "",
       dueDate: "",
     });
 
@@ -48,6 +50,7 @@ export default function WorkOrdersPanel({ patientId }) {
       labName: form.labName,
       rxNotes: form.rxNotes,
       saleId: form.saleId || null,
+      saleItemId: form.saleItemId || null,
       dueDate: form.dueDate,
     });
     resetForm();
@@ -72,7 +75,7 @@ export default function WorkOrdersPanel({ patientId }) {
   };
 
   const saleOptionLabel = (sale) => {
-    const desc = sale.description || sale.category || "Venta";
+    const desc = sale.description || sale.kind || "Venta";
     return `${desc} · Total ${formatCurrency(sale.total)} · Saldo ${formatCurrency(sale.balance)}`;
   };
 
@@ -115,7 +118,7 @@ export default function WorkOrdersPanel({ patientId }) {
             <span>Venta asociada</span>
             <select
               value={form.saleId}
-              onChange={(e) => setForm((f) => ({ ...f, saleId: e.target.value }))}
+              onChange={(e) => setForm((f) => ({ ...f, saleId: e.target.value, saleItemId: "" }))}
             >
               <option value="">(Opcional) Selecciona una venta</option>
               {sales.map((s) => (
@@ -125,6 +128,26 @@ export default function WorkOrdersPanel({ patientId }) {
               ))}
             </select>
           </label>
+          {form.saleId && (
+            <label style={{ display: "grid", gap: 4 }}>
+              <span>Item de la venta</span>
+              <select
+                value={form.saleItemId}
+                onChange={(e) => setForm((f) => ({ ...f, saleItemId: e.target.value }))}
+              >
+                <option value="">(Opcional) Selecciona item</option>
+                {sales
+                  .find((s) => s.id === form.saleId)
+                  ?.items?.map((it) => (
+                    <option key={it.id} value={it.id}>
+                      {`${it.kind || "ITEM"} · ${it.description || "Sin descripción"} · ${formatCurrency(
+                        (Number(it.qty) || 1) * (Number(it.unitPrice) || 0)
+                      )}`}
+                    </option>
+                  ))}
+              </select>
+            </label>
+          )}
         </div>
 
         <label style={{ display: "grid", gap: 4 }}>
@@ -147,6 +170,7 @@ export default function WorkOrdersPanel({ patientId }) {
           orders.map((o) => {
             const due = o.dueDate ? new Date(o.dueDate).toLocaleDateString() : "Sin fecha";
             const sale = sales.find((s) => s.id === o.saleId);
+            const saleItem = sale?.items?.find((it) => it.id === o.saleItemId);
             const canAdvance = !["DELIVERED", "CANCELLED"].includes(o.status);
             return (
               <div
@@ -184,6 +208,7 @@ export default function WorkOrdersPanel({ patientId }) {
                     <>
                       <Metric label="Venta total" value={formatCurrency(sale.total)} />
                       <Metric label="Saldo venta" value={formatCurrency(sale.balance)} />
+                      {saleItem && <Metric label="Item" value={`${saleItem.kind || ""} · ${saleItem.description || ""}`} />}
                     </>
                   )}
                 </div>

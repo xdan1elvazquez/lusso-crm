@@ -27,14 +27,13 @@ export default function WorkOrdersPage() {
       }, {}),
     [patients]
   );
-  const salesMap = useMemo(
-    () =>
-      getAllSales().reduce((acc, s) => {
-        acc[s.id] = s;
-        return acc;
-      }, {}),
-    [tick]
-  );
+  const salesMap = useMemo(() => {
+    const map = {};
+    getAllSales().forEach((s) => {
+      map[s.id] = s;
+    });
+    return map;
+  }, [tick]);
 
   const workOrders = useMemo(() => getAllWorkOrders(), [tick]);
 
@@ -114,6 +113,7 @@ export default function WorkOrdersPage() {
           filtered.map((o) => {
             const patient = patientMap[o.patientId];
             const sale = o.saleId ? salesMap[o.saleId] : null;
+            const saleItem = sale?.items?.find((it) => it.id === o.saleItemId);
             const due = o.dueDate ? new Date(o.dueDate).toLocaleDateString() : "Sin fecha";
             const canAdvance = !["DELIVERED", "CANCELLED"].includes(o.status);
             return (
@@ -147,6 +147,12 @@ export default function WorkOrdersPage() {
                     <>
                       <Metric label="Venta total" value={formatCurrency(sale.total)} />
                       <Metric label="Saldo venta" value={formatCurrency(sale.balance)} />
+                      {saleItem && (
+                        <Metric
+                          label="Item"
+                          value={`${saleItem.kind || ""} · ${saleItem.description || "Item"}`}
+                        />
+                      )}
                     </>
                   )}
                 </div>
