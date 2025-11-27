@@ -76,13 +76,20 @@ export default function RxPicker({ value, onChange }) {
 }
 
 function EyeRow({ label, eye, onChange }) {
-  const showAxis = (eye?.cyl ?? null) !== null && Number(eye.cyl) !== 0;
+  // ELIMINAMOS ESTA LÍNEA QUE LO OCULTABA:
+  // const showAxis = (eye?.cyl ?? null) !== null && Number(eye.cyl) !== 0;
+
   return (
     <div style={{ display: "grid", gridTemplateColumns: "70px repeat(auto-fit, minmax(120px, 1fr))", gap: 8, alignItems: "end" }}>
       <strong style={{ alignSelf: "center" }}>{label}</strong>
+      
       <SelectField label="SPH" options={SPH_VALUES} value={eye.sph} onChange={onChange("sph")} />
+      
       <SelectField label="CYL" options={CYL_VALUES} value={eye.cyl} onChange={onChange("cyl")} />
-      {showAxis && <SelectField label="AXIS" options={AXIS_VALUES} value={eye.axis} onChange={onChange("axis")} />}
+      
+      {/* AHORA SIEMPRE SE MUESTRA */}
+      <SelectField label="AXIS" options={AXIS_VALUES} value={eye.axis} onChange={onChange("axis")} />
+      
       <SelectField label="ADD" options={ADD_VALUES} value={eye.add} onChange={onChange("add")} allowEmpty />
     </div>
   );
