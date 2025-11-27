@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { getPatientById, updatePatient } from "../services/patientsStorage";
 import ConsultationsPanel from "../components/ConsultationsPanel";
+import AnamnesisPanel from "../components/AnamnesisPanel";
 
 export default function PatientDetailPage() {
   const { id } = useParams();
@@ -41,6 +42,7 @@ export default function PatientDetailPage() {
         <button onClick={onSave}>Guardar cambios</button>
       </div>
       <ConsultationsPanel patientId={id} />
+      <AnamnesisPanel patientId={id} />
     </div>
   );
 }
