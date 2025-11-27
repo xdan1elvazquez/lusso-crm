@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import {
   createConsultation,
   deleteConsultation,
@@ -7,11 +8,13 @@ import {
 
 export default function ConsultationsPanel({ patientId }) {
   const [tick, setTick] = useState(0);
+  const today = new Date().toISOString().slice(0, 10);
   const [form, setForm] = useState({
     type: "REFRACTIVE",
     reason: "",
     diagnosis: "",
     notes: "",
+    visitDate: today,
   });
 
   const consultations = useMemo(
@@ -23,7 +26,7 @@ export default function ConsultationsPanel({ patientId }) {
   const onSubmit = (e) => {
     e.preventDefault();
     createConsultation({ patientId, ...form });
-    setForm({ type: "REFRACTIVE", reason: "", diagnosis: "", notes: "" });
+    setForm({ type: "REFRACTIVE", reason: "", diagnosis: "", notes: "", visitDate: today });
     setTick((t) => t + 1);
   };
 
@@ -37,6 +40,14 @@ export default function ConsultationsPanel({ patientId }) {
       <h2 style={{ marginBottom: 10 }}>Consultas</h2>
 
       <form onSubmit={onSubmit} style={{ display: "grid", gap: 8, maxWidth: 680 }}>
+        <label style={{ display: "grid", gap: 4 }}>
+          <span>Fecha de atención</span>
+          <input
+            type="date"
+            value={form.visitDate}
+            onChange={(e) => setForm((f) => ({ ...f, visitDate: e.target.value }))}
+          />
+        </label>
         <select
           value={form.type}
           onChange={(e) => setForm((f) => ({ ...f, type: e.target.value }))}
@@ -78,14 +89,21 @@ export default function ConsultationsPanel({ patientId }) {
                 padding: 12,
               }}
             >
-              <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
                 <div>
                   <strong>
                     {c.type === "OPHTHALMO" ? "Oftalmología" : "Examen de la vista"}
                   </strong>
-                  <div style={{ opacity: 0.8, fontSize: 13 }}>{new Date(c.createdAt).toLocaleString()}</div>
+                  <div style={{ opacity: 0.8, fontSize: 13 }}>
+                    {new Date(c.visitDate || c.createdAt).toLocaleDateString()}
+                  </div>
                 </div>
-                <button onClick={() => onDelete(c.id)}>Eliminar</button>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <Link to={`/patients/${patientId}/consultations/${c.id}`} style={{ alignSelf: "center" }}>
+                    Ver detalle
+                  </Link>
+                  <button onClick={() => onDelete(c.id)}>Eliminar</button>
+                </div>
               </div>
 
               {c.reason && <p><strong>Motivo:</strong> {c.reason}</p>}

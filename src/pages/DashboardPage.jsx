@@ -14,11 +14,13 @@ export default function DashboardPage() {
 
   useEffect(() => {
     const patients = getPatients();
-    const consultations = getAllConsultations();
+    const consultations = getAllConsultations() || [];
 
     // ordenar consultas de más reciente a más antigua
     const sorted = [...consultations].sort(
-      (a, b) => new Date(b.createdAt) - new Date(a.createdAt)
+      (a, b) =>
+        new Date(b.visitDate || b.createdAt || 0) -
+        new Date(a.visitDate || a.createdAt || 0)
     );
 
     setStats({
@@ -59,25 +61,30 @@ export default function DashboardPage() {
           <p style={{ opacity: 0.7 }}>Todavía no hay consultas.</p>
         ) : (
           <ul style={{ display: "grid", gap: 8, padding: 0, listStyle: "none" }}>
-            {stats.lastConsultations.map((c) => (
-              <li
-                key={c.id}
-                style={{
-                  padding: 12,
-                  borderRadius: 8,
-                  background: "rgba(255,255,255,0.03)",
-                  border: "1px solid rgba(255,255,255,0.08)",
-                }}
-              >
-                <div style={{ fontSize: 14, opacity: 0.7 }}>
-                  {new Date(c.createdAt).toLocaleString()}
-                </div>
-                <div style={{ fontWeight: 600 }}>{c.reason || "Sin motivo"}</div>
-                <div style={{ fontSize: 14, opacity: 0.8 }}>
-                  Dx: {c.diagnosis || "Sin diagnóstico"}
-                </div>
-              </li>
-            ))}
+            {stats.lastConsultations.map((c) => {
+              const dateValue = c.visitDate || c.createdAt;
+              const readableDate = dateValue
+                ? new Date(dateValue).toLocaleString()
+                : "Sin fecha";
+
+              return (
+                <li
+                  key={c.id}
+                  style={{
+                    padding: 12,
+                    borderRadius: 8,
+                    background: "rgba(255,255,255,0.03)",
+                    border: "1px solid rgba(255,255,255,0.08)",
+                  }}
+                >
+                  <div style={{ fontSize: 14, opacity: 0.7 }}>{readableDate}</div>
+                  <div style={{ fontWeight: 600 }}>{c.reason || "Sin motivo"}</div>
+                  <div style={{ fontSize: 14, opacity: 0.8 }}>
+                    Dx: {c.diagnosis || "Sin diagnóstico"}
+                  </div>
+                </li>
+              );
+            })}
           </ul>
         )}
       </section>

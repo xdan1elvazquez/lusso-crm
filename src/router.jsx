@@ -8,6 +8,7 @@ import AppLayout from "./layouts/AppLayout.jsx";
 import DashboardPage from "./pages/DashboardPage.jsx";
 import PatientsPage from "./pages/PatientsPage.jsx";
 import PatientDetailPage from "./pages/PatientDetailPage.jsx";
+import ConsultationDetailPage from "./pages/ConsultationDetailPage.jsx";
 import LoginPage from "./pages/LoginPage.jsx";
 import NotFound from "./pages/NotFound.jsx";
 
@@ -38,6 +39,7 @@ const router = createBrowserRouter([
 
       { path: "patients", element: <PatientsPage /> },
       { path: "patients/:id", element: <PatientDetailPage /> },
+      { path: "patients/:patientId/consultations/:consultationId", element: <ConsultationDetailPage /> },
 
       // (Opcional) más adelante para roles/permisos
       { path: "unauthorized", element: <UnauthorizedPage /> },
@@ -48,4 +50,3 @@ const router = createBrowserRouter([
 ]);
 
 export default router;
-
