@@ -56,6 +56,8 @@ function normalizeItem(item, saleFallback) {
     unitPrice,
     requiresLab,
     consultationId: base.consultationId ?? saleFallback?.consultationId ?? null,
+    // NUEVO: Vínculo con el examen específico
+    eyeExamId: base.eyeExamId ?? null,
     rxSnapshot: base.rxSnapshot ?? null,
     labName: base.labName || "",
     dueDate: base.dueDate || null,
@@ -70,7 +72,6 @@ function normalizeItems(rawSale) {
   if (Array.isArray(rawSale?.items) && rawSale.items.length > 0) {
     return rawSale.items.map((i) => normalizeItem(i, rawSale));
   }
-  // backward compatibility: derive one item
   return [
     normalizeItem(
       {
@@ -80,6 +81,7 @@ function normalizeItems(rawSale) {
         unitPrice: rawSale?.total ?? 0,
         requiresLab: LAB_KINDS.has(rawSale?.kind) || LAB_KINDS.has(mapLegacyCategoryToKind(rawSale?.category)),
         consultationId: rawSale?.consultationId,
+        eyeExamId: rawSale?.eyeExamId,
       },
       rawSale
     ),
@@ -186,6 +188,7 @@ export function createSale(payload) {
             unitPrice: payload.total ?? 0,
             requiresLab: LAB_KINDS.has(payload.kind || payload.category),
             consultationId: payload.consultationId ?? null,
+            eyeExamId: payload.eyeExamId ?? null, // Captura el ID si viene en el payload plano
             rxSnapshot: payload.rxSnapshot || payload.rxNotes || "",
             labName: payload.labName || "",
             dueDate: payload.dueDate || null,
