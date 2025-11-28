@@ -20,17 +20,21 @@ export default function AppLayout() {
         <div className="brand">Lusso CRM</div>
 
         <nav className="nav">
-          {/* Rutas relativas porque estas dentro del layout */}
           <NavLink to="dashboard" className={linkClass}>
             Dashboard
           </NavLink>
 
           <NavLink to="patients" className={linkClass}>
-            Patients
+            Pacientes
           </NavLink>
 
           <NavLink to="work-orders" className={linkClass}>
             Work Orders
+          </NavLink>
+
+          {/* 👈 NUEVO LINK */}
+          <NavLink to="inventory" className={linkClass}>
+            Inventario
           </NavLink>
         </nav>
 
