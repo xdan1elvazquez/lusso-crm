@@ -7,13 +7,23 @@ import RxPicker from "@/components/RxPicker";
 import { normalizeRxValue } from "@/utils/rxOptions";
 import { validateRx } from "@/utils/validators";
 
-// 📋 LISTA RÁPIDA BASADA EN TU HOJA DE PAPEL
+// 📋 LISTA RÁPIDA DE SÍNTOMAS (MOTIVO)
 const COMMON_SYMPTOMS = [
   "Mala Visión Lejana", "Mala Visión Próxima", "Cefalea (Dolor Cabeza)", 
   "Ardor", "Lagrimeo", "Comezón", "Dolor Ocular", "Cansancio / Fatiga",
   "Fotofobia (Luz)", "Ojo Rojo", "Secreción", "Cuerpo Extraño", 
   "Golpes / Trauma", "Revisión Rutinaria"
 ];
+
+// 📝 PLANTILLAS ALICIA (PADECIMIENTO ACTUAL)
+const ALICIA_TEMPLATES = {
+  "GLAUCOMA": "Padecimiento crónico e insidioso. Refiere disminución progresiva del campo visual periférico en AO. Niega dolor ocular (silente). Antecedentes familiares de Glaucoma: [SI/NO]. Refiere ver halos de colores ocasionalmente. Tratamiento actual: [NINGUNO/GOTAS].",
+  "OJO_SECO": "Inicia hace [TIEMPO] con sensación de cuerpo extraño (arenilla), ardor y fluctuación visual en AO. Intensidad moderada que se agrava por las tardes, con uso de pantallas y aire acondicionado. Mejora parcialmente al parpadear o con lubricantes. Niega secreción purulenta.",
+  "CONJUNTIVITIS": "Cuadro de inicio agudo ([X] días). Localizado en [OD/OI/AO]. Caracterizado por hiperemia conjuntival (ojo rojo), epífora y secreción [ACUOSA/MUCOSA]. Intensidad leve a moderada. Refiere sensación de cuerpo extraño y prurito. Agrava al tallarse. Niega baja visual profunda.",
+  "REFRACTIVO": "Refiere mala visión lejana de inicio gradual y curso estable en AO. Intensidad moderada que interfiere con actividades diarias. Carácter borroso que mejora al entrecerrar los ojos (efecto estenopeico). Se acompaña de astenopía (fatiga) y cefalea frontal vespertina.",
+  "CATARATA": "Refiere disminución de la agudeza visual lejana de inicio progresivo e indoloro en [OD/OI/AO]. Carácter de visión nublada o 'a través de un vidrio sucio'. Refiere deslumbramiento (glare) con luces frontales y dificultad para manejo nocturno. No mejora con su corrección actual.",
+  "DIABETICA": "Paciente con antecedente de Diabetes Mellitus de [X] años de evolución. Refiere baja visual variable en AO. Niega dolor. Acude para revisión de fondo de ojo. Última glucosa: [VALOR] mg/dL. Control metabólico: [BUENO/MALO]."
+};
 
 function toDateInput(isoString) {
   if (!isoString) return "";
@@ -67,18 +77,27 @@ export default function ConsultationDetailPage() {
     alert("Nota médica guardada correctamente");
   };
 
-  // --- FUNCIÓN MÁGICA: TOGGLE SÍNTOMA ---
-  // Agrega o quita el síntoma del texto sin borrar lo que ya escribiste manual
+  // --- HELPERS DE TEXTO ---
   const toggleSymptom = (symptom) => {
     let current = form.reason ? form.reason.split(", ").map(s => s.trim()).filter(Boolean) : [];
-    
-    if (current.includes(symptom)) {
-      current = current.filter(s => s !== symptom); // Quitar si ya está
-    } else {
-      current.push(symptom); // Agregar si no está
-    }
-    
+    if (current.includes(symptom)) current = current.filter(s => s !== symptom); 
+    else current.push(symptom);
     setForm(f => ({ ...f, reason: current.join(", ") }));
+  };
+
+  const applyHistoryTemplate = (e) => {
+    const key = e.target.value;
+    if (!key) return;
+    const template = ALICIA_TEMPLATES[key];
+    // Si ya hay texto, preguntamos si sobrescribir o añadir
+    if (form.history && !confirm("¿Reemplazar el texto actual con la plantilla?")) {
+        // Si dice que no, lo añadimos al final
+        setForm(f => ({ ...f, history: f.history + "\n\n" + template }));
+    } else {
+        // Si dice que sí o está vacío, reemplazamos
+        setForm(f => ({ ...f, history: template }));
+    }
+    e.target.value = ""; // Reset selector
   };
 
   const handleAddMed = (textLine, medObject) => {
@@ -125,29 +144,16 @@ export default function ConsultationDetailPage() {
 
           <div style={{ display: "grid", gap: 25 }}>
             
-            {/* 1. INTERROGATORIO OPTIMIZADO */}
+            {/* 1. INTERROGATORIO */}
             <div>
-              <SectionTitle title="1. Interrogatorio (Motivo)" />
+              <SectionTitle title="1. Interrogatorio" />
               
-              {/* SELECTOR RÁPIDO DE SÍNTOMAS */}
+              {/* SELECTOR RÁPIDO DE SÍNTOMAS (MOTIVO) */}
               <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
                 {COMMON_SYMPTOMS.map(sym => {
                   const isActive = form.reason.includes(sym);
                   return (
-                    <button 
-                      key={sym}
-                      onClick={() => toggleSymptom(sym)}
-                      style={{
-                        padding: "6px 12px",
-                        borderRadius: 20,
-                        border: isActive ? "1px solid #4ade80" : "1px solid #444",
-                        background: isActive ? "rgba(74, 222, 128, 0.2)" : "transparent",
-                        color: isActive ? "#fff" : "#aaa",
-                        cursor: "pointer",
-                        fontSize: "0.85em",
-                        transition: "all 0.2s"
-                      }}
-                    >
+                    <button key={sym} onClick={() => toggleSymptom(sym)} style={{ padding: "4px 10px", borderRadius: 20, border: isActive ? "1px solid #4ade80" : "1px solid #444", background: isActive ? "rgba(74, 222, 128, 0.1)" : "transparent", color: isActive ? "#fff" : "#aaa", cursor: "pointer", fontSize: "0.8em", transition: "all 0.2s" }}>
                       {isActive ? "✓ " : "+ "}{sym}
                     </button>
                   )
@@ -156,18 +162,31 @@ export default function ConsultationDetailPage() {
 
               <div style={{ display: "grid", gap: 15 }}>
                 <label>
-                  <span style={{color:"#ccc", fontSize:13}}>Motivo de Consulta (Texto Final)</span>
-                  <textarea 
-                    rows={2}
-                    value={form.reason} 
-                    onChange={(e) => setForm(f => ({ ...f, reason: e.target.value }))} 
-                    style={{ width: "100%", padding: 10, background: "#222", border: "1px solid #444", color: "white", borderRadius: 6, marginTop: 4 }} 
-                    placeholder="Selecciona síntomas arriba o escribe aquí..." 
-                  />
+                  <span style={{color:"#ccc", fontSize:13}}>Motivo de Consulta</span>
+                  <textarea rows={1} value={form.reason} onChange={(e) => setForm(f => ({ ...f, reason: e.target.value }))} style={{ width: "100%", padding: 10, background: "#222", border: "1px solid #444", color: "white", borderRadius: 6, marginTop: 4 }} placeholder="Selecciona síntomas arriba o escribe..." />
                 </label>
+
+                {/* PADECIMIENTO ACTUAL CON PLANTILLAS ALICIA */}
                 <label>
-                  <span style={{color:"#ccc", fontSize:13}}>Padecimiento Actual (Historia)</span>
-                  <textarea rows={3} value={form.history} onChange={(e) => setForm(f => ({ ...f, history: e.target.value }))} style={{ width: "100%", padding: 10, background: "#222", border: "1px solid #444", color: "white", borderRadius: 6, marginTop: 4 }} placeholder="Evolución, tiempo, tratamientos previos..." />
+                  <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:4}}>
+                      <span style={{color:"#ccc", fontSize:13}}>Padecimiento Actual (Historia Clínica)</span>
+                      <select onChange={applyHistoryTemplate} style={{ background: "#333", border: "1px solid #555", color: "#fff", padding: "2px 8px", borderRadius: 4, fontSize: "0.85em", cursor:"pointer" }}>
+                          <option value="">⚡ Cargar Plantilla ALICIA...</option>
+                          <option value="REFRACTIVO">Miopía / Astigmatismo</option>
+                          <option value="OJO_SECO">Ojo Seco (CDMX)</option>
+                          <option value="CONJUNTIVITIS">Conjuntivitis</option>
+                          <option value="GLAUCOMA">Glaucoma</option>
+                          <option value="CATARATA">Catarata</option>
+                          <option value="DIABETICA">Retinopatía Diabética</option>
+                      </select>
+                  </div>
+                  <textarea 
+                     rows={5} 
+                     value={form.history} 
+                     onChange={(e) => setForm(f => ({ ...f, history: e.target.value }))} 
+                     style={{ width: "100%", padding: 12, background: "#222", border: "1px solid #444", color: "#ddd", borderRadius: 6, lineHeight: "1.5" }} 
+                     placeholder="Describa la evolución del padecimiento..." 
+                  />
                 </label>
               </div>
             </div>
@@ -175,11 +194,11 @@ export default function ConsultationDetailPage() {
             {/* 2. SIGNOS VITALES */}
             <div>
               <SectionTitle title="2. Signos Vitales" />
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 15 }}>
-                 <label><span style={{color:"#888", fontSize:12}}>TA Sistólica</span><input type="number" placeholder="120" value={form.vitalSigns.sys} onChange={e => setForm(f => ({...f, vitalSigns: {...f.vitalSigns, sys: e.target.value}}))} style={{width:"100%", padding:8, background:"#222", border:"1px solid #444", color:"white", borderRadius:4}} /></label>
-                 <label><span style={{color:"#888", fontSize:12}}>TA Diastólica</span><input type="number" placeholder="80" value={form.vitalSigns.dia} onChange={e => setForm(f => ({...f, vitalSigns: {...f.vitalSigns, dia: e.target.value}}))} style={{width:"100%", padding:8, background:"#222", border:"1px solid #444", color:"white", borderRadius:4}} /></label>
-                 <label><span style={{color:"#888", fontSize:12}}>Frec. Cardiaca</span><input type="number" placeholder="Lat/min" value={form.vitalSigns.heartRate} onChange={e => setForm(f => ({...f, vitalSigns: {...f.vitalSigns, heartRate: e.target.value}}))} style={{width:"100%", padding:8, background:"#222", border:"1px solid #444", color:"white", borderRadius:4}} /></label>
-                 <label><span style={{color:"#888", fontSize:12}}>Temp (°C)</span><input type="number" placeholder="36.5" value={form.vitalSigns.temp} onChange={e => setForm(f => ({...f, vitalSigns: {...f.vitalSigns, temp: e.target.value}}))} style={{width:"100%", padding:8, background:"#222", border:"1px solid #444", color:"white", borderRadius:4}} /></label>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(100px, 1fr))", gap: 10 }}>
+                 <label><span style={{color:"#888", fontSize:11}}>TA Sistólica</span><input type="number" placeholder="120" value={form.vitalSigns.sys} onChange={e => setForm(f => ({...f, vitalSigns: {...f.vitalSigns, sys: e.target.value}}))} style={{width:"100%", padding:8, background:"#222", border:"1px solid #444", color:"white", borderRadius:4}} /></label>
+                 <label><span style={{color:"#888", fontSize:11}}>TA Diastólica</span><input type="number" placeholder="80" value={form.vitalSigns.dia} onChange={e => setForm(f => ({...f, vitalSigns: {...f.vitalSigns, dia: e.target.value}}))} style={{width:"100%", padding:8, background:"#222", border:"1px solid #444", color:"white", borderRadius:4}} /></label>
+                 <label><span style={{color:"#888", fontSize:11}}>F. Cardiaca</span><input type="number" placeholder="Lat/min" value={form.vitalSigns.heartRate} onChange={e => setForm(f => ({...f, vitalSigns: {...f.vitalSigns, heartRate: e.target.value}}))} style={{width:"100%", padding:8, background:"#222", border:"1px solid #444", color:"white", borderRadius:4}} /></label>
+                 <label><span style={{color:"#888", fontSize:11}}>Temp (°C)</span><input type="number" placeholder="36.5" value={form.vitalSigns.temp} onChange={e => setForm(f => ({...f, vitalSigns: {...f.vitalSigns, temp: e.target.value}}))} style={{width:"100%", padding:8, background:"#222", border:"1px solid #444", color:"white", borderRadius:4}} /></label>
               </div>
             </div>
 
@@ -189,17 +208,17 @@ export default function ConsultationDetailPage() {
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
                  <div style={{ display: "grid", gap: 10 }}>
                     <h4 style={{margin:0, color:"#4ade80", fontSize:"0.9em"}}>Segmento Anterior</h4>
-                    <label><span style={{color:"#888", fontSize:12}}>Anexos</span><input value={form.exam.adnexa} onChange={e => setForm(f => ({...f, exam: {...f.exam, adnexa: e.target.value}}))} style={{width:"100%", padding:6, background:"#222", border:"1px solid #444", color:"white", borderRadius:4}} /></label>
-                    <label><span style={{color:"#888", fontSize:12}}>Conjuntiva</span><input value={form.exam.conjunctiva} onChange={e => setForm(f => ({...f, exam: {...f.exam, conjunctiva: e.target.value}}))} style={{width:"100%", padding:6, background:"#222", border:"1px solid #444", color:"white", borderRadius:4}} /></label>
-                    <label><span style={{color:"#888", fontSize:12}}>Córnea</span><input value={form.exam.cornea} onChange={e => setForm(f => ({...f, exam: {...f.exam, cornea: e.target.value}}))} style={{width:"100%", padding:6, background:"#222", border:"1px solid #444", color:"white", borderRadius:4}} /></label>
-                    <label><span style={{color:"#888", fontSize:12}}>Cámara Ant/Iris</span><input value={form.exam.anteriorChamber} onChange={e => setForm(f => ({...f, exam: {...f.exam, anteriorChamber: e.target.value}}))} style={{width:"100%", padding:6, background:"#222", border:"1px solid #444", color:"white", borderRadius:4}} /></label>
-                    <label><span style={{color:"#888", fontSize:12}}>Cristalino</span><input value={form.exam.lens} onChange={e => setForm(f => ({...f, exam: {...f.exam, lens: e.target.value}}))} style={{width:"100%", padding:6, background:"#222", border:"1px solid #444", color:"white", borderRadius:4}} /></label>
+                    <label><span style={{color:"#888", fontSize:11}}>Anexos</span><input value={form.exam.adnexa} onChange={e => setForm(f => ({...f, exam: {...f.exam, adnexa: e.target.value}}))} style={{width:"100%", padding:6, background:"#222", border:"1px solid #444", color:"white", borderRadius:4}} /></label>
+                    <label><span style={{color:"#888", fontSize:11}}>Conjuntiva</span><input value={form.exam.conjunctiva} onChange={e => setForm(f => ({...f, exam: {...f.exam, conjunctiva: e.target.value}}))} style={{width:"100%", padding:6, background:"#222", border:"1px solid #444", color:"white", borderRadius:4}} /></label>
+                    <label><span style={{color:"#888", fontSize:11}}>Córnea</span><input value={form.exam.cornea} onChange={e => setForm(f => ({...f, exam: {...f.exam, cornea: e.target.value}}))} style={{width:"100%", padding:6, background:"#222", border:"1px solid #444", color:"white", borderRadius:4}} /></label>
+                    <label><span style={{color:"#888", fontSize:11}}>Cámara/Iris</span><input value={form.exam.anteriorChamber} onChange={e => setForm(f => ({...f, exam: {...f.exam, anteriorChamber: e.target.value}}))} style={{width:"100%", padding:6, background:"#222", border:"1px solid #444", color:"white", borderRadius:4}} /></label>
+                    <label><span style={{color:"#888", fontSize:11}}>Cristalino</span><input value={form.exam.lens} onChange={e => setForm(f => ({...f, exam: {...f.exam, lens: e.target.value}}))} style={{width:"100%", padding:6, background:"#222", border:"1px solid #444", color:"white", borderRadius:4}} /></label>
                  </div>
                  <div style={{ display: "grid", gap: 10 }}>
                     <h4 style={{margin:0, color:"#f472b6", fontSize:"0.9em"}}>Fondo de Ojo y Motor</h4>
-                    <label><span style={{color:"#888", fontSize:12}}>Vítreo</span><input value={form.exam.vitreous} onChange={e => setForm(f => ({...f, exam: {...f.exam, vitreous: e.target.value}}))} style={{width:"100%", padding:6, background:"#222", border:"1px solid #444", color:"white", borderRadius:4}} /></label>
-                    <label><span style={{color:"#888", fontSize:12}}>Retina / Nervio</span><textarea rows={3} value={form.exam.retina} onChange={e => setForm(f => ({...f, exam: {...f.exam, retina: e.target.value}}))} style={{width:"100%", padding:6, background:"#222", border:"1px solid #444", color:"white", borderRadius:4}} placeholder="Descripción de fondo de ojo..." /></label>
-                    <label><span style={{color:"#888", fontSize:12}}>Motilidad</span><input value={form.exam.motility} onChange={e => setForm(f => ({...f, exam: {...f.exam, motility: e.target.value}}))} style={{width:"100%", padding:6, background:"#222", border:"1px solid #444", color:"white", borderRadius:4}} placeholder="Ortotropia..." /></label>
+                    <label><span style={{color:"#888", fontSize:11}}>Vítreo</span><input value={form.exam.vitreous} onChange={e => setForm(f => ({...f, exam: {...f.exam, vitreous: e.target.value}}))} style={{width:"100%", padding:6, background:"#222", border:"1px solid #444", color:"white", borderRadius:4}} /></label>
+                    <label><span style={{color:"#888", fontSize:11}}>Retina/Nervio</span><textarea rows={3} value={form.exam.retina} onChange={e => setForm(f => ({...f, exam: {...f.exam, retina: e.target.value}}))} style={{width:"100%", padding:6, background:"#222", border:"1px solid #444", color:"white", borderRadius:4}} placeholder="Excavación, mácula..." /></label>
+                    <label><span style={{color:"#888", fontSize:11}}>Motilidad</span><input value={form.exam.motility} onChange={e => setForm(f => ({...f, exam: {...f.exam, motility: e.target.value}}))} style={{width:"100%", padding:6, background:"#222", border:"1px solid #444", color:"white", borderRadius:4}} placeholder="Ortotropia..." /></label>
                  </div>
               </div>
             </div>
@@ -227,6 +246,7 @@ export default function ConsultationDetailPage() {
                 <label><span style={{color:"#ccc", fontSize:13}}>Pronóstico</span><input value={form.prognosis} onChange={(e) => setForm(f => ({ ...f, prognosis: e.target.value }))} style={{ width: "100%", padding: 10, background: "#222", border: "1px solid #444", color: "white", borderRadius: 6, marginTop: 4 }} placeholder="Bueno para la vida y función" /></label>
               </div>
             </div>
+
           </div>
         </section>
 
@@ -259,6 +279,7 @@ export default function ConsultationDetailPage() {
   );
 }
 
+// --- SUBCOMPONENTE: CONSTRUCTOR DE RECETAS ---
 function PrescriptionBuilder({ onAdd }) {
   const [query, setQuery] = useState("");
   const [selectedMed, setSelectedMed] = useState(null); 
