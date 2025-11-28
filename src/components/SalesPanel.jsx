@@ -1,10 +1,12 @@
 import React, { useMemo, useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom"; // 👈 1. IMPORTANTE: Importar esto
 import { createSale, getSalesByPatientId, deleteSale } from "@/services/salesStorage";
 import { getExamsByPatient, getExamById } from "@/services/eyeExamStorage"; 
 import RxPicker from "./RxPicker";
 import { normalizeRxValue } from "@/utils/rxOptions";
 
 export default function SalesPanel({ patientId, prefillData, onClearPrefill }) {
+  const navigate = useNavigate(); // 👈 2. Inicializar el hook de navegación
   const [tick, setTick] = useState(0);
   
   // Modos de origen: 'NONE', 'EXAM'
@@ -68,6 +70,7 @@ export default function SalesPanel({ patientId, prefillData, onClearPrefill }) {
     e.preventDefault();
     if (!form.total) return;
 
+    // 1. CREAR LA VENTA (Esto a su vez crea la Work Order automáticamente en salesStorage)
     createSale({
       patientId,
       kind: form.kind,
@@ -79,20 +82,27 @@ export default function SalesPanel({ patientId, prefillData, onClearPrefill }) {
         description: form.description,
         qty: 1,
         unitPrice: Number(form.total),
-        requiresLab: true,
-        eyeExamId: selectedExamId || null, // 👈 GUARDAMOS LA RELACIÓN
-        rxSnapshot: normalizeRxValue(form.rxManual), // Guardamos foto estática por seguridad
+        requiresLab: true, // Esto detona la creación de la Work Order
+        eyeExamId: selectedExamId || null, 
+        rxSnapshot: normalizeRxValue(form.rxManual),
         labName: form.labName,
         dueDate: form.dueDate
       }]
     });
 
-    // Limpiar
-    setForm({ kind: "LENSES", description: "", total: "", initialPayment: "", method: "EFECTIVO", labName: "", dueDate: "", rxNotes: "", rxManual: normalizeRxValue() });
-    setSourceType("NONE");
-    setSelectedExamId("");
-    if (onClearPrefill) onClearPrefill(); 
+    // 2. REDIRECCIONAR AL DASHBOARD DE WORK ORDERS
+    // Así confirmas visualmente que el trabajo entró a producción
+    navigate("/work-orders"); 
+  };
+
+  const onDelete = (id) => {
+    deleteSale(id);
     setTick(t => t + 1);
+  };
+
+  const updatePaymentForm = (saleId, field, value) => {
+    // Lógica simplificada para abonos si se quedan en la pantalla (aunque ahora redirigimos)
+    // ...
   };
 
   return (
@@ -143,6 +153,25 @@ export default function SalesPanel({ patientId, prefillData, onClearPrefill }) {
                <input type="number" value={form.total} onChange={e => setForm({...form, total: e.target.value})} style={{width:"100%", padding:8, background:"#222", border:"1px solid #444", color:"white", borderRadius:4}} />
              </label>
           </div>
+          
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+             <label>
+               <span style={{fontSize:12, color:"#888"}}>Laboratorio Destino</span>
+               <input value={form.labName} onChange={e => setForm({...form, labName: e.target.value})} style={{width:"100%", padding:8, background:"#222", border:"1px solid #444", color:"white", borderRadius:4}} placeholder="Ej. Augu"/>
+             </label>
+             <label>
+               <span style={{fontSize:12, color:"#888"}}>Fecha Entrega</span>
+               <input type="date" value={form.dueDate} onChange={e => setForm({...form, dueDate: e.target.value})} style={{width:"100%", padding:8, background:"#222", border:"1px solid #444", color:"white", borderRadius:4}} />
+             </label>
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+             <label>
+               <span style={{fontSize:12, color:"#888"}}>Anticipo</span>
+               <input type="number" value={form.initialPayment} onChange={e => setForm({...form, initialPayment: e.target.value})} style={{width:"100%", padding:8, background:"#222", border:"1px solid #444", color:"white", borderRadius:4}} />
+             </label>
+             {/* Método de pago ya estaba en la lógica pero faltaba en el UI del grid */}
+          </div>
 
           {/* Rx Preview */}
           <div style={{ opacity: sourceType === "EXAM" ? 0.8 : 1 }}>
@@ -151,14 +180,28 @@ export default function SalesPanel({ patientId, prefillData, onClearPrefill }) {
           </div>
 
           <button type="submit" style={{ padding: 12, background: "#2563eb", color: "white", border: "none", borderRadius: 6, cursor: "pointer", fontWeight: "bold" }}>
-            Generar Venta
+            Generar Venta y Enviar a Laboratorio ➔
           </button>
         </form>
       </div>
 
-      {/* LISTA DE VENTAS */}
+      {/* LISTA DE VENTAS (Solo lectura rápida) */}
       <div style={{ display: "grid", gap: 10 }}>
-        {/* ... (aquí se renderizan las ventas igual) ... */}
+        {sales.map(s => (
+          <div key={s.id} style={{ padding: 12, background: "#111", borderRadius: 8, border: "1px solid #333", display:"flex", justifyContent:"space-between" }}>
+             <div>
+                <div style={{fontWeight:"bold"}}>{s.description}</div>
+                <div style={{fontSize:12, color:"#888"}}>
+                   {new Date(s.createdAt).toLocaleDateString()} 
+                   {s.items?.[0]?.eyeExamId && <span style={{marginLeft:8, color:"#4ade80"}}>🔗 Vinculado a Examen</span>}
+                </div>
+             </div>
+             <div style={{textAlign:"right"}}>
+                <div style={{fontWeight:"bold"}}>${s.total}</div>
+                <div style={{fontSize:12, color: s.balance > 0 ? "#f87171" : "#4ade80"}}>{s.balance > 0 ? "Pendiente" : "Pagado"}</div>
+             </div>
+          </div>
+        ))}
       </div>
     </section>
   );
