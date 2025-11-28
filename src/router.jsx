@@ -16,6 +16,8 @@ import NotFound from "@/pages/NotFound.jsx";
 import UnauthorizedPage from "@/pages/UnauthorizedPage.jsx";
 import SalesPage from "@/pages/SalesPage.jsx"; // 👈 IMPORTAR
 import FinancePage from "@/pages/FinancePage.jsx";
+import ExpensesPage from "@/pages/ExpensesPage.jsx";
+import LabsPage from "@/pages/LabsPage.jsx";
 
 function RequireAuth({ children }) {
   if (!isAuthed()) return <Navigate to="/login" replace />;
@@ -45,6 +47,9 @@ const router = createBrowserRouter([
       { path: "sales", element: <SalesPage /> }, 
       { path: "sales", element: <SalesPage /> },
       { path: "finance", element: <FinancePage /> },
+      { path: "finance", element: <FinancePage /> },
+      { path: "expenses", element: <ExpensesPage /> },
+      { path: "labs", element: <LabsPage /> },
     ],
   },
 ]);

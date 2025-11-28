@@ -24,6 +24,10 @@ export default function AppLayout() {
             🛒 Punto de Venta
           </NavLink>
 
+          <NavLink to="expenses" className={linkClass}>
+            💸 Gastos
+          </NavLink>
+
           <NavLink to="finance" className={linkClass}>
             💰 Finanzas
           </NavLink>
@@ -38,6 +42,10 @@ export default function AppLayout() {
 
           <NavLink to="work-orders" className={linkClass}>
             Work Orders
+          </NavLink>
+
+          <NavLink to="labs" className={linkClass}>
+            🧪 Laboratorios
           </NavLink>
 
           <NavLink to="inventory" className={linkClass}>
