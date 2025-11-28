@@ -7,6 +7,14 @@ import RxPicker from "@/components/RxPicker";
 import { normalizeRxValue } from "@/utils/rxOptions";
 import { validateRx } from "@/utils/validators";
 
+// 📋 LISTA RÁPIDA BASADA EN TU HOJA DE PAPEL
+const COMMON_SYMPTOMS = [
+  "Mala Visión Lejana", "Mala Visión Próxima", "Cefalea (Dolor Cabeza)", 
+  "Ardor", "Lagrimeo", "Comezón", "Dolor Ocular", "Cansancio / Fatiga",
+  "Fotofobia (Luz)", "Ojo Rojo", "Secreción", "Cuerpo Extraño", 
+  "Golpes / Trauma", "Revisión Rutinaria"
+];
+
 function toDateInput(isoString) {
   if (!isoString) return "";
   const date = new Date(isoString);
@@ -15,17 +23,15 @@ function toDateInput(isoString) {
 
 export default function ConsultationDetailPage() {
   const { patientId, consultationId } = useParams();
-  
   const [consultation, setConsultation] = useState(null);
   
   const [form, setForm] = useState({
-    visitDate: "",
-    type: "OPHTHALMO",
+    visitDate: "", type: "OPHTHALMO",
     reason: "", history: "",
     vitalSigns: { sys: "", dia: "", heartRate: "", temp: "" },
     exam: { adnexa: "", conjunctiva: "", cornea: "", anteriorChamber: "", iris: "", lens: "", vitreous: "", retina: "", motility: "" },
     diagnosis: "", treatment: "", prognosis: "", notes: "",
-    prescribedMeds: [] // 👈 NUEVO: Lista de meds estructurados
+    prescribedMeds: [] 
   });
 
   const [exams, setExams] = useState([]);
@@ -54,16 +60,27 @@ export default function ConsultationDetailPage() {
     }
   }, [patientId, consultationId]);
 
-  useEffect(() => {
-    if (consultationId) setExams(getExamsByConsultation(consultationId));
-  }, [consultationId, tick]);
+  useEffect(() => { if (consultationId) setExams(getExamsByConsultation(consultationId)); }, [consultationId, tick]);
 
   const onSaveConsultation = () => {
     updateConsultation(consultationId, { ...form, visitDate: form.visitDate || new Date().toISOString() });
     alert("Nota médica guardada correctamente");
   };
 
-  // Callback inteligente: Agrega texto al plan Y guarda el objeto en la lista
+  // --- FUNCIÓN MÁGICA: TOGGLE SÍNTOMA ---
+  // Agrega o quita el síntoma del texto sin borrar lo que ya escribiste manual
+  const toggleSymptom = (symptom) => {
+    let current = form.reason ? form.reason.split(", ").map(s => s.trim()).filter(Boolean) : [];
+    
+    if (current.includes(symptom)) {
+      current = current.filter(s => s !== symptom); // Quitar si ya está
+    } else {
+      current.push(symptom); // Agregar si no está
+    }
+    
+    setForm(f => ({ ...f, reason: current.join(", ") }));
+  };
+
   const handleAddMed = (textLine, medObject) => {
     setForm(prev => ({
       ...prev,
@@ -73,33 +90,23 @@ export default function ConsultationDetailPage() {
   };
 
   const removeMedFromList = (index) => {
-    setForm(prev => ({
-      ...prev,
-      prescribedMeds: prev.prescribedMeds.filter((_, i) => i !== index)
-    }));
+    setForm(prev => ({ ...prev, prescribedMeds: prev.prescribedMeds.filter((_, i) => i !== index) }));
   };
 
-  // ... (onSaveExam y onDeleteExam se mantienen igual)
   const onSaveExam = (e) => {
     e.preventDefault();
     const validation = validateRx(rxForm);
     if (!validation.isValid) { setRxErrors(validation.errors); return; }
     createEyeExam({ patientId, consultationId, examDate: form.visitDate || new Date().toISOString(), rx: rxForm, notes: rxForm.notes });
-    setRxForm(normalizeRxValue());
-    setRxErrors({});
-    setShowRxForm(false);
-    setTick((t) => t + 1);
+    setRxForm(normalizeRxValue()); setRxErrors({}); setShowRxForm(false); setTick((t) => t + 1);
   };
-
-  const onDeleteExam = (examId) => {
-    if (confirm("¿Borrar este examen?")) { deleteEyeExam(examId); setTick((t) => t + 1); }
-  };
+  const onDeleteExam = (examId) => { if (confirm("¿Borrar?")) { deleteEyeExam(examId); setTick((t) => t + 1); } };
 
   const SectionTitle = ({ title }) => (
     <h3 style={{ borderBottom: "1px solid #333", paddingBottom: 8, marginTop: 0, marginBottom: 15, color: "#60a5fa", fontSize: "1.1em", textTransform: "uppercase", letterSpacing: "0.5px" }}>{title}</h3>
   );
 
-  if (!consultation) return <div style={{padding:40, textAlign:"center"}}>Cargando expediente...</div>;
+  if (!consultation) return <div style={{padding:40, textAlign:"center"}}>Cargando...</div>;
 
   return (
     <div style={{ paddingBottom: 80, width: "100%" }}>
@@ -112,27 +119,55 @@ export default function ConsultationDetailPage() {
       <div style={{ display: "grid", gap: 30, gridTemplateColumns: "1fr" }}>
         <section style={{ background: "#1a1a1a", padding: 24, borderRadius: 12, border: "1px solid #333" }}>
           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 20 }}>
-             <label style={{ fontSize: 13, color: "#888" }}>
-                Fecha Atención
-                <input type="date" value={form.visitDate} onChange={(e) => setForm(f => ({ ...f, visitDate: e.target.value }))} style={{ display:"block", marginTop:4, padding: 6, background: "#222", border: "1px solid #444", color: "white", borderRadius: 4 }} />
-             </label>
-             <button onClick={onSaveConsultation} style={{ background: "#2563eb", border: "none", color: "white", padding: "8px 20px", borderRadius: 6, cursor: "pointer", fontWeight: "bold", height: "fit-content", alignSelf: "center" }}>
-                💾 Guardar Nota Médica
-             </button>
+             <label style={{ fontSize: 13, color: "#888" }}>Fecha Atención <input type="date" value={form.visitDate} onChange={(e) => setForm(f => ({ ...f, visitDate: e.target.value }))} style={{ display:"block", marginTop:4, padding: 6, background: "#222", border: "1px solid #444", color: "white", borderRadius: 4 }} /></label>
+             <button onClick={onSaveConsultation} style={{ background: "#2563eb", border: "none", color: "white", padding: "8px 20px", borderRadius: 6, cursor: "pointer", fontWeight: "bold", height: "fit-content", alignSelf: "center" }}>💾 Guardar Nota Médica</button>
           </div>
 
           <div style={{ display: "grid", gap: 25 }}>
-            {/* 1. INTERROGATORIO */}
+            
+            {/* 1. INTERROGATORIO OPTIMIZADO */}
             <div>
-              <SectionTitle title="1. Interrogatorio" />
+              <SectionTitle title="1. Interrogatorio (Motivo)" />
+              
+              {/* SELECTOR RÁPIDO DE SÍNTOMAS */}
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
+                {COMMON_SYMPTOMS.map(sym => {
+                  const isActive = form.reason.includes(sym);
+                  return (
+                    <button 
+                      key={sym}
+                      onClick={() => toggleSymptom(sym)}
+                      style={{
+                        padding: "6px 12px",
+                        borderRadius: 20,
+                        border: isActive ? "1px solid #4ade80" : "1px solid #444",
+                        background: isActive ? "rgba(74, 222, 128, 0.2)" : "transparent",
+                        color: isActive ? "#fff" : "#aaa",
+                        cursor: "pointer",
+                        fontSize: "0.85em",
+                        transition: "all 0.2s"
+                      }}
+                    >
+                      {isActive ? "✓ " : "+ "}{sym}
+                    </button>
+                  )
+                })}
+              </div>
+
               <div style={{ display: "grid", gap: 15 }}>
                 <label>
-                  <span style={{color:"#ccc", fontSize:13}}>Motivo de Consulta</span>
-                  <input value={form.reason} onChange={(e) => setForm(f => ({ ...f, reason: e.target.value }))} style={{ width: "100%", padding: 10, background: "#222", border: "1px solid #444", color: "white", borderRadius: 6, marginTop: 4 }} placeholder="Ej. Disminución de agudeza visual lejana" />
+                  <span style={{color:"#ccc", fontSize:13}}>Motivo de Consulta (Texto Final)</span>
+                  <textarea 
+                    rows={2}
+                    value={form.reason} 
+                    onChange={(e) => setForm(f => ({ ...f, reason: e.target.value }))} 
+                    style={{ width: "100%", padding: 10, background: "#222", border: "1px solid #444", color: "white", borderRadius: 6, marginTop: 4 }} 
+                    placeholder="Selecciona síntomas arriba o escribe aquí..." 
+                  />
                 </label>
                 <label>
-                  <span style={{color:"#ccc", fontSize:13}}>Padecimiento Actual</span>
-                  <textarea rows={3} value={form.history} onChange={(e) => setForm(f => ({ ...f, history: e.target.value }))} style={{ width: "100%", padding: 10, background: "#222", border: "1px solid #444", color: "white", borderRadius: 6, marginTop: 4 }} placeholder="Evolución, síntomas asociados..." />
+                  <span style={{color:"#ccc", fontSize:13}}>Padecimiento Actual (Historia)</span>
+                  <textarea rows={3} value={form.history} onChange={(e) => setForm(f => ({ ...f, history: e.target.value }))} style={{ width: "100%", padding: 10, background: "#222", border: "1px solid #444", color: "white", borderRadius: 6, marginTop: 4 }} placeholder="Evolución, tiempo, tratamientos previos..." />
                 </label>
               </div>
             </div>
@@ -173,18 +208,11 @@ export default function ConsultationDetailPage() {
             <div>
               <SectionTitle title="4. Diagnóstico y Plan" />
               <div style={{ display: "grid", gap: 15 }}>
-                <label>
-                  <span style={{color:"#ccc", fontSize:13}}>Diagnóstico (CIE-10 / Texto)</span>
-                  <input value={form.diagnosis} onChange={(e) => setForm(f => ({ ...f, diagnosis: e.target.value }))} style={{ width: "100%", padding: 10, background: "#222", border: "1px solid #444", color: "white", borderRadius: 6, marginTop: 4 }} />
-                </label>
-                
-                {/* GENERADOR DE RECETAS - Ahora pasa el objeto completo */}
+                <label><span style={{color:"#ccc", fontSize:13}}>Diagnóstico</span><input value={form.diagnosis} onChange={(e) => setForm(f => ({ ...f, diagnosis: e.target.value }))} style={{ width: "100%", padding: 10, background: "#222", border: "1px solid #444", color: "white", borderRadius: 6, marginTop: 4 }} /></label>
                 <PrescriptionBuilder onAdd={handleAddMed} />
-
-                {/* Lista de medicamentos agregados (para visualización) */}
                 {form.prescribedMeds.length > 0 && (
                   <div style={{ padding: 10, background: "#222", borderRadius: 6, border: "1px solid #444" }}>
-                    <div style={{ fontSize: 12, color: "#aaa", marginBottom: 5 }}>Medicamentos vinculados para Farmacia:</div>
+                    <div style={{ fontSize: 12, color: "#aaa", marginBottom: 5 }}>Meds vinculados:</div>
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                       {form.prescribedMeds.map((m, i) => (
                         <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, background: "#333", padding: "4px 8px", borderRadius: 4, fontSize: 12 }}>
@@ -195,37 +223,23 @@ export default function ConsultationDetailPage() {
                     </div>
                   </div>
                 )}
-
-                <label>
-                  <span style={{color:"#ccc", fontSize:13}}>Plan / Tratamiento / Receta (Texto Final)</span>
-                  <textarea rows={6} value={form.treatment} onChange={(e) => setForm(f => ({ ...f, treatment: e.target.value }))} style={{ width: "100%", padding: 10, background: "#222", border: "1px solid #444", color: "white", borderRadius: 6, marginTop: 4, fontFamily: "monospace" }} />
-                </label>
-                <label>
-                  <span style={{color:"#ccc", fontSize:13}}>Pronóstico</span>
-                  <input value={form.prognosis} onChange={(e) => setForm(f => ({ ...f, prognosis: e.target.value }))} style={{ width: "100%", padding: 10, background: "#222", border: "1px solid #444", color: "white", borderRadius: 6, marginTop: 4 }} placeholder="Bueno para la vida y función" />
-                </label>
+                <label><span style={{color:"#ccc", fontSize:13}}>Plan / Receta</span><textarea rows={6} value={form.treatment} onChange={(e) => setForm(f => ({ ...f, treatment: e.target.value }))} style={{ width: "100%", padding: 10, background: "#222", border: "1px solid #444", color: "white", borderRadius: 6, marginTop: 4, fontFamily: "monospace" }} /></label>
+                <label><span style={{color:"#ccc", fontSize:13}}>Pronóstico</span><input value={form.prognosis} onChange={(e) => setForm(f => ({ ...f, prognosis: e.target.value }))} style={{ width: "100%", padding: 10, background: "#222", border: "1px solid #444", color: "white", borderRadius: 6, marginTop: 4 }} placeholder="Bueno para la vida y función" /></label>
               </div>
             </div>
-
           </div>
         </section>
 
-        {/* ... (SECCIÓN DE EXÁMENES VINCULADOS IGUAL QUE ANTES) ... */}
         <section style={{ background: "#111", padding: 20, borderRadius: 12, border: "1px dashed #444" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 15 }}>
-            <h3 style={{ margin: 0, color: "#aaa" }}>Anexo: Refracción (Optometría)</h3>
-            {!showRxForm && (
-              <button onClick={() => setShowRxForm(true)} style={{ background: "#333", color: "white", border: "1px solid #555", padding: "6px 12px", borderRadius: 4, cursor:"pointer" }}>+ Agregar Rx</button>
-            )}
+            <h3 style={{ margin: 0, color: "#aaa" }}>Anexo: Refracción</h3>
+            {!showRxForm && <button onClick={() => setShowRxForm(true)} style={{ background: "#333", color: "white", border: "1px solid #555", padding: "6px 12px", borderRadius: 4, cursor:"pointer" }}>+ Agregar Rx</button>}
           </div>
           <div style={{ display: "grid", gap: 10, marginBottom: 20 }}>
             {exams.length === 0 && !showRxForm && <p style={{ color: "#666", fontStyle: "italic", fontSize: "0.9em" }}>Sin datos refractivos.</p>}
             {exams.map((exam) => (
               <div key={exam.id} style={{ background: "#222", padding: 10, borderRadius: 6, borderLeft: "3px solid #60a5fa", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <div style={{fontSize:"0.9em"}}>
-                  <div>OD: {exam.rx.od.sph} / {exam.rx.od.cyl} x {exam.rx.od.axis}°</div>
-                  <div>OI: {exam.rx.os.sph} / {exam.rx.os.cyl} x {exam.rx.os.axis}°</div>
-                </div>
+                <div style={{fontSize:"0.9em"}}><div>OD: {exam.rx.od.sph} / {exam.rx.od.cyl} x {exam.rx.od.axis}°</div><div>OI: {exam.rx.os.sph} / {exam.rx.os.cyl} x {exam.rx.os.axis}°</div></div>
                 <button onClick={() => onDeleteExam(exam.id)} style={{ fontSize: 11, background: "transparent", border: "none", color: "#666", cursor:"pointer" }}>Borrar</button>
               </div>
             ))}
@@ -240,18 +254,15 @@ export default function ConsultationDetailPage() {
             </div>
           )}
         </section>
-
       </div>
     </div>
   );
 }
 
-// --- BUILDER ACTUALIZADO PARA DEVOLVER OBJETO ESTRUCTURADO ---
 function PrescriptionBuilder({ onAdd }) {
   const [query, setQuery] = useState("");
   const [selectedMed, setSelectedMed] = useState(null); 
   const [manualName, setManualName] = useState("");
-  
   const [type, setType] = useState("DROPS"); 
   const [dose, setDose] = useState("1"); 
   const [freq, setFreq] = useState("8"); 
@@ -259,7 +270,6 @@ function PrescriptionBuilder({ onAdd }) {
   const [eye, setEye] = useState("AO"); 
 
   const products = useMemo(() => getAllProducts().filter(p => p.category === "MEDICATION"), []);
-  
   const filteredMeds = useMemo(() => {
     if (!query) return [];
     const q = query.toLowerCase();
@@ -267,102 +277,50 @@ function PrescriptionBuilder({ onAdd }) {
   }, [products, query]);
 
   const handleSelectMed = (prod) => {
-    setSelectedMed(prod);
-    setManualName(`${prod.brand} ${prod.model}`);
-    setQuery("");
+    setSelectedMed(prod); setManualName(`${prod.brand} ${prod.model}`); setQuery("");
     if (prod.tags?.presentation) setType(prod.tags.presentation);
   };
 
   const generateLine = () => {
     const name = selectedMed ? `${selectedMed.brand} ${selectedMed.model}` : manualName;
     if (!name) return;
-
     let instruction = "";
     if (type === "DROPS") instruction = `Aplicar ${dose} gota(s) en ${eye} cada ${freq} hrs por ${duration} días.`;
     else if (type === "OINTMENT") instruction = `Aplicar ${dose} cm en fondo de saco ${eye} cada ${freq} hrs por ${duration} días.`;
     else if (type === "ORAL") instruction = `Tomar ${dose} (tab/cap) cada ${freq} hrs por ${duration} días.`;
     else instruction = `Aplicar cada ${freq} hrs por ${duration} días.`;
 
-    const fullText = `• ${name}: ${instruction}`;
-    
-    // Objeto estructurado para el carrito
-    const medObject = selectedMed ? {
-      productId: selectedMed.id,
-      productName: `${selectedMed.brand} ${selectedMed.model}`,
-      qty: 1, // Por defecto 1 unidad al recetar (ajustable en venta)
-      price: selectedMed.price,
-      instructions: instruction
-    } : null;
-
-    onAdd(fullText, medObject);
-    
-    setManualName("");
-    setSelectedMed(null);
+    const medObject = selectedMed ? { productId: selectedMed.id, productName: `${selectedMed.brand} ${selectedMed.model}`, qty: 1, price: selectedMed.price, instructions: instruction } : null;
+    onAdd(`• ${name}: ${instruction}`, medObject);
+    setManualName(""); setSelectedMed(null);
   };
 
   return (
     <div style={{ background: "#222", border: "1px solid #444", borderRadius: 8, padding: 12, marginBottom: 10 }}>
       <div style={{ fontSize: 12, color: "#60a5fa", fontWeight: "bold", marginBottom: 8 }}>⚡ Agregar Medicamento Rápido</div>
-      
       <div style={{ position: "relative", marginBottom: 10 }}>
-        <input 
-          placeholder="Buscar en farmacia o escribir nombre..." 
-          value={selectedMed ? `${selectedMed.brand} ${selectedMed.model}` : manualName || query}
-          onChange={e => { 
-             setQuery(e.target.value); 
-             setManualName(e.target.value); 
-             setSelectedMed(null); 
-          }}
-          style={{ width: "100%", padding: 8, borderRadius: 4, border: "1px solid #555", background: "#333", color: "white" }}
-        />
-        {selectedMed && (
-          <span style={{ position: "absolute", right: 10, top: 8, fontSize: 11, color: Number(selectedMed.stock) > 0 ? "#4ade80" : "#f87171", fontWeight: "bold" }}>
-            {Number(selectedMed.stock) > 0 ? `✅ Stock: ${selectedMed.stock}` : `⚠️ Stock: 0`}
-          </span>
-        )}
-        
+        <input placeholder="Buscar en farmacia o escribir nombre..." value={selectedMed ? `${selectedMed.brand} ${selectedMed.model}` : manualName || query} onChange={e => { setQuery(e.target.value); setManualName(e.target.value); setSelectedMed(null); }} style={{ width: "100%", padding: 8, borderRadius: 4, border: "1px solid #555", background: "#333", color: "white" }} />
+        {selectedMed && <span style={{ position: "absolute", right: 10, top: 8, fontSize: 11, color: Number(selectedMed.stock) > 0 ? "#4ade80" : "#f87171", fontWeight: "bold" }}>{Number(selectedMed.stock) > 0 ? `✅ Stock: ${selectedMed.stock}` : `⚠️ Stock: 0`}</span>}
         {query && filteredMeds.length > 0 && !selectedMed && (
            <div style={{ position: "absolute", top: "100%", left: 0, right: 0, background: "#333", border: "1px solid #555", zIndex: 10, maxHeight: 150, overflowY: "auto" }}>
               {filteredMeds.map(p => (
                  <div key={p.id} onClick={() => handleSelectMed(p)} style={{ padding: 8, borderBottom: "1px solid #444", cursor: "pointer", fontSize: 13, display: "flex", justifyContent: "space-between" }}>
                     <div>{p.brand} {p.model}</div>
-                    <div style={{ fontSize: 11, color: Number(p.stock) > 0 ? "#4ade80" : "#f87171", fontWeight: "bold" }}>
-                       {Number(p.stock) > 0 ? `Stock: ${p.stock}` : "Agotado"}
-                    </div>
+                    <div style={{ fontSize: 11, color: Number(p.stock) > 0 ? "#4ade80" : "#f87171", fontWeight: "bold" }}>{Number(p.stock) > 0 ? `Stock: ${p.stock}` : "Agotado"}</div>
                  </div>
               ))}
            </div>
         )}
       </div>
-
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "end" }}>
-         {/* ... (Selectores de dosis igual que antes) ... */}
-         <label style={{fontSize:11, color:"#aaa"}}>Tipo
-            <select value={type} onChange={e => setType(e.target.value)} style={{display:"block", padding:5, borderRadius:4, background:"#333", color:"white", border:"1px solid #555"}}>
-               <option value="DROPS">Gotas</option>
-               <option value="OINTMENT">Ungüento</option>
-               <option value="ORAL">Oral</option>
-               <option value="OTHER">Otro</option>
-            </select>
-         </label>
-         {(type === "DROPS" || type === "OINTMENT") && (
-            <label style={{fontSize:11, color:"#aaa"}}>Ojo
-               <select value={eye} onChange={e => setEye(e.target.value)} style={{display:"block", padding:5, borderRadius:4, background:"#333", color:"white", border:"1px solid #555"}}>
-                  <option value="AO">AO</option>
-                  <option value="OD">OD</option>
-                  <option value="OI">OI</option>
-               </select>
-            </label>
-         )}
+         <label style={{fontSize:11, color:"#aaa"}}>Tipo<select value={type} onChange={e => setType(e.target.value)} style={{display:"block", padding:5, borderRadius:4, background:"#333", color:"white", border:"1px solid #555"}}><option value="DROPS">Gotas</option><option value="OINTMENT">Ungüento</option><option value="ORAL">Oral</option><option value="OTHER">Otro</option></select></label>
+         {(type === "DROPS" || type === "OINTMENT") && <label style={{fontSize:11, color:"#aaa"}}>Ojo<select value={eye} onChange={e => setEye(e.target.value)} style={{display:"block", padding:5, borderRadius:4, background:"#333", color:"white", border:"1px solid #555"}}><option value="AO">AO</option><option value="OD">OD</option><option value="OI">OI</option></select></label>}
          <label style={{fontSize:11, color:"#aaa"}}>Cant<input value={dose} onChange={e => setDose(e.target.value)} style={{display:"block", width:40, padding:5, borderRadius:4, background:"#333", color:"white", border:"1px solid #555"}} /></label>
          <span style={{paddingBottom:8, fontSize:12, color:"#888"}}>cada</span>
          <label style={{fontSize:11, color:"#aaa"}}>Hrs<input value={freq} onChange={e => setFreq(e.target.value)} style={{display:"block", width:40, padding:5, borderRadius:4, background:"#333", color:"white", border:"1px solid #555"}} /></label>
          <span style={{paddingBottom:8, fontSize:12, color:"#888"}}>por</span>
          <label style={{fontSize:11, color:"#aaa"}}>Días<input value={duration} onChange={e => setDuration(e.target.value)} style={{display:"block", width:40, padding:5, borderRadius:4, background:"#333", color:"white", border:"1px solid #555"}} /></label>
-
-         <button onClick={(e) => { e.preventDefault(); generateLine(); }} style={{ marginBottom: 1, padding: "6px 12px", background: "#4ade80", color: "#000", border: "none", borderRadius: 4, cursor: "pointer", fontWeight: "bold" }}>
-            + Agregar
-         </button>
+         <button onClick={(e) => { e.preventDefault(); generateLine(); }} style={{ marginBottom: 1, padding: "6px 12px", background: "#4ade80", color: "#000", border: "none", borderRadius: 4, cursor: "pointer", fontWeight: "bold" }}>+ Agregar</button>
       </div>
     </div>
   );
