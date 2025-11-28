@@ -4,9 +4,7 @@ function read() {
   try {
     const raw = localStorage.getItem(KEY);
     return raw ? JSON.parse(raw) : [];
-  } catch {
-    return [];
-  }
+  } catch { return []; }
 }
 
 function write(list) {
@@ -21,12 +19,10 @@ export function getProductById(id) {
   return read().find((p) => p.id === id);
 }
 
-// --- NUEVO: ESTADÍSTICAS INTELIGENTES ---
 export function getInventoryStats() {
   const products = read();
   const frames = products.filter(p => p.category === "FRAMES");
 
-  // Contadores rápidos para toma de decisiones
   return {
     totalFrames: frames.length,
     byGender: {
@@ -55,16 +51,18 @@ export function createProduct(data) {
     
     price: Number(data.price) || 0,
     
-    // LÓGICA NUEVA:
-    isOnDemand: Boolean(data.isOnDemand), // True para LC o Micas que se piden
-    stock: data.isOnDemand ? 9999 : (Number(data.stock) || 0), // Stock infinito si es bajo pedido
+    isOnDemand: Boolean(data.isOnDemand), 
+    stock: data.isOnDemand ? 9999 : (Number(data.stock) || 0), 
     minStock: Number(data.minStock) || 1,
     
-    // ATRIBUTOS PARA TU TOMA DE DECISIÓN:
+    // NUEVO: Bandera fiscal
+    taxable: data.taxable !== undefined ? Boolean(data.taxable) : true, // Por defecto SÍ grava
+    
     tags: {
-      gender: data.tags?.gender || "UNISEX", // HOMBRE, MUJER, UNISEX
-      material: data.tags?.material || "OTRO", // METAL, ACETATO
+      gender: data.tags?.gender || "UNISEX", 
+      material: data.tags?.material || "OTRO", 
       color: data.tags?.color || "",
+      presentation: data.tags?.presentation || "OTHER"
     },
     
     createdAt: new Date().toISOString(),
@@ -78,7 +76,6 @@ export function updateProduct(id, patch) {
   let updated = null;
   const next = list.map((p) => {
     if (p.id !== id) return p;
-    // Mezclamos tags con cuidado para no borrar los existentes
     const newTags = { ...p.tags, ...(patch.tags || {}) };
     updated = { ...p, ...patch, tags: newTags };
     return updated;
@@ -95,10 +92,7 @@ export function deleteProduct(id) {
 export function adjustStock(id, amount) {
   const product = getProductById(id);
   if (!product) return false;
-  
-  // Si es producto bajo demanda (LC), no descontamos stock real, siempre hay "disponible"
   if (product.isOnDemand) return true;
-
   const newStock = product.stock + amount;
   updateProduct(id, { stock: newStock });
   return true;
