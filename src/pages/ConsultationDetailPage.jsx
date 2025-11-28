@@ -2,7 +2,7 @@ import { useEffect, useState, useMemo } from "react";
 import { Link, useParams } from "react-router-dom";
 import { getConsultationById, updateConsultation } from "@/services/consultationsStorage";
 import { getExamsByConsultation, createEyeExam, deleteEyeExam } from "@/services/eyeExamStorage"; 
-import { getAllProducts } from "@/services/inventoryStorage"; // 👈 IMPORTAR INVENTARIO
+import { getAllProducts } from "@/services/inventoryStorage"; 
 import RxPicker from "@/components/RxPicker";
 import { normalizeRxValue } from "@/utils/rxOptions";
 import { validateRx } from "@/utils/validators";
@@ -24,7 +24,8 @@ export default function ConsultationDetailPage() {
     reason: "", history: "",
     vitalSigns: { sys: "", dia: "", heartRate: "", temp: "" },
     exam: { adnexa: "", conjunctiva: "", cornea: "", anteriorChamber: "", iris: "", lens: "", vitreous: "", retina: "", motility: "" },
-    diagnosis: "", treatment: "", prognosis: "", notes: ""
+    diagnosis: "", treatment: "", prognosis: "", notes: "",
+    prescribedMeds: [] // 👈 NUEVO: Lista de meds estructurados
   });
 
   const [exams, setExams] = useState([]);
@@ -48,6 +49,7 @@ export default function ConsultationDetailPage() {
         treatment: c.treatment || "",
         prognosis: c.prognosis || "",
         notes: c.notes || "",
+        prescribedMeds: c.prescribedMeds || [],
       });
     }
   }, [patientId, consultationId]);
@@ -61,6 +63,23 @@ export default function ConsultationDetailPage() {
     alert("Nota médica guardada correctamente");
   };
 
+  // Callback inteligente: Agrega texto al plan Y guarda el objeto en la lista
+  const handleAddMed = (textLine, medObject) => {
+    setForm(prev => ({
+      ...prev,
+      treatment: (prev.treatment ? prev.treatment + "\n" : "") + textLine,
+      prescribedMeds: medObject ? [...prev.prescribedMeds, medObject] : prev.prescribedMeds
+    }));
+  };
+
+  const removeMedFromList = (index) => {
+    setForm(prev => ({
+      ...prev,
+      prescribedMeds: prev.prescribedMeds.filter((_, i) => i !== index)
+    }));
+  };
+
+  // ... (onSaveExam y onDeleteExam se mantienen igual)
   const onSaveExam = (e) => {
     e.preventDefault();
     const validation = validateRx(rxForm);
@@ -91,10 +110,7 @@ export default function ConsultationDetailPage() {
       </div>
 
       <div style={{ display: "grid", gap: 30, gridTemplateColumns: "1fr" }}>
-        
-        {/* === BLOQUE 1: NOTA MÉDICA === */}
         <section style={{ background: "#1a1a1a", padding: 24, borderRadius: 12, border: "1px solid #333" }}>
-          
           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 20 }}>
              <label style={{ fontSize: 13, color: "#888" }}>
                 Fecha Atención
@@ -115,7 +131,7 @@ export default function ConsultationDetailPage() {
                   <input value={form.reason} onChange={(e) => setForm(f => ({ ...f, reason: e.target.value }))} style={{ width: "100%", padding: 10, background: "#222", border: "1px solid #444", color: "white", borderRadius: 6, marginTop: 4 }} placeholder="Ej. Disminución de agudeza visual lejana" />
                 </label>
                 <label>
-                  <span style={{color:"#ccc", fontSize:13}}>Padecimiento Actual (Historia)</span>
+                  <span style={{color:"#ccc", fontSize:13}}>Padecimiento Actual</span>
                   <textarea rows={3} value={form.history} onChange={(e) => setForm(f => ({ ...f, history: e.target.value }))} style={{ width: "100%", padding: 10, background: "#222", border: "1px solid #444", color: "white", borderRadius: 6, marginTop: 4 }} placeholder="Evolución, síntomas asociados..." />
                 </label>
               </div>
@@ -123,7 +139,7 @@ export default function ConsultationDetailPage() {
 
             {/* 2. SIGNOS VITALES */}
             <div>
-              <SectionTitle title="2. Signos Vitales (Obligatorio NOM)" />
+              <SectionTitle title="2. Signos Vitales" />
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 15 }}>
                  <label><span style={{color:"#888", fontSize:12}}>TA Sistólica</span><input type="number" placeholder="120" value={form.vitalSigns.sys} onChange={e => setForm(f => ({...f, vitalSigns: {...f.vitalSigns, sys: e.target.value}}))} style={{width:"100%", padding:8, background:"#222", border:"1px solid #444", color:"white", borderRadius:4}} /></label>
                  <label><span style={{color:"#888", fontSize:12}}>TA Diastólica</span><input type="number" placeholder="80" value={form.vitalSigns.dia} onChange={e => setForm(f => ({...f, vitalSigns: {...f.vitalSigns, dia: e.target.value}}))} style={{width:"100%", padding:8, background:"#222", border:"1px solid #444", color:"white", borderRadius:4}} /></label>
@@ -153,7 +169,7 @@ export default function ConsultationDetailPage() {
               </div>
             </div>
 
-            {/* 4. DIAGNÓSTICO Y PLAN (AQUÍ ESTÁ LA MAGIA NUEVA) */}
+            {/* 4. DIAGNÓSTICO Y PLAN */}
             <div>
               <SectionTitle title="4. Diagnóstico y Plan" />
               <div style={{ display: "grid", gap: 15 }}>
@@ -162,8 +178,23 @@ export default function ConsultationDetailPage() {
                   <input value={form.diagnosis} onChange={(e) => setForm(f => ({ ...f, diagnosis: e.target.value }))} style={{ width: "100%", padding: 10, background: "#222", border: "1px solid #444", color: "white", borderRadius: 6, marginTop: 4 }} />
                 </label>
                 
-                {/* GENERADOR DE RECETAS */}
-                <PrescriptionBuilder onAdd={(txt) => setForm(f => ({...f, treatment: (f.treatment ? f.treatment + "\n" : "") + txt }))} />
+                {/* GENERADOR DE RECETAS - Ahora pasa el objeto completo */}
+                <PrescriptionBuilder onAdd={handleAddMed} />
+
+                {/* Lista de medicamentos agregados (para visualización) */}
+                {form.prescribedMeds.length > 0 && (
+                  <div style={{ padding: 10, background: "#222", borderRadius: 6, border: "1px solid #444" }}>
+                    <div style={{ fontSize: 12, color: "#aaa", marginBottom: 5 }}>Medicamentos vinculados para Farmacia:</div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                      {form.prescribedMeds.map((m, i) => (
+                        <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, background: "#333", padding: "4px 8px", borderRadius: 4, fontSize: 12 }}>
+                          <span>💊 {m.productName} ({m.qty})</span>
+                          <button onClick={() => removeMedFromList(i)} style={{ background: "transparent", border: "none", color: "#f87171", cursor: "pointer", fontSize: 10 }}>✕</button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 <label>
                   <span style={{color:"#ccc", fontSize:13}}>Plan / Tratamiento / Receta (Texto Final)</span>
@@ -179,7 +210,7 @@ export default function ConsultationDetailPage() {
           </div>
         </section>
 
-        {/* === BLOQUE 2: EXÁMENES VINCULADOS === */}
+        {/* ... (SECCIÓN DE EXÁMENES VINCULADOS IGUAL QUE ANTES) ... */}
         <section style={{ background: "#111", padding: 20, borderRadius: 12, border: "1px dashed #444" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 15 }}>
             <h3 style={{ margin: 0, color: "#aaa" }}>Anexo: Refracción (Optometría)</h3>
@@ -215,20 +246,18 @@ export default function ConsultationDetailPage() {
   );
 }
 
-// --- SUBCOMPONENTE INTELIGENTE: CONSTRUCTOR DE RECETAS ---
+// --- BUILDER ACTUALIZADO PARA DEVOLVER OBJETO ESTRUCTURADO ---
 function PrescriptionBuilder({ onAdd }) {
   const [query, setQuery] = useState("");
-  const [selectedMed, setSelectedMed] = useState(null); // Producto del inventario (o null si es manual)
+  const [selectedMed, setSelectedMed] = useState(null); 
   const [manualName, setManualName] = useState("");
   
-  // Datos de la dosis
-  const [type, setType] = useState("DROPS"); // DROPS, OINTMENT, ORAL
-  const [dose, setDose] = useState("1"); // 1 gota, 1 tableta
-  const [freq, setFreq] = useState("8"); // cada X horas
-  const [duration, setDuration] = useState("7"); // por X días
-  const [eye, setEye] = useState("AO"); // AO, OD, OI (Solo para gotas/unguento)
+  const [type, setType] = useState("DROPS"); 
+  const [dose, setDose] = useState("1"); 
+  const [freq, setFreq] = useState("8"); 
+  const [duration, setDuration] = useState("7"); 
+  const [eye, setEye] = useState("AO"); 
 
-  // Cargar inventario para buscar
   const products = useMemo(() => getAllProducts().filter(p => p.category === "MEDICATION"), []);
   
   const filteredMeds = useMemo(() => {
@@ -241,7 +270,6 @@ function PrescriptionBuilder({ onAdd }) {
     setSelectedMed(prod);
     setManualName(`${prod.brand} ${prod.model}`);
     setQuery("");
-    // Autodetectar tipo
     if (prod.tags?.presentation) setType(prod.tags.presentation);
   };
 
@@ -255,9 +283,19 @@ function PrescriptionBuilder({ onAdd }) {
     else if (type === "ORAL") instruction = `Tomar ${dose} (tab/cap) cada ${freq} hrs por ${duration} días.`;
     else instruction = `Aplicar cada ${freq} hrs por ${duration} días.`;
 
-    onAdd(`• ${name}: ${instruction}`);
+    const fullText = `• ${name}: ${instruction}`;
     
-    // Reset parcial
+    // Objeto estructurado para el carrito
+    const medObject = selectedMed ? {
+      productId: selectedMed.id,
+      productName: `${selectedMed.brand} ${selectedMed.model}`,
+      qty: 1, // Por defecto 1 unidad al recetar (ajustable en venta)
+      price: selectedMed.price,
+      instructions: instruction
+    } : null;
+
+    onAdd(fullText, medObject);
+    
     setManualName("");
     setSelectedMed(null);
   };
@@ -273,18 +311,24 @@ function PrescriptionBuilder({ onAdd }) {
           onChange={e => { 
              setQuery(e.target.value); 
              setManualName(e.target.value); 
-             setSelectedMed(null); // Si escribe, se quita la selección automática
+             setSelectedMed(null); 
           }}
           style={{ width: "100%", padding: 8, borderRadius: 4, border: "1px solid #555", background: "#333", color: "white" }}
         />
-        {selectedMed && <span style={{position:"absolute", right:10, top:8, fontSize:11, color:"#4ade80"}}>✅ En Stock: {selectedMed.stock}</span>}
+        {selectedMed && (
+          <span style={{ position: "absolute", right: 10, top: 8, fontSize: 11, color: Number(selectedMed.stock) > 0 ? "#4ade80" : "#f87171", fontWeight: "bold" }}>
+            {Number(selectedMed.stock) > 0 ? `✅ Stock: ${selectedMed.stock}` : `⚠️ Stock: 0`}
+          </span>
+        )}
         
-        {/* Dropdown de búsqueda */}
         {query && filteredMeds.length > 0 && !selectedMed && (
            <div style={{ position: "absolute", top: "100%", left: 0, right: 0, background: "#333", border: "1px solid #555", zIndex: 10, maxHeight: 150, overflowY: "auto" }}>
               {filteredMeds.map(p => (
-                 <div key={p.id} onClick={() => handleSelectMed(p)} style={{ padding: 8, borderBottom: "1px solid #444", cursor: "pointer", fontSize: 13 }}>
-                    {p.brand} {p.model} <span style={{opacity:0.5, fontSize:11}}>({p.tags?.presentation || "Med"})</span>
+                 <div key={p.id} onClick={() => handleSelectMed(p)} style={{ padding: 8, borderBottom: "1px solid #444", cursor: "pointer", fontSize: 13, display: "flex", justifyContent: "space-between" }}>
+                    <div>{p.brand} {p.model}</div>
+                    <div style={{ fontSize: 11, color: Number(p.stock) > 0 ? "#4ade80" : "#f87171", fontWeight: "bold" }}>
+                       {Number(p.stock) > 0 ? `Stock: ${p.stock}` : "Agotado"}
+                    </div>
                  </div>
               ))}
            </div>
@@ -292,8 +336,8 @@ function PrescriptionBuilder({ onAdd }) {
       </div>
 
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "end" }}>
-         <label style={{fontSize:11, color:"#aaa"}}>
-            Tipo
+         {/* ... (Selectores de dosis igual que antes) ... */}
+         <label style={{fontSize:11, color:"#aaa"}}>Tipo
             <select value={type} onChange={e => setType(e.target.value)} style={{display:"block", padding:5, borderRadius:4, background:"#333", color:"white", border:"1px solid #555"}}>
                <option value="DROPS">Gotas</option>
                <option value="OINTMENT">Ungüento</option>
@@ -301,36 +345,20 @@ function PrescriptionBuilder({ onAdd }) {
                <option value="OTHER">Otro</option>
             </select>
          </label>
-
          {(type === "DROPS" || type === "OINTMENT") && (
-            <label style={{fontSize:11, color:"#aaa"}}>
-               Ojo
+            <label style={{fontSize:11, color:"#aaa"}}>Ojo
                <select value={eye} onChange={e => setEye(e.target.value)} style={{display:"block", padding:5, borderRadius:4, background:"#333", color:"white", border:"1px solid #555"}}>
-                  <option value="AO">AO (Ambos)</option>
-                  <option value="OD">OD (Derecho)</option>
-                  <option value="OI">OI (Izquierdo)</option>
+                  <option value="AO">AO</option>
+                  <option value="OD">OD</option>
+                  <option value="OI">OI</option>
                </select>
             </label>
          )}
-
-         <label style={{fontSize:11, color:"#aaa"}}>
-            Cantidad
-            <input value={dose} onChange={e => setDose(e.target.value)} style={{display:"block", width:40, padding:5, borderRadius:4, background:"#333", color:"white", border:"1px solid #555"}} />
-         </label>
-
+         <label style={{fontSize:11, color:"#aaa"}}>Cant<input value={dose} onChange={e => setDose(e.target.value)} style={{display:"block", width:40, padding:5, borderRadius:4, background:"#333", color:"white", border:"1px solid #555"}} /></label>
          <span style={{paddingBottom:8, fontSize:12, color:"#888"}}>cada</span>
-         
-         <label style={{fontSize:11, color:"#aaa"}}>
-            Horas
-            <input value={freq} onChange={e => setFreq(e.target.value)} style={{display:"block", width:40, padding:5, borderRadius:4, background:"#333", color:"white", border:"1px solid #555"}} />
-         </label>
-
+         <label style={{fontSize:11, color:"#aaa"}}>Hrs<input value={freq} onChange={e => setFreq(e.target.value)} style={{display:"block", width:40, padding:5, borderRadius:4, background:"#333", color:"white", border:"1px solid #555"}} /></label>
          <span style={{paddingBottom:8, fontSize:12, color:"#888"}}>por</span>
-
-         <label style={{fontSize:11, color:"#aaa"}}>
-            Días
-            <input value={duration} onChange={e => setDuration(e.target.value)} style={{display:"block", width:40, padding:5, borderRadius:4, background:"#333", color:"white", border:"1px solid #555"}} />
-         </label>
+         <label style={{fontSize:11, color:"#aaa"}}>Días<input value={duration} onChange={e => setDuration(e.target.value)} style={{display:"block", width:40, padding:5, borderRadius:4, background:"#333", color:"white", border:"1px solid #555"}} /></label>
 
          <button onClick={(e) => { e.preventDefault(); generateLine(); }} style={{ marginBottom: 1, padding: "6px 12px", background: "#4ade80", color: "#000", border: "none", borderRadius: 4, cursor: "pointer", fontWeight: "bold" }}>
             + Agregar
