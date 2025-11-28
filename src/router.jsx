@@ -14,6 +14,7 @@ import InventoryPage from "@/pages/InventoryPage.jsx"; // 👈 IMPORTAR ESTO
 import LoginPage from "@/pages/LoginPage.jsx";
 import NotFound from "@/pages/NotFound.jsx";
 import UnauthorizedPage from "@/pages/UnauthorizedPage.jsx";
+import SalesPage from "@/pages/SalesPage.jsx"; // 👈 IMPORTAR
 
 function RequireAuth({ children }) {
   if (!isAuthed()) return <Navigate to="/login" replace />;
@@ -39,6 +40,8 @@ const router = createBrowserRouter([
       { path: "inventory", element: <InventoryPage /> }, // 👈 AGREGAR ESTA RUTA
       { path: "unauthorized", element: <UnauthorizedPage /> },
       { path: "*", element: <NotFound /> },
+      { path: "inventory", element: <InventoryPage /> },
+      { path: "sales", element: <SalesPage /> }, 
     ],
   },
 ]);

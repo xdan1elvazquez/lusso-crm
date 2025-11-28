@@ -1,6 +1,6 @@
 import React from "react";
 import { NavLink, Outlet, useNavigate, useLocation } from "react-router-dom";
-import { clearToken } from "../auth";
+import { clearToken } from "../auth"; // O "@/auth" si prefieres usar el alias
 import "./appLayout.css";
 
 export default function AppLayout() {
@@ -32,9 +32,13 @@ export default function AppLayout() {
             Work Orders
           </NavLink>
 
-          {/* 👈 NUEVO LINK */}
           <NavLink to="inventory" className={linkClass}>
             Inventario
+          </NavLink>
+
+          {/* 👇 AQUÍ ESTÁ EL NUEVO MÓDULO DE VENTAS */}
+          <NavLink to="sales" className={linkClass}>
+            🛒 Punto de Venta
           </NavLink>
         </nav>
 
