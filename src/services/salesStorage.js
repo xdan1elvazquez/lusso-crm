@@ -5,15 +5,10 @@ const KEY = "lusso_sales_v1";
 const LAB_KINDS = new Set(["LENSES", "CONTACT_LENS"]);
 
 function read() {
-  try {
-    const raw = localStorage.getItem(KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch { return []; }
+  try { return JSON.parse(localStorage.getItem(KEY) || "[]"); } catch { return []; }
 }
 
-function write(list) {
-  localStorage.setItem(KEY, JSON.stringify(list));
-}
+function write(list) { localStorage.setItem(KEY, JSON.stringify(list)); }
 
 function mapLegacyCategoryToKind(category) {
   switch ((category || "").toUpperCase()) {
@@ -27,61 +22,53 @@ function mapLegacyCategoryToKind(category) {
 }
 
 function normalizeItem(item, saleFallback) {
-  const base = item && typeof item === "object" ? item : {};
-  const kind = base.kind || mapLegacyCategoryToKind(base.category || saleFallback?.category || saleFallback?.kind);
-  const description = base.description || saleFallback?.description || "";
-  const requiresLab = LAB_KINDS.has(kind) || Boolean(base.requiresLab);
-
+  const base = item || {};
+  const kind = base.kind || mapLegacyCategoryToKind(base.category);
   return {
-    id: base.id ?? globalThis.crypto?.randomUUID?.() ?? String(Date.now()),
+    id: base.id ?? crypto.randomUUID(),
     kind,
-    description,
+    description: base.description || "",
     qty: Number(base.qty) || 1,
-    unitPrice: Number(base.unitPrice) || Number(saleFallback?.total) || 0,
-    requiresLab,
-    consultationId: base.consultationId ?? saleFallback?.consultationId ?? null,
+    unitPrice: Number(base.unitPrice) || 0,
+    requiresLab: LAB_KINDS.has(kind) || Boolean(base.requiresLab),
+    consultationId: base.consultationId ?? null,
     eyeExamId: base.eyeExamId ?? null,
     inventoryProductId: base.inventoryProductId ?? null,
+    taxable: base.taxable !== undefined ? Boolean(base.taxable) : true, // NUEVO
     rxSnapshot: base.rxSnapshot ?? null,
     labName: base.labName || "",
     dueDate: base.dueDate || null,
   };
 }
 
-// --- NUEVO: NORMALIZAR PAGO PARA INCLUIR DETALLES DE TARJETA ---
-function normalizePayment(p, defaultDate) {
-  return {
-    id: p.id ?? globalThis.crypto?.randomUUID?.() ?? String(Date.now()),
-    amount: Number(p.amount) || 0,
-    method: p.method || "EFECTIVO",
-    paidAt: p.paidAt || defaultDate,
-    
-    // Campos extra para tarjeta
-    cardType: p.cardType || null, // TDD, TDC
-    terminal: p.terminal || null, // Nombre o ID de la terminal
-    installments: p.installments || null, // Meses
-    feeAmount: Number(p.feeAmount) || 0 // Gasto por comisión calculado
-  };
-}
-
 function normalizeSale(raw) {
-  const sale = raw && typeof raw === "object" ? raw : {};
+  const sale = raw || {};
   const items = (Array.isArray(raw.items) ? raw.items : [raw]).map(i => normalizeItem(i, raw));
-  const itemsTotal = items.reduce((sum, it) => sum + (it.qty * it.unitPrice), 0);
-  const total = !Number.isNaN(Number(sale.total)) && Number(sale.total) > 0 ? Number(sale.total) : itemsTotal;
-  const defaultDate = sale.createdAt || new Date().toISOString();
+  
+  // Cálculos de base
+  const subtotalGross = items.reduce((sum, it) => sum + (it.qty * it.unitPrice), 0);
+  const discount = Number(sale.discount) || 0;
+  
+  // Total final a pagar (lo que realmente cobraremos)
+  let total = subtotalGross - discount;
+  if (total < 0) total = 0;
 
-  const payments = (Array.isArray(sale.payments) ? sale.payments : []).map(p => normalizePayment(p, defaultDate));
+  const payments = (Array.isArray(sale.payments) ? sale.payments : []);
   
   return {
     id: sale.id,
     patientId: sale.patientId ?? null,
     kind: sale.kind || items[0]?.kind || "OTHER",
     description: sale.description || items[0]?.description || "",
-    total,
+    
+    // Finanzas
+    subtotalGross, // Suma de precios de lista
+    discount,      // Descuento aplicado ($)
+    total,         // Total final a pagar
+
     items,
     payments,
-    createdAt: defaultDate,
+    createdAt: sale.createdAt || new Date().toISOString(),
   };
 }
 
@@ -92,19 +79,17 @@ function withDerived(sale) {
   return { ...sale, paidAmount, balance, status };
 }
 
-export function getAllSales() {
-  return read().map((s) => withDerived(normalizeSale(s)));
-}
+export function getAllSales() { return read().map(s => withDerived(normalizeSale(s))); }
 
 export function getSalesByPatientId(patientId) {
   if (!patientId) return [];
-  return read().filter((s) => s.patientId === patientId).map((s) => withDerived(normalizeSale(s)));
+  return read().filter(s => s.patientId === patientId).map(s => withDerived(normalizeSale(s)));
 }
 
 function ensureWorkOrdersForSale(sale) {
   const existing = getAllWorkOrders();
-  const existingKeys = new Set(existing.map((w) => `${w.saleId}::${w.saleItemId}`));
-  sale.items.forEach((item) => {
+  const existingKeys = new Set(existing.map(w => `${w.saleId}::${w.saleItemId}`));
+  sale.items.forEach(item => {
     if (!item.requiresLab) return;
     const key = `${sale.id}::${item.id}`;
     if (existingKeys.has(key)) return;
@@ -123,17 +108,13 @@ function ensureWorkOrdersForSale(sale) {
 }
 
 export function createSale(payload) {
-  if (!payload?.patientId) throw new Error("patientId es requerido");
+  if (!payload?.patientId) throw new Error("patientId requerido");
   const list = read();
   const now = new Date().toISOString();
-
-  // Procesamos pagos para calcular comisiones si es necesario
-  const processedPayments = (payload.payments || []).map(p => normalizePayment(p, now));
-
+  
   const normalizedSale = normalizeSale({
-    id: globalThis.crypto?.randomUUID?.() ?? String(Date.now()),
+    id: crypto.randomUUID(),
     ...payload,
-    payments: processedPayments,
     createdAt: now,
   });
 
@@ -147,70 +128,53 @@ export function createSale(payload) {
 }
 
 export function addPaymentToSale(saleId, payment) {
-  if (!saleId) return null;
   const list = read();
   let updated = null;
-  const next = list.map((s) => {
+  const next = list.map(s => {
     if (s.id !== saleId) return s;
-    const normalized = normalizeSale(s);
-    const derived = withDerived(normalized);
-    const amount = Math.min(Number(payment?.amount) || 0, Math.max(derived.balance, 0));
-    if (amount <= 0) return normalized;
+    const norm = normalizeSale(s);
+    const derived = withDerived(norm);
+    const amount = Math.min(Number(payment?.amount) || 0, derived.balance);
+    if (amount <= 0) return norm;
     
-    const newPayment = normalizePayment({
-      ...payment,
-      amount, // Aseguramos monto correcto
-      paidAt: new Date().toISOString()
-    });
-    
-    const nextSale = { ...normalized, payments: [...normalized.payments, newPayment] };
-    updated = withDerived(nextSale);
-    return nextSale;
+    const newPay = { ...payment, id: crypto.randomUUID(), amount, paidAt: new Date().toISOString() };
+    updated = withDerived({ ...norm, payments: [...norm.payments, newPay] });
+    return updated;
   });
   if(updated) write(next);
   return updated;
 }
 
 export function deleteSale(id) {
-  const list = read();
-  write(list.filter((s) => s.id !== id));
+  write(read().filter(s => s.id !== id));
 }
 
-// --- REPORTE FINANCIERO CON COMISIONES ---
+// --- REPORTE FINANCIERO ---
 export function getFinancialReport() {
+  // (Se mantiene igual que la versión anterior, ya que usa 'total' que ya calculamos)
   const sales = getAllSales();
   const now = new Date();
   const todayStr = now.toISOString().slice(0, 10);
   const monthStr = now.toISOString().slice(0, 7);
 
-  let incomeToday = 0;
-  let incomeMonth = 0;
-  let salesToday = 0;
-  let salesMonth = 0;
-  let totalReceivable = 0;
-  let totalFees = 0; // Nuevo: Total gastado en comisiones del mes
-  
+  let incomeToday = 0, incomeMonth = 0, salesToday = 0, salesMonth = 0, totalReceivable = 0, totalFees = 0;
   const incomeByMethod = { EFECTIVO: 0, TARJETA: 0, TRANSFERENCIA: 0, OTRO: 0 };
 
   sales.forEach(sale => {
-    const saleDate = sale.createdAt.slice(0, 10);
-    const saleMonth = sale.createdAt.slice(0, 7);
-
-    if (saleDate === todayStr) salesToday += sale.total;
-    if (saleMonth === monthStr) salesMonth += sale.total;
+    const date = sale.createdAt.slice(0, 10);
+    const month = sale.createdAt.slice(0, 7);
+    if (date === todayStr) salesToday += sale.total;
+    if (month === monthStr) salesMonth += sale.total;
     if (sale.balance > 0) totalReceivable += sale.balance;
 
     sale.payments.forEach(pay => {
-      const payDate = pay.paidAt.slice(0, 10);
-      const payMonth = pay.paidAt.slice(0, 7);
-      
-      if (payDate === todayStr) incomeToday += pay.amount;
-      if (payMonth === monthStr) {
+      const pDate = pay.paidAt.slice(0, 10);
+      const pMonth = pay.paidAt.slice(0, 7);
+      if (pDate === todayStr) incomeToday += pay.amount;
+      if (pMonth === monthStr) {
         incomeMonth += pay.amount;
-        const method = (pay.method || "OTRO").toUpperCase();
-        incomeByMethod[method] = (incomeByMethod[method] || 0) + pay.amount;
-        
-        // Sumar comisiones del mes
+        const m = (pay.method || "OTRO").toUpperCase();
+        incomeByMethod[m] = (incomeByMethod[m] || 0) + pay.amount;
         if (pay.feeAmount) totalFees += pay.feeAmount;
       }
     });
