@@ -20,6 +20,14 @@ export default function AppLayout() {
         <div className="brand">Lusso CRM</div>
 
         <nav className="nav">
+          <NavLink to="sales" className={linkClass}>
+            🛒 Punto de Venta
+          </NavLink>
+
+          <NavLink to="finance" className={linkClass}>
+            💰 Finanzas
+          </NavLink>
+
           <NavLink to="dashboard" className={linkClass}>
             Dashboard
           </NavLink>
@@ -36,10 +44,6 @@ export default function AppLayout() {
             Inventario
           </NavLink>
 
-          {/* 👇 AQUÍ ESTÁ EL NUEVO MÓDULO DE VENTAS */}
-          <NavLink to="sales" className={linkClass}>
-            🛒 Punto de Venta
-          </NavLink>
         </nav>
 
         <div className="sidebarBottom">

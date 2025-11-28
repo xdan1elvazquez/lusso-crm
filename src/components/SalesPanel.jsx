@@ -1,207 +1,254 @@
-import React, { useMemo, useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom"; // 👈 1. IMPORTANTE: Importar esto
+import React, { useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { createSale, getSalesByPatientId, deleteSale } from "@/services/salesStorage";
-import { getExamsByPatient, getExamById } from "@/services/eyeExamStorage"; 
+import { getExamsByPatient } from "@/services/eyeExamStorage"; 
+import { getAllProducts } from "@/services/inventoryStorage"; 
+import { getConsultationsByPatient } from "@/services/consultationsStorage"; // 👈 NUEVO IMPORT
 import RxPicker from "./RxPicker";
 import { normalizeRxValue } from "@/utils/rxOptions";
 
-export default function SalesPanel({ patientId, prefillData, onClearPrefill }) {
-  const navigate = useNavigate(); // 👈 2. Inicializar el hook de navegación
+const PAYMENT_METHODS = ["EFECTIVO", "TARJETA", "TRANSFERENCIA", "OTRO"];
+
+export default function SalesPanel({ patientId }) {
+  const navigate = useNavigate();
   const [tick, setTick] = useState(0);
   
-  // Modos de origen: 'NONE', 'EXAM'
-  const [sourceType, setSourceType] = useState("NONE");
-  const [selectedExamId, setSelectedExamId] = useState("");
+  // --- ESTADO DEL CARRITO ---
+  const [cart, setCart] = useState([]); // Array de items por vender
+  const [payment, setPayment] = useState({ initial: 0, method: "EFECTIVO" });
 
-  const [form, setForm] = useState({
-    kind: "LENSES",
-    description: "",
-    total: "",
-    initialPayment: "",
-    method: "EFECTIVO",
-    labName: "",
-    dueDate: "",
-    rxNotes: "",
-    rxManual: normalizeRxValue(),
-  });
-
+  // --- HERRAMIENTAS DE CARGA ---
   const sales = useMemo(() => getSalesByPatientId(patientId), [patientId, tick]);
   const exams = useMemo(() => getExamsByPatient(patientId), [patientId, tick]);
+  const products = useMemo(() => getAllProducts(), []);
+  const consultations = useMemo(() => getConsultationsByPatient(patientId), [patientId, tick]);
 
-  // EFECTO: Cuando llega data desde el botón "Vender" del examen
-  useEffect(() => {
-    if (prefillData && prefillData.type === 'EXAM') {
-      const exam = prefillData.data;
-      setSourceType("EXAM");
-      setSelectedExamId(exam.id);
-      
-      // Auto-generamos la descripción basada en la recomendación
-      let autoDesc = "Lentes Completos";
-      if (exam.recommendations?.design) autoDesc += ` - ${exam.recommendations.design}`;
-      if (exam.recommendations?.material) autoDesc += ` (${exam.recommendations.material})`;
+  // Buscador de productos
+  const [prodQuery, setProdQuery] = useState("");
+  const filteredProducts = useMemo(() => {
+    if (!prodQuery) return [];
+    return products.filter(p => p.brand.toLowerCase().includes(prodQuery.toLowerCase())).slice(0, 5);
+  }, [products, prodQuery]);
 
-      setForm(prev => ({
-        ...prev,
-        kind: "LENSES",
-        description: autoDesc,
-        rxNotes: exam.notes || "",
-        rxManual: exam.rx, // Copiamos la Rx del examen
-      }));
-      
-      window.scrollTo({ top: 500, behavior: 'smooth' }); 
-    }
-  }, [prefillData]);
+  // --- ACCIONES DEL CARRITO ---
+  const addToCart = (item) => {
+    setCart(prev => [...prev, { ...item, _tempId: Date.now() + Math.random() }]);
+    setProdQuery("");
+  };
 
-  // Manejo manual del selector de exámenes
-  const handleExamSelect = (examId) => {
-    setSelectedExamId(examId);
+  const removeFromCart = (tempId) => {
+    setCart(prev => prev.filter(i => i._tempId !== tempId));
+  };
+
+  // Importar desde Examen (Lentes)
+  const handleImportExam = (e) => {
+    const examId = e.target.value;
     if (!examId) return;
-    const exam = exams.find(e => e.id === examId);
-    if (exam) {
-      setForm(prev => ({
-        ...prev,
-        rxManual: exam.rx,
-        description: prev.description || (exam.recommendations?.design ? `Lentes ${exam.recommendations.design}` : ""),
-      }));
+    const exam = exams.find(x => x.id === examId);
+    
+    let desc = "Lentes Completos";
+    if (exam.recommendations?.design) desc += ` - ${exam.recommendations.design}`;
+    
+    addToCart({
+      kind: "LENSES",
+      description: desc,
+      qty: 1,
+      unitPrice: 0, // A definir por el vendedor
+      requiresLab: true,
+      eyeExamId: exam.id,
+      rxSnapshot: normalizeRxValue(exam.rx),
+      labName: "",
+      dueDate: ""
+    });
+  };
+
+  // Importar desde Consulta (Medicamentos)
+  const handleImportConsultation = (e) => {
+    const consultId = e.target.value;
+    if (!consultId) return;
+    const consultation = consultations.find(c => c.id === consultId);
+    
+    if (consultation.prescribedMeds && consultation.prescribedMeds.length > 0) {
+      consultation.prescribedMeds.forEach(med => {
+        addToCart({
+          kind: "MEDICATION",
+          description: med.productName,
+          qty: med.qty || 1,
+          unitPrice: med.price || 0,
+          inventoryProductId: med.productId,
+          requiresLab: false
+        });
+      });
+      alert(`Se agregaron ${consultation.prescribedMeds.length} medicamentos al carrito.`);
+    } else {
+      alert("Esta consulta no tiene medicamentos vinculados.");
     }
   };
 
-  const onCreate = (e) => {
-    e.preventDefault();
-    if (!form.total) return;
+  // COBRAR TODO
+  const handleCheckout = () => {
+    if (cart.length === 0) return;
+    
+    const total = cart.reduce((sum, item) => sum + (item.qty * item.unitPrice), 0);
 
-    // 1. CREAR LA VENTA (Esto a su vez crea la Work Order automáticamente en salesStorage)
     createSale({
       patientId,
-      kind: form.kind,
-      description: form.description,
-      total: Number(form.total),
-      payments: form.initialPayment > 0 ? [{ amount: Number(form.initialPayment), method: form.method, paidAt: new Date().toISOString() }] : [],
-      items: [{
-        kind: form.kind,
-        description: form.description,
-        qty: 1,
-        unitPrice: Number(form.total),
-        requiresLab: true, // Esto detona la creación de la Work Order
-        eyeExamId: selectedExamId || null, 
-        rxSnapshot: normalizeRxValue(form.rxManual),
-        labName: form.labName,
-        dueDate: form.dueDate
-      }]
+      total,
+      payments: payment.initial > 0 ? [{ amount: Number(payment.initial), method: payment.method, paidAt: new Date().toISOString() }] : [],
+      items: cart.map(item => ({
+        kind: item.kind,
+        description: item.description,
+        qty: item.qty,
+        unitPrice: item.unitPrice,
+        requiresLab: item.requiresLab,
+        eyeExamId: item.eyeExamId || null,
+        inventoryProductId: item.inventoryProductId || null,
+        rxSnapshot: item.rxSnapshot || null,
+        labName: item.labName || "",
+        dueDate: item.dueDate || null,
+      }))
     });
 
-    // 2. REDIRECCIONAR AL DASHBOARD DE WORK ORDERS
-    // Así confirmas visualmente que el trabajo entró a producción
-    navigate("/work-orders"); 
+    setCart([]);
+    setPayment({ initial: 0, method: "EFECTIVO" });
+    
+    // Si hubo algo de laboratorio, ir a work orders
+    if (cart.some(i => i.requiresLab)) {
+      navigate("/work-orders");
+    } else {
+      setTick(t => t + 1);
+      alert("Venta procesada correctamente");
+    }
   };
 
-  const onDelete = (id) => {
-    deleteSale(id);
-    setTick(t => t + 1);
-  };
-
-  const updatePaymentForm = (saleId, field, value) => {
-    // Lógica simplificada para abonos si se quedan en la pantalla (aunque ahora redirigimos)
-    // ...
-  };
+  const cartTotal = cart.reduce((sum, item) => sum + (Number(item.qty) * Number(item.unitPrice)), 0);
 
   return (
-    <section style={{ background: "#1a1a1a", padding: 24, borderRadius: 12, border: "1px solid #333" }}>
-      <h3 style={{ margin: "0 0 20px 0", color: "#e5e7eb" }}>Ventas y Caja</h3>
-
-      <div style={{ background: "#111", padding: 20, borderRadius: 10, marginBottom: 20, border: "1px dashed #444" }}>
+    <section style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
+      
+      {/* COLUMNA IZQUIERDA: AGREGAR ITEMS */}
+      <div style={{ background: "#1a1a1a", padding: 20, borderRadius: 12, border: "1px solid #333" }}>
+        <h3 style={{ marginTop: 0, color: "#e5e7eb" }}>Agregar a la Venta</h3>
         
-        {/* SELECTOR DE ORIGEN */}
-        <div style={{ marginBottom: 15, paddingBottom: 15, borderBottom: "1px solid #333" }}>
-          <label style={{ color: "#aaa", fontSize: 13, marginRight: 10 }}>Origen de datos:</label>
-          <select 
-            value={sourceType} 
-            onChange={e => { setSourceType(e.target.value); setSelectedExamId(""); }}
-            style={{ padding: 6, borderRadius: 4, background: "#222", color: "white", border: "1px solid #555" }}
-          >
-            <option value="NONE">Manual (Sin vínculo)</option>
-            <option value="EXAM">Desde Examen de Vista</option>
+        {/* 1. BUSCADOR DE PRODUCTOS */}
+        <div style={{ marginBottom: 20, position: "relative" }}>
+          <label style={{ fontSize: 12, color: "#aaa" }}>Buscar Producto (Inventario)</label>
+          <input 
+            value={prodQuery}
+            onChange={e => setProdQuery(e.target.value)}
+            placeholder="Escribe marca..."
+            style={{ width: "100%", padding: 10, background: "#222", border: "1px solid #444", color: "white", borderRadius: 6 }}
+          />
+          {filteredProducts.length > 0 && (
+            <div style={{ position: "absolute", top: "100%", width: "100%", background: "#333", border: "1px solid #555", zIndex: 10 }}>
+              {filteredProducts.map(p => (
+                <div key={p.id} onClick={() => addToCart({
+                  kind: p.category === "FRAMES" ? "LENSES" : "MEDICATION", // Simplificado
+                  description: `${p.brand} ${p.model}`,
+                  qty: 1,
+                  unitPrice: p.price,
+                  inventoryProductId: p.id,
+                  requiresLab: p.category === "FRAMES" // Asumimos que armazón lleva lab
+                })} style={{ padding: 10, borderBottom: "1px solid #444", cursor: "pointer", display: "flex", justifyContent: "space-between" }}>
+                  <span>{p.brand} {p.model}</span>
+                  <span style={{ color: "#4ade80" }}>${p.price} (Stock: {p.stock})</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* 2. IMPORTAR EXAMEN */}
+        <div style={{ marginBottom: 20, padding: 15, background: "#1e3a8a", borderRadius: 8 }}>
+          <label style={{ display: "block", color: "#bfdbfe", fontSize: 13, marginBottom: 5 }}>Importar Graduación (Lentes)</label>
+          <select onChange={handleImportExam} style={{ width: "100%", padding: 8, borderRadius: 4 }}>
+            <option value="">-- Seleccionar Examen --</option>
+            {exams.map(e => (
+              <option key={e.id} value={e.id}>
+                {new Date(e.examDate).toLocaleDateString()} - {e.recommendations?.design || "General"}
+              </option>
+            ))}
           </select>
         </div>
 
-        {sourceType === "EXAM" && (
-          <div style={{ marginBottom: 15, background: "#1e3a8a", padding: 10, borderRadius: 6 }}>
-            <label style={{ display: "block", color: "#bfdbfe", fontSize: 12, marginBottom: 4 }}>Selecciona el Examen:</label>
-            <select 
-              value={selectedExamId} 
-              onChange={e => handleExamSelect(e.target.value)}
-              style={{ width: "100%", padding: 8, borderRadius: 4 }}
-            >
-              <option value="">-- Seleccionar --</option>
-              {exams.map(e => (
-                <option key={e.id} value={e.id}>
-                  {new Date(e.examDate).toLocaleDateString()} - {e.recommendations?.design || "Sin recomendación"}
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
-
-        <form onSubmit={onCreate} style={{ display: "grid", gap: 15 }}>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-             <label>
-               <span style={{fontSize:12, color:"#888"}}>Concepto / Descripción</span>
-               <input value={form.description} onChange={e => setForm({...form, description: e.target.value})} style={{width:"100%", padding:8, background:"#222", border:"1px solid #444", color:"white", borderRadius:4}} />
-             </label>
-             <label>
-               <span style={{fontSize:12, color:"#888"}}>Total a Cobrar</span>
-               <input type="number" value={form.total} onChange={e => setForm({...form, total: e.target.value})} style={{width:"100%", padding:8, background:"#222", border:"1px solid #444", color:"white", borderRadius:4}} />
-             </label>
-          </div>
-          
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-             <label>
-               <span style={{fontSize:12, color:"#888"}}>Laboratorio Destino</span>
-               <input value={form.labName} onChange={e => setForm({...form, labName: e.target.value})} style={{width:"100%", padding:8, background:"#222", border:"1px solid #444", color:"white", borderRadius:4}} placeholder="Ej. Augu"/>
-             </label>
-             <label>
-               <span style={{fontSize:12, color:"#888"}}>Fecha Entrega</span>
-               <input type="date" value={form.dueDate} onChange={e => setForm({...form, dueDate: e.target.value})} style={{width:"100%", padding:8, background:"#222", border:"1px solid #444", color:"white", borderRadius:4}} />
-             </label>
-          </div>
-
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-             <label>
-               <span style={{fontSize:12, color:"#888"}}>Anticipo</span>
-               <input type="number" value={form.initialPayment} onChange={e => setForm({...form, initialPayment: e.target.value})} style={{width:"100%", padding:8, background:"#222", border:"1px solid #444", color:"white", borderRadius:4}} />
-             </label>
-             {/* Método de pago ya estaba en la lógica pero faltaba en el UI del grid */}
-          </div>
-
-          {/* Rx Preview */}
-          <div style={{ opacity: sourceType === "EXAM" ? 0.8 : 1 }}>
-             <strong style={{fontSize:12, color:"#888"}}>Graduación para Trabajo</strong>
-             <RxPicker value={form.rxManual} onChange={rx => setForm({...form, rxManual: rx})} />
-          </div>
-
-          <button type="submit" style={{ padding: 12, background: "#2563eb", color: "white", border: "none", borderRadius: 6, cursor: "pointer", fontWeight: "bold" }}>
-            Generar Venta y Enviar a Laboratorio ➔
-          </button>
-        </form>
+        {/* 3. IMPORTAR RECETA MÉDICA */}
+        <div style={{ marginBottom: 20, padding: 15, background: "#064e3b", borderRadius: 8 }}>
+          <label style={{ display: "block", color: "#a7f3d0", fontSize: 13, marginBottom: 5 }}>Importar Receta Médica</label>
+          <select onChange={handleImportConsultation} style={{ width: "100%", padding: 8, borderRadius: 4 }}>
+            <option value="">-- Seleccionar Consulta --</option>
+            {consultations.map(c => (
+              <option key={c.id} value={c.id}>
+                {new Date(c.visitDate).toLocaleDateString()} - {c.diagnosis || "Sin Dx"}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
 
-      {/* LISTA DE VENTAS (Solo lectura rápida) */}
-      <div style={{ display: "grid", gap: 10 }}>
-        {sales.map(s => (
-          <div key={s.id} style={{ padding: 12, background: "#111", borderRadius: 8, border: "1px solid #333", display:"flex", justifyContent:"space-between" }}>
-             <div>
-                <div style={{fontWeight:"bold"}}>{s.description}</div>
-                <div style={{fontSize:12, color:"#888"}}>
-                   {new Date(s.createdAt).toLocaleDateString()} 
-                   {s.items?.[0]?.eyeExamId && <span style={{marginLeft:8, color:"#4ade80"}}>🔗 Vinculado a Examen</span>}
+      {/* COLUMNA DERECHA: CARRITO Y COBRO */}
+      <div style={{ background: "#111", padding: 20, borderRadius: 12, border: "1px solid #333", display: "flex", flexDirection: "column" }}>
+        <h3 style={{ marginTop: 0, color: "#4ade80" }}>🛒 Carrito de Compras</h3>
+        
+        <div style={{ flex: 1, overflowY: "auto", minHeight: 200, marginBottom: 20 }}>
+          {cart.length === 0 ? (
+            <p style={{ color: "#666", textAlign: "center", marginTop: 40 }}>Carrito vacío</p>
+          ) : (
+            cart.map((item, idx) => (
+              <div key={item._tempId || idx} style={{ background: "#222", padding: 10, borderRadius: 6, marginBottom: 8, display: "grid", gap: 6 }}>
+                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                  <strong>{item.description}</strong>
+                  <button onClick={() => removeFromCart(item._tempId)} style={{ color: "#f87171", background: "none", border: "none", cursor: "pointer" }}>✕</button>
                 </div>
-             </div>
-             <div style={{textAlign:"right"}}>
-                <div style={{fontWeight:"bold"}}>${s.total}</div>
-                <div style={{fontSize:12, color: s.balance > 0 ? "#f87171" : "#4ade80"}}>{s.balance > 0 ? "Pendiente" : "Pagado"}</div>
-             </div>
+                
+                <div style={{ display: "flex", gap: 10 }}>
+                  <label style={{ fontSize: 11, color: "#aaa" }}>Cant: <input type="number" value={item.qty} onChange={e => {
+                    const newCart = [...cart];
+                    newCart[idx].qty = e.target.value;
+                    setCart(newCart);
+                  }} style={{ width: 40, background: "#333", border: "none", color: "white", padding: 2 }} /></label>
+                  
+                  <label style={{ fontSize: 11, color: "#aaa" }}>Precio: $<input type="number" value={item.unitPrice} onChange={e => {
+                    const newCart = [...cart];
+                    newCart[idx].unitPrice = e.target.value;
+                    setCart(newCart);
+                  }} style={{ width: 60, background: "#333", border: "none", color: "white", padding: 2 }} /></label>
+                </div>
+
+                {item.requiresLab && (
+                  <div style={{ fontSize: 11, background: "#333", padding: 4, borderRadius: 4 }}>
+                    <input placeholder="Laboratorio" value={item.labName} onChange={e => {
+                       const newCart = [...cart]; newCart[idx].labName = e.target.value; setCart(newCart);
+                    }} style={{ background: "transparent", border: "none", color: "#ddd", width: "100%" }} />
+                  </div>
+                )}
+              </div>
+            ))
+          )}
+        </div>
+
+        <div style={{ borderTop: "1px solid #333", paddingTop: 15 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: "1.2em", fontWeight: "bold", marginBottom: 15 }}>
+            <span>Total:</span>
+            <span>${cartTotal.toLocaleString()}</span>
           </div>
-        ))}
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 15 }}>
+             <label style={{ fontSize: 12 }}>
+               Anticipo
+               <input type="number" value={payment.initial} onChange={e => setPayment({...payment, initial: e.target.value})} style={{ width: "100%", padding: 8, marginTop: 4, borderRadius: 4 }} />
+             </label>
+             <label style={{ fontSize: 12 }}>
+               Método
+               <select value={payment.method} onChange={e => setPayment({...payment, method: e.target.value})} style={{ width: "100%", padding: 8, marginTop: 4, borderRadius: 4 }}>
+                 {PAYMENT_METHODS.map(m => <option key={m} value={m}>{m}</option>)}
+               </select>
+             </label>
+          </div>
+
+          <button onClick={handleCheckout} disabled={cart.length === 0} style={{ width: "100%", padding: 12, background: cart.length > 0 ? "#16a34a" : "#333", color: "white", border: "none", borderRadius: 6, cursor: cart.length > 0 ? "pointer" : "not-allowed", fontWeight: "bold", fontSize: "1.1em" }}>
+            Cobrar Venta
+          </button>
+        </div>
       </div>
     </section>
   );
