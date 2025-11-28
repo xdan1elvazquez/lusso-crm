@@ -1,126 +1,167 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { Link } from "react-router-dom";
-import { usePatients } from "@/hooks/usePatients"; // Usando alias
-import { validatePatient } from "@/utils/validators"; // 👈 Importamos al "Cadenero"
+import { usePatients } from "@/hooks/usePatients";
+import { validatePatient } from "@/utils/validators";
+import { getReferralSources } from "@/services/settingsStorage";
 
 export default function PatientsPage() {
   const { patients, create, remove } = usePatients();
   const [q, setQ] = useState("");
-  const [form, setForm] = useState({ firstName: "", lastName: "", phone: "", email: "" });
+  const [sources, setSources] = useState([]);
   
-  // 1. Estado para guardar los errores de validación
+  const [form, setForm] = useState({ 
+    firstName: "", lastName: "", phone: "", email: "", 
+    dob: "", sex: "NO_ESPECIFICADO", occupation: "",
+    referralSource: "", referredBy: "" 
+  });
+  
+  const [referrerQuery, setReferrerQuery] = useState("");
+  const [selectedReferrer, setSelectedReferrer] = useState(null);
   const [errors, setErrors] = useState({});
+
+  useEffect(() => { setSources(getReferralSources()); }, []);
 
   const filtered = useMemo(() => {
     const s = q.trim().toLowerCase();
     if (!s) return patients;
-    return patients.filter((p) =>
-      `${p.firstName} ${p.lastName} ${p.phone} ${p.email}`.toLowerCase().includes(s)
-    );
+    return patients.filter((p) => `${p.firstName} ${p.lastName} ${p.phone}`.toLowerCase().includes(s));
   }, [patients, q]);
+
+  const filteredReferrers = useMemo(() => {
+    if (!referrerQuery) return [];
+    const s = referrerQuery.toLowerCase();
+    return patients.filter(p => `${p.firstName} ${p.lastName}`.toLowerCase().includes(s)).slice(0, 5);
+  }, [patients, referrerQuery]);
 
   const onSubmit = (e) => {
     e.preventDefault();
-
-    // 2. PASO DE SEGURIDAD: Validar antes de guardar
     const validation = validatePatient(form);
-    
-    if (!validation.isValid) {
-      // Si el cadenero dice "No pasas", mostramos los errores y cancelamos
-      setErrors(validation.errors);
-      return; 
-    }
-
-    // 3. Si todo está bien, limpiamos errores y guardamos
+    if (!validation.isValid) { setErrors(validation.errors); return; }
     setErrors({});
-    create(form);
-    setForm({ firstName: "", lastName: "", phone: "", email: "" });
+    create({ ...form, referralSource: form.referralSource || "Pasaba por aquí", referredBy: selectedReferrer?.id || null });
+    setForm({ firstName: "", lastName: "", phone: "", email: "", dob: "", sex: "NO_ESPECIFICADO", occupation: "", referralSource: "", referredBy: "" });
+    setReferrerQuery(""); setSelectedReferrer(null);
   };
 
-  // Pequeño estilo para los mensajes de error
-  const errorStyle = { color: "#ff4d4f", fontSize: "12px", marginTop: "4px" };
+  const InputGroup = ({ label, error, children }) => (
+    <label style={{ display: "block", marginBottom: 10 }}>
+      <span style={{ fontSize: 12, color: "#aaa", display: "block", marginBottom: 4 }}>{label}</span>
+      {children}
+      {error && <div style={{ color: "#f87171", fontSize: 11, marginTop: 2 }}>{error}</div>}
+    </label>
+  );
 
   return (
-    <div>
-      <h1>Pacientes</h1>
-
-      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", margin: "12px 0" }}>
+    <div style={{ width: "100%", paddingBottom: 40 }}>
+      
+      {/* HEADER Y BUSCADOR */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 30 }}>
+        <h1 style={{ margin: 0 }}>Pacientes</h1>
         <input
-          placeholder="Buscar (nombre, tel, email)"
+          placeholder="🔍 Buscar por nombre o teléfono..."
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          style={{ padding: "8px", borderRadius: "6px", border: "1px solid #444", background: "#222", color: "white" }}
+          style={{ width: 300, padding: "10px", borderRadius: "8px", border: "1px solid #444", background: "#111", color: "white" }}
         />
       </div>
 
-      <form onSubmit={onSubmit} style={{ display: "grid", gap: 12, maxWidth: 520, background: "#1a1a1a", padding: "20px", borderRadius: "10px" }}>
-        <h3>Registrar Nuevo Paciente</h3>
-        
-        {/* Nombre */}
-        <div>
-          <input
-            placeholder="Nombre*"
-            value={form.firstName}
-            onChange={(e) => setForm((f) => ({ ...f, firstName: e.target.value }))}
-            style={{ width: "100%", padding: "8px", borderRadius: "4px", border: errors.firstName ? "1px solid red" : "1px solid #444" }}
-          />
-          {errors.firstName && <div style={errorStyle}>{errors.firstName}</div>}
-        </div>
-
-        {/* Apellido */}
-        <div>
-          <input
-            placeholder="Apellido*"
-            value={form.lastName}
-            onChange={(e) => setForm((f) => ({ ...f, lastName: e.target.value }))}
-            style={{ width: "100%", padding: "8px", borderRadius: "4px", border: errors.lastName ? "1px solid red" : "1px solid #444" }}
-          />
-          {errors.lastName && <div style={errorStyle}>{errors.lastName}</div>}
-        </div>
-
-        {/* Teléfono */}
-        <div>
-          <input
-            placeholder="Teléfono (10 dígitos)"
-            value={form.phone}
-            onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
-            style={{ width: "100%", padding: "8px", borderRadius: "4px", border: errors.phone ? "1px solid red" : "1px solid #444" }}
-          />
-          {errors.phone && <div style={errorStyle}>{errors.phone}</div>}
-        </div>
-
-        <input
-          placeholder="Email"
-          value={form.email}
-          onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
-          style={{ width: "100%", padding: "8px", borderRadius: "4px", border: "1px solid #444" }}
-        />
-
-        <button type="submit" style={{ marginTop: "10px" }}>Agregar paciente</button>
-      </form>
-
-      <div style={{ marginTop: 24 }}>
-        {filtered.length === 0 ? (
-          <p style={{ opacity: 0.6 }}>No se encontraron pacientes.</p>
-        ) : (
-          <ul style={{ display: "grid", gap: 10, padding: 0, listStyle: "none" }}>
-            {filtered.map((p) => (
-              <li key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "#2a2a2a", padding: "10px 15px", borderRadius: "8px" }}>
-                <div>
-                  <Link to={`/patients/${p.id}`} style={{ fontWeight: "bold", fontSize: "1.1em" }}>
-                    {p.firstName} {p.lastName}
-                  </Link>
-                  <div style={{ fontSize: "0.85em", opacity: 0.7, marginTop: "2px" }}>
-                    {p.phone || "Sin teléfono"} • {p.email || "Sin email"}
-                  </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 350px", gap: 30, alignItems: "start" }}>
+          
+          {/* FORMULARIO PRINCIPAL (MÁS LIMPIO) */}
+          <div style={{ background: "#1a1a1a", padding: 25, borderRadius: 12, border: "1px solid #333" }}>
+            <h3 style={{ marginTop: 0, color: "#e5e7eb", borderBottom: "1px solid #333", paddingBottom: 15, marginBottom: 20 }}>Registrar Nuevo Paciente</h3>
+            
+            <form onSubmit={onSubmit} style={{ display: "grid", gap: 15 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 15 }}>
+                    <InputGroup label="Nombre(s)" error={errors.firstName}>
+                        <input value={form.firstName} onChange={(e) => setForm(f => ({ ...f, firstName: e.target.value }))} style={{ width: "100%", padding: 10, borderRadius: 6, border: "1px solid #444", background: "#222", color: "white" }} />
+                    </InputGroup>
+                    <InputGroup label="Apellidos" error={errors.lastName}>
+                        <input value={form.lastName} onChange={(e) => setForm(f => ({ ...f, lastName: e.target.value }))} style={{ width: "100%", padding: 10, borderRadius: 6, border: "1px solid #444", background: "#222", color: "white" }} />
+                    </InputGroup>
                 </div>
-                <button onClick={() => remove(p.id)} style={{ background: "#4a1111", border: "1px solid #ff4d4f", fontSize: "0.8em" }}>
-                  Eliminar
+
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 15 }}>
+                    <InputGroup label="Teléfono (10 dígitos)" error={errors.phone}>
+                        <input value={form.phone} onChange={(e) => setForm(f => ({ ...f, phone: e.target.value }))} style={{ width: "100%", padding: 10, borderRadius: 6, border: "1px solid #444", background: "#222", color: "white" }} />
+                    </InputGroup>
+                    <InputGroup label="Email (Opcional)">
+                        <input value={form.email} onChange={(e) => setForm(f => ({ ...f, email: e.target.value }))} style={{ width: "100%", padding: 10, borderRadius: 6, border: "1px solid #444", background: "#222", color: "white" }} />
+                    </InputGroup>
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 15 }}>
+                    <InputGroup label="Fecha Nacimiento">
+                        <input type="date" value={form.dob} onChange={(e) => setForm(f => ({ ...f, dob: e.target.value }))} style={{ width: "100%", padding: 10, borderRadius: 6, border: "1px solid #444", background: "#222", color: "white" }} />
+                    </InputGroup>
+                    <InputGroup label="Sexo">
+                        <select value={form.sex} onChange={(e) => setForm(f => ({ ...f, sex: e.target.value }))} style={{ width: "100%", padding: 10, borderRadius: 6, border: "1px solid #444", background: "#222", color: "white" }}>
+                            <option value="NO_ESPECIFICADO">Prefiero no decir</option>
+                            <option value="MUJER">Mujer</option>
+                            <option value="HOMBRE">Hombre</option>
+                        </select>
+                    </InputGroup>
+                    <InputGroup label="Ocupación">
+                        <input placeholder="Ej. Estudiante" value={form.occupation} onChange={(e) => setForm(f => ({ ...f, occupation: e.target.value }))} style={{ width: "100%", padding: 10, borderRadius: 6, border: "1px solid #444", background: "#222", color: "white" }} />
+                    </InputGroup>
+                </div>
+
+                {/* SECCIÓN MARKETING (DIFERENCIADA) */}
+                <div style={{ background: "#111", padding: 15, borderRadius: 8, border: "1px dashed #444", marginTop: 10 }}>
+                    <div style={{ fontSize: 12, color: "#60a5fa", fontWeight: "bold", marginBottom: 10 }}>📊 Origen del Paciente</div>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 10 }}>
+                        <select value={form.referralSource} onChange={(e) => setForm(f => ({ ...f, referralSource: e.target.value }))} style={{ width: "100%", padding: 10, borderRadius: 6, border: "1px solid #444", background: "#222", color: "white" }}>
+                            <option value="">-- ¿Cómo se enteró? --</option>
+                            {sources.map(s => <option key={s} value={s}>{s}</option>)}
+                        </select>
+
+                        {form.referralSource === "Recomendación" && (
+                            <div style={{ position: "relative" }}>
+                                {selectedReferrer ? (
+                                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "#1e3a8a", padding: 10, borderRadius: 6 }}>
+                                        <span style={{ fontSize: 13 }}>Recomendado por: <strong>{selectedReferrer.firstName} {selectedReferrer.lastName}</strong></span>
+                                        <button type="button" onClick={() => setSelectedReferrer(null)} style={{ background: "none", border: "none", color: "#fff", cursor: "pointer" }}>✕</button>
+                                    </div>
+                                ) : (
+                                    <>
+                                        <input placeholder="Buscar quién lo recomendó..." value={referrerQuery} onChange={e => setReferrerQuery(e.target.value)} style={{ width: "100%", padding: 10, borderRadius: 6, border: "1px solid #4ade80", background: "#222", color: "white" }} />
+                                        {referrerQuery && filteredReferrers.length > 0 && (
+                                            <div style={{ position: "absolute", top: "100%", width: "100%", background: "#333", border: "1px solid #555", zIndex: 10, borderRadius: 6, marginTop: 4 }}>
+                                                {filteredReferrers.map(p => (
+                                                    <div key={p.id} onClick={() => { setSelectedReferrer(p); setReferrerQuery(""); }} style={{ padding: 10, borderBottom: "1px solid #444", cursor: "pointer", fontSize: 13 }}>{p.firstName} {p.lastName}</div>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </>
+                                )}
+                            </div>
+                        )}
+                    </div>
+                </div>
+
+                <button type="submit" style={{ marginTop: 15, padding: "12px", background: "#2563eb", color: "white", border: "none", borderRadius: 6, cursor: "pointer", fontWeight: "bold", fontSize: "1em" }}>
+                    Guardar Paciente
                 </button>
-              </li>
-            ))}
-          </ul>
-        )}
+            </form>
+          </div>
+
+          {/* LISTADO COMPACTO (DERECHA) */}
+          <div style={{ display: "grid", gap: 10, alignContent: "start" }}>
+            <div style={{ fontSize: 12, color: "#888", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: 5 }}>Directorio Reciente</div>
+            {filtered.length === 0 ? <p style={{ opacity: 0.6, fontSize: 13 }}>Sin resultados.</p> : 
+              filtered.map((p) => (
+                  <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "#1a1a1a", padding: "12px 15px", borderRadius: "8px", border: "1px solid #333" }}>
+                    <div style={{ overflow: "hidden" }}>
+                      <Link to={`/patients/${p.id}`} style={{ fontWeight: "bold", fontSize: "1em", color: "#fff", textDecoration: "none", display: "block", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                        {p.firstName} {p.lastName}
+                      </Link>
+                      <div style={{ fontSize: "0.8em", color: "#888", marginTop: "2px" }}>{p.phone}</div>
+                    </div>
+                    <button onClick={() => remove(p.id)} style={{ background: "none", border: "none", color: "#666", fontSize: "16px", cursor: "pointer", padding: "0 5px" }}>×</button>
+                  </div>
+              ))
+            }
+          </div>
       </div>
     </div>
   );

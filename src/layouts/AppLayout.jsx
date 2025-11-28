@@ -28,20 +28,24 @@ export default function AppLayout() {
             💸 Gastos
           </NavLink>
 
+          <NavLink to="receivables" className={linkClass}>
+            💳 Cobranza
+          </NavLink>
+
           <NavLink to="finance" className={linkClass}>
             💰 Finanzas
           </NavLink>
 
           <NavLink to="dashboard" className={linkClass}>
-            Dashboard
+            🗂️ Dashboard
           </NavLink>
 
           <NavLink to="patients" className={linkClass}>
-            Pacientes
+            👤 Pacientes
           </NavLink>
 
           <NavLink to="work-orders" className={linkClass}>
-            Work Orders
+            👓 Ordenes de trabajo
           </NavLink>
 
           <NavLink to="labs" className={linkClass}>
@@ -49,7 +53,11 @@ export default function AppLayout() {
           </NavLink>
 
           <NavLink to="inventory" className={linkClass}>
-            Inventario
+            🧰 Inventario
+          </NavLink>
+
+          <NavLink to="statistics" className={linkClass}>
+            📊 Estadísticas
           </NavLink>
 
         </nav>

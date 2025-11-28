@@ -1,28 +1,14 @@
 const KEY = "lusso_inventory_v1";
 
-function read() {
-  try {
-    const raw = localStorage.getItem(KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch { return []; }
-}
+function read() { try { return JSON.parse(localStorage.getItem(KEY) || "[]"); } catch { return []; } }
+function write(list) { localStorage.setItem(KEY, JSON.stringify(list)); }
 
-function write(list) {
-  localStorage.setItem(KEY, JSON.stringify(list));
-}
-
-export function getAllProducts() {
-  return read().sort((a, b) => a.brand.localeCompare(b.brand));
-}
-
-export function getProductById(id) {
-  return read().find((p) => p.id === id);
-}
+export function getAllProducts() { return read().sort((a, b) => a.brand.localeCompare(b.brand)); }
+export function getProductById(id) { return read().find((p) => p.id === id); }
 
 export function getInventoryStats() {
   const products = read();
   const frames = products.filter(p => p.category === "FRAMES");
-
   return {
     totalFrames: frames.length,
     byGender: {
@@ -48,15 +34,15 @@ export function createProduct(data) {
     brand: data.brand?.trim() || "Genérico",
     model: data.model?.trim() || "",
     description: data.description?.trim() || "",
-    
     price: Number(data.price) || 0,
-    
     isOnDemand: Boolean(data.isOnDemand), 
     stock: data.isOnDemand ? 9999 : (Number(data.stock) || 0), 
     minStock: Number(data.minStock) || 1,
+    taxable: data.taxable !== undefined ? Boolean(data.taxable) : true,
     
-    // NUEVO: Bandera fiscal
-    taxable: data.taxable !== undefined ? Boolean(data.taxable) : true, // Por defecto SÍ grava
+    // NUEVO: TRAZABILIDAD COFEPRIS
+    batch: data.batch || "", // Lote
+    expiry: data.expiry || "", // Fecha Caducidad ISO YYYY-MM-DD
     
     tags: {
       gender: data.tags?.gender || "UNISEX", 
@@ -64,7 +50,6 @@ export function createProduct(data) {
       color: data.tags?.color || "",
       presentation: data.tags?.presentation || "OTHER"
     },
-    
     createdAt: new Date().toISOString(),
   };
   write([newProduct, ...list]);
@@ -84,10 +69,7 @@ export function updateProduct(id, patch) {
   return updated;
 }
 
-export function deleteProduct(id) {
-  const list = read();
-  write(list.filter((p) => p.id !== id));
-}
+export function deleteProduct(id) { write(list.filter((p) => p.id !== id)); }
 
 export function adjustStock(id, amount) {
   const product = getProductById(id);

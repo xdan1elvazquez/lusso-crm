@@ -18,6 +18,8 @@ import SalesPage from "@/pages/SalesPage.jsx"; // 👈 IMPORTAR
 import FinancePage from "@/pages/FinancePage.jsx";
 import ExpensesPage from "@/pages/ExpensesPage.jsx";
 import LabsPage from "@/pages/LabsPage.jsx";
+import StatisticsPage from "@/pages/StatisticsPage.jsx";
+import ReceivablesPage from "@/pages/ReceivablesPage.jsx";
 
 function RequireAuth({ children }) {
   if (!isAuthed()) return <Navigate to="/login" replace />;
@@ -50,6 +52,10 @@ const router = createBrowserRouter([
       { path: "finance", element: <FinancePage /> },
       { path: "expenses", element: <ExpensesPage /> },
       { path: "labs", element: <LabsPage /> },
+      { path: "inventory", element: <InventoryPage /> },
+      { path: "statistics", element: <StatisticsPage /> },
+      { path: "labs", element: <LabsPage /> },
+      { path: "receivables", element: <ReceivablesPage /> },
     ],
   },
 ]);
