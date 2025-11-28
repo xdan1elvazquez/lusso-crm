@@ -120,7 +120,11 @@ export default function PatientDetailPage() {
                 <div style={{ display: "flex", gap: 15, marginTop: 8, color: "#bfdbfe", fontSize: "0.95em" }}>
                     <span>🎂 {calculateAge(form.dob)}</span>
                     <span>📞 {patient.phone}</span>
-                    <span>💼 {form.occupation || "Sin ocupación"}</span>
+                    
+                    {/* 👇 AQUÍ ESTÁ EL AGREGADO DE PUNTOS 👇 */}
+                    <span style={{ color: "#fbbf24", fontWeight: "bold", background: "rgba(251, 191, 36, 0.1)", padding: "0 8px", borderRadius: "4px" }}>
+                       💎 {patient.points || 0} Puntos
+                    </span>
                 </div>
              </div>
              <div style={{ textAlign: "right" }}>
