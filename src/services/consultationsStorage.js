@@ -10,44 +10,43 @@ function normalizeConsultation(raw) {
   return {
     id: base.id,
     patientId: base.patientId ?? null,
-    type: base.type || "OPHTHALMO", // OPHTHALMO, GENERAL, CHECKUP
+    type: base.type || "OPHTHALMO",
     
-    // --- 1. DATOS GENERALES (NOM-004) ---
     visitDate,
-    reason: base.reason?.trim() || "", // Motivo de consulta (Interrogatorio)
-    history: base.history?.trim() || "", // Padecimiento actual
+    reason: base.reason?.trim() || "",
+    history: base.history?.trim() || "",
 
-    // --- 2. SIGNOS VITALES (Obligatorio NOM) ---
     vitalSigns: {
-      sys: base.vitalSigns?.sys || "", // Sistólica (mmHg)
-      dia: base.vitalSigns?.dia || "", // Diastólica
-      heartRate: base.vitalSigns?.heartRate || "", // FC
-      temp: base.vitalSigns?.temp || "", // Temperatura
-      weight: base.vitalSigns?.weight || "", // Peso (kg) - Opcional en oftalmo pero bueno tenerlo
-      height: base.vitalSigns?.height || "", // Talla
+      sys: base.vitalSigns?.sys || "",
+      dia: base.vitalSigns?.dia || "",
+      heartRate: base.vitalSigns?.heartRate || "",
+      temp: base.vitalSigns?.temp || "",
+      weight: base.vitalSigns?.weight || "",
+      height: base.vitalSigns?.height || "",
     },
 
-    // --- 3. EXPLORACIÓN OFTALMOLÓGICA (La parte fuerte) ---
     exam: {
-      adnexa: base.exam?.adnexa || "", // Párpados, vía lagrimal, órbita
-      conjunctiva: base.exam?.conjunctiva || "", // Hiperemia, pterigión
-      cornea: base.exam?.cornea || "", // Transparencia, úlceras
-      anteriorChamber: base.exam?.anteriorChamber || "", // Tyndall, profundidad
-      iris: base.exam?.iris || "", // Pupilas, sinequias
-      lens: base.exam?.lens || "", // Cristalino (Catarata)
-      vitreous: base.exam?.vitreous || "", // Hialoides
-      retina: base.exam?.retina || "", // Fondo de ojo, mácula, nervio óptico
-      motility: base.exam?.motility || "", // Movimientos oculares (Ortotropia)
+      adnexa: base.exam?.adnexa || "",
+      conjunctiva: base.exam?.conjunctiva || "",
+      cornea: base.exam?.cornea || "",
+      anteriorChamber: base.exam?.anteriorChamber || "",
+      iris: base.exam?.iris || "",
+      lens: base.exam?.lens || "",
+      vitreous: base.exam?.vitreous || "",
+      retina: base.exam?.retina || "",
+      motility: base.exam?.motility || "",
     },
 
-    // --- 4. CONCLUSIONES ---
-    diagnosis: base.diagnosis?.trim() || "", // Dx principal (CIE-10 idealmente, texto por ahora)
-    treatment: base.treatment?.trim() || "", // Plan / Receta Médica
-    prognosis: base.prognosis?.trim() || "", // Pronóstico (Bueno para la función visual, reservado, etc)
+    diagnosis: base.diagnosis?.trim() || "",
+    treatment: base.treatment?.trim() || "",
+    prognosis: base.prognosis?.trim() || "",
     
-    notes: base.notes?.trim() || "", // Notas adicionales
+    // --- NUEVO: Lista estructurada de medicamentos para la caja ---
+    // Estructura: { productId, productName, quantity, instructions }
+    prescribedMeds: Array.isArray(base.prescribedMeds) ? base.prescribedMeds : [],
+
+    notes: base.notes?.trim() || "",
     
-    // Mantenemos Rx por compatibilidad, aunque ahora vive en EyeExam mayormente
     rx: normalizeRxValue(base.rx),
     createdAt,
   };
@@ -109,12 +108,13 @@ export function updateConsultation(id, patch) {
   let updated = null;
   const next = list.map((item) => {
     if (item.id !== id) return item;
-    // Hacemos merge profundo de los objetos anidados para no borrar datos
     updated = normalizeConsultation({
       ...item,
       ...patch,
       vitalSigns: { ...item.vitalSigns, ...(patch.vitalSigns || {}) },
       exam: { ...item.exam, ...(patch.exam || {}) },
+      // Aseguramos que se guarden los meds si vienen en el patch
+      prescribedMeds: patch.prescribedMeds || item.prescribedMeds || [],
     });
     return updated;
   });

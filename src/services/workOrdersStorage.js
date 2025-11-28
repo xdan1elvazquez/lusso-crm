@@ -1,5 +1,6 @@
 const KEY = "lusso_workorders_v1";
 
+// Flujo ordenado de producción
 const STATUS_FLOW = ["TO_PREPARE", "SENT_TO_LAB", "READY", "DELIVERED"];
 
 function read() {
@@ -7,9 +8,7 @@ function read() {
     const raw = localStorage.getItem(KEY);
     const parsed = raw ? JSON.parse(raw) : [];
     return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
+  } catch { return []; }
 }
 
 function write(list) {
@@ -23,13 +22,8 @@ function normalizeStatus(status) {
 
 function toISODate(value) {
   if (!value) return null;
-  if (typeof value === "string") {
-    if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return `${value}T00:00:00.000Z`;
-    const parsed = new Date(value);
-    if (!Number.isNaN(parsed.getTime())) return parsed.toISOString();
-  }
-  if (value instanceof Date && !Number.isNaN(value.getTime?.())) return value.toISOString();
-  return null;
+  const parsed = new Date(value);
+  return !Number.isNaN(parsed.getTime()) ? parsed.toISOString() : null;
 }
 
 function normalize(item) {
@@ -42,7 +36,7 @@ function normalize(item) {
     saleItemId: base.saleItemId ?? null,
     type: base.type || "OTRO",
     labName: base.labName || "",
-    rxNotes: base.rxNotes || "",
+    rxNotes: base.rxNotes || "", // Aquí viene el JSON de la Rx
     status: normalizeStatus(base.status),
     createdAt,
     updatedAt: base.updatedAt || createdAt,
@@ -56,9 +50,11 @@ export function getAllWorkOrders() {
 
 export function getWorkOrdersByPatientId(patientId) {
   if (!patientId) return [];
-  return read()
-    .filter((w) => w.patientId === patientId)
-    .map(normalize);
+  return read().filter((w) => w.patientId === patientId).map(normalize);
+}
+
+export function getWorkOrderById(id) {
+  return read().find(w => w.id === id);
 }
 
 export function createWorkOrder(payload) {
@@ -67,39 +63,23 @@ export function createWorkOrder(payload) {
   const now = new Date().toISOString();
   const workOrder = normalize({
     id: globalThis.crypto?.randomUUID?.() ?? String(Date.now()),
-    patientId: payload.patientId,
-    saleId: payload.saleId ?? null,
-    saleItemId: payload.saleItemId ?? null,
-    type: payload.type || "OTRO",
-    labName: payload.labName?.trim?.() || "",
-    rxNotes: payload.rxNotes?.trim?.() || "",
-    status: normalizeStatus(payload.status || "TO_PREPARE"),
-    createdAt: payload.createdAt || now,
-    updatedAt: payload.updatedAt || now,
-    dueDate: toISODate(payload.dueDate),
+    ...payload,
+    status: "TO_PREPARE",
+    createdAt: now,
+    updatedAt: now,
   });
-  const next = [workOrder, ...list];
-  write(next);
+  write([workOrder, ...list]);
   return workOrder;
 }
 
 export function updateWorkOrder(id, patch) {
-  if (!id) return null;
   const list = read();
   let updated = null;
   const now = new Date().toISOString();
   const next = list.map((item) => {
     if (item.id !== id) return item;
-    const normalized = normalize(item);
-    const merged = normalize({
-      ...normalized,
-      ...patch,
-      status: patch?.status ? normalizeStatus(patch.status) : normalized.status,
-      updatedAt: now,
-      dueDate: toISODate(patch?.dueDate) ?? normalized.dueDate,
-    });
-    updated = merged;
-    return merged;
+    updated = normalize({ ...item, ...patch, updatedAt: now });
+    return updated;
   });
   if (!updated) return null;
   write(next);
@@ -108,13 +88,21 @@ export function updateWorkOrder(id, patch) {
 
 export function deleteWorkOrder(id) {
   const list = read();
-  const next = list.filter((w) => w.id !== id);
-  write(next);
+  write(list.filter((w) => w.id !== id));
 }
+
+// --- LÓGICA DE FLUJO ---
 
 export function nextStatus(current) {
   const idx = STATUS_FLOW.indexOf(current);
-  if (idx === -1) return STATUS_FLOW[0];
-  if (idx >= STATUS_FLOW.length - 1) return STATUS_FLOW[idx];
+  if (idx === -1) return STATUS_FLOW[0]; // Si es cancelado o inválido, reinicia
+  if (idx >= STATUS_FLOW.length - 1) return STATUS_FLOW[idx]; // Tope final
   return STATUS_FLOW[idx + 1];
+}
+
+// NUEVO: Para poder corregir errores
+export function prevStatus(current) {
+  const idx = STATUS_FLOW.indexOf(current);
+  if (idx <= 0) return STATUS_FLOW[0]; // Tope inicial
+  return STATUS_FLOW[idx - 1];
 }
