@@ -3,12 +3,32 @@ import { Link, useParams } from "react-router-dom";
 import { getConsultationById, updateConsultation } from "@/services/consultationsStorage";
 import { getExamsByConsultation, createEyeExam, deleteEyeExam } from "@/services/eyeExamStorage"; 
 import { getAllProducts } from "@/services/inventoryStorage"; 
+import { getPatientById } from "@/services/patientsStorage"; // 👈 IMPORTANTE: Para el nombre en la receta
 import RxPicker from "@/components/RxPicker";
 import { normalizeRxValue } from "@/utils/rxOptions";
 import { validateRx } from "@/utils/validators";
-import StudiesPanel from "@/components/StudiesPanel";
 
-// --- DICCIONARIO VISUAL (Traducción de claves a títulos bonitos) ---
+// --- DATOS RÁPIDOS (CHIPS) ---
+const QUICK_DATA = {
+  symptoms: ["Mala Visión Lejana", "Mala Visión Próxima", "Cefalea", "Ardor", "Lagrimeo", "Comezón", "Dolor Ocular", "Fotofobia", "Ojo Rojo", "Secreción", "Cuerpo Extraño", "Revisión Rutina"],
+  anterior: {
+    lids: ["Normales", "Blefaritis", "Meibomitis", "Chalazion", "Orzuelo", "Ptosis", "Ectropion", "Entropion"],
+    conjunctiva: ["Clara", "Hiperemia Leve", "Hiperemia Mod/Sev", "Quemosis", "Pterigión I", "Pterigión II/III", "Pinguecula", "Folículos", "Papilas"],
+    cornea: ["Transparente", "QPS", "Úlcera", "Leucoma", "Queratocono", "Edema", "Pannus"],
+    chamber: ["Formada", "Estrecha", "Tyndall (+)", "Hipopion", "Hifema"],
+    iris: ["Normal", "Sinequias", "Atrofia", "Rubeosis"],
+    lens: ["Transparente", "Facosclerosis", "Cat. Nuclear", "Cat. Cortical", "Cat. Subcapsular", "LIO Centrado"]
+  },
+  posterior: {
+    vitreous: ["Transparente", "DVP", "Miodesopsias", "Hemorragia"],
+    nerve: ["Bordes Netos", "Excavación 0.3", "Excavación 0.5", "Excavación 0.8", "Palidez"],
+    macula: ["Brillo Foveal", "Drusas", "Edema", "EPR Alterado"],
+    vessels: ["Normales", "Tortuosidad", "Cruces A/V", "Hemorragias", "Exudados"],
+    retinaPeriphery: ["Aplicada", "Desgarro", "Agujero", "Desprendimiento"]
+  }
+};
+
+// --- DICCIONARIO VISUAL ---
 const SEGMENTS_ANTERIOR = [
   { key: "lids", label: "Párpados y Anexos" },
   { key: "conjunctiva", label: "Conjuntiva" },
@@ -26,26 +46,6 @@ const SEGMENTS_POSTERIOR = [
   { key: "retinaPeriphery", label: "Retina Periférica" }
 ];
 
-// --- DATOS RÁPIDOS (CHIPS) ---
-const QUICK_DATA = {
-  symptoms: ["Mala Visión Lejana", "Mala Visión Próxima", "Cefalea", "Ardor", "Lagrimeo", "Comezón", "Dolor Ocular", "Fotofobia", "Ojo Rojo", "Secreción", "Cuerpo Extraño", "Revisión Rutina"],
-  anterior: {
-    lids: ["Normales", "Blefaritis", "Meibomitis", "Chalazion", "Orzuelo", "Ptosis", "Ectropion", "Entropion"],
-    conjunctiva: ["Clara", "Hiperemia Leve", "Hiperemia Mod/Sev", "Quemosis", "Pterigión I", "Pterigión II/III", "Pinguecula", "Folículos", "Papilas"],
-    cornea: ["Transparente", "QPS", "Úlcera", "Leucoma", "Queratocono", "Edema", "Distrofia", "Pannus"],
-    chamber: ["Formada/Profunda", "Estrecha", "Panda (Vano)", "Tyndall (+)", "Hipopion", "Hifema"],
-    iris: ["Normal/Isocoria", "Normorreflexia", "Sinequias Post", "Atrofia", "Rubeosis", "DPAR (+)"],
-    lens: ["Transparente", "Facosclerosis", "Cat. Nuclear", "Cat. Cortical", "Cat. Subcapsular", "LIO Centrado", "LIO Subluxado"]
-  },
-  posterior: {
-    vitreous: ["Transparente", "DVP (Desprendimiento)", "Flotadores/Miodesopsias", "Hemorragia Vítrea", "Sinéresis"],
-    nerve: ["Bordes Netos", "Excavación 0.3", "Excavación 0.5", "Excavación 0.7+", "Palidez", "Edema/Borramiento"],
-    macula: ["Brillo Foveal (+)", "Drusas", "Edema Macular", "EPR Alterado", "Agujero Macular", "Membrana Epirretiniana"],
-    vessels: ["Calibre Normal", "Tortuosidad", "Cruces A/V", "Hemorragias en flama", "Microaneurismas", "Exudados Duros", "Exudados Algodonosos"],
-    retinaPeriphery: ["Aplicada", "Adelgazamiento", "Desgarro", "Agujero", "Desprendimiento (DR)", "Desprendimiento (DRT)"]
-  }
-};
-
 const ALICIA_TEMPLATES = {
   "GLAUCOMA": "Padecimiento crónico. Disminución campo visual. AHF Glaucoma: [SI/NO]. Tx: [GOTAS].",
   "OJO_SECO": "Sensación cuerpo extraño y ardor AO. Empeora tardes. Mejora lubricantes.",
@@ -61,7 +61,7 @@ function toDateInput(isoString) {
   return Number.isNaN(date.getTime()) ? "" : date.toISOString().slice(0, 10);
 }
 
-// --- SUBCOMPONENTES FUERA (CRÍTICO PARA EVITAR BUG DE FOCO) ---
+// --- SUBCOMPONENTES FUERA ---
 const labelStyle = { color: "#ccc", fontSize: 13, display: "block", marginBottom: 4 };
 const inputStyle = { width: "100%", padding: 8, background: "#222", border: "1px solid #444", color: "white", borderRadius: 4 };
 const textareaStyle = { ...inputStyle, resize: "vertical" };
@@ -72,7 +72,6 @@ const QuickChip = ({ label, active, onClick }) => (
   </button>
 );
 
-// COMPONENTE INTERNO DE OJO (AHORA INDEPENDIENTE)
 const EyeColumn = ({ eyeLabel, value, onChange, onChipClick, onFileClick, options }) => (
     <div style={{flex:1}}>
         <div style={{display:"flex", justifyContent:"space-between", marginBottom:5}}>
@@ -141,7 +140,7 @@ function PrescriptionBuilder({ onAdd }) {
     <div style={{ background: "#222", border: "1px solid #444", borderRadius: 8, padding: 12, marginBottom: 10 }}>
       <div style={{ fontSize: 12, color: "#60a5fa", fontWeight: "bold", marginBottom: 8 }}>⚡ Agregar Medicamento Rápido</div>
       <div style={{ position: "relative", marginBottom: 10 }}>
-        <input placeholder="Buscar en farmacia o escribir..." value={selectedMed ? `${selectedMed.brand} ${selectedMed.model}` : manualName || query} onChange={e => { setQuery(e.target.value); setManualName(e.target.value); setSelectedMed(null); }} style={{ width: "100%", padding: 8, borderRadius: 4, border: "1px solid #555", background: "#333", color: "white" }} />
+        <input placeholder="Buscar en farmacia o escribir nombre..." value={selectedMed ? `${selectedMed.brand} ${selectedMed.model}` : manualName || query} onChange={e => { setQuery(e.target.value); setManualName(e.target.value); setSelectedMed(null); }} style={{ width: "100%", padding: 8, borderRadius: 4, border: "1px solid #555", background: "#333", color: "white" }} />
         {selectedMed && <span style={{ position: "absolute", right: 10, top: 8, fontSize: 11, color: Number(selectedMed.stock) > 0 ? "#4ade80" : "#f87171", fontWeight: "bold" }}>{Number(selectedMed.stock) > 0 ? `✅ Stock: ${selectedMed.stock}` : `⚠️ Stock: 0`}</span>}
         {query && filteredMeds.length > 0 && !selectedMed && (<div style={{ position: "absolute", top: "100%", left: 0, right: 0, background: "#333", border: "1px solid #555", zIndex: 10, maxHeight: 150, overflowY: "auto" }}>{filteredMeds.map(p => (<div key={p.id} onClick={() => handleSelectMed(p)} style={{ padding: 8, borderBottom: "1px solid #444", cursor: "pointer", fontSize: 13, display: "flex", justifyContent: "space-between" }}><div>{p.brand} {p.model}</div><div style={{ fontSize: 11, color: Number(p.stock) > 0 ? "#4ade80" : "#f87171", fontWeight: "bold" }}>{Number(p.stock) > 0 ? `Stock: ${p.stock}` : "Agotado"}</div></div>))}</div>)}
       </div>
@@ -157,10 +156,10 @@ function PrescriptionBuilder({ onAdd }) {
   );
 }
 
-// PAGINA PRINCIPAL
 export default function ConsultationDetailPage() {
   const { patientId, consultationId } = useParams();
   const [consultation, setConsultation] = useState(null);
+  const [patient, setPatient] = useState(null); // 👈 Estado para el nombre del paciente
   const [form, setForm] = useState(null);
 
   const [exams, setExams] = useState([]);
@@ -171,6 +170,10 @@ export default function ConsultationDetailPage() {
 
   useEffect(() => {
     const c = getConsultationById(consultationId);
+    // Cargar paciente para el nombre en la receta
+    const p = getPatientById(patientId);
+    setPatient(p);
+
     if (c && c.patientId === patientId) {
       setConsultation(c);
       setForm({
@@ -201,20 +204,61 @@ export default function ConsultationDetailPage() {
   const onDeleteExam = (id) => { if (confirm("¿Borrar?")) { deleteEyeExam(id); setTick(t => t + 1); } };
   
   const handleAddFile = (section, eye, fileUrl) => {
-      setForm(f => ({
-          ...f,
-          exam: {
-              ...f.exam,
-              [section]: {
-                  ...f.exam[section],
-                  [eye]: {
-                      ...f.exam[section][eye],
-                      files: [...(f.exam[section][eye].files || []), fileUrl]
-                  }
-              }
-          }
-      }));
+      setForm(f => ({ ...f, exam: { ...f.exam, [section]: { ...f.exam[section], [eye]: { ...f.exam[section][eye], files: [...(f.exam[section][eye].files || []), fileUrl] } } } }));
       alert("Archivo adjuntado: " + fileUrl);
+  };
+
+  // --- FUNCIÓN DE IMPRESIÓN (RECETA MEMBRETADA) ---
+  const handlePrintPrescription = () => {
+    const date = new Date().toLocaleDateString();
+    const win = window.open('', '', 'width=800,height=600');
+    
+    // AQUÍ AJUSTAS EL MARGEN SUPERIOR SI TU HOJA TIENE UN LOGO MUY GRANDE
+    const MARGIN_TOP_PX = 180; 
+
+    win.document.write(`
+      <html>
+        <head>
+          <title>Receta ${patient?.firstName || ""}</title>
+          <style>
+            body { font-family: Arial, sans-serif; font-size: 12pt; margin: 0; padding: 0; }
+            .page-content { margin-top: ${MARGIN_TOP_PX}px; margin-left: 60px; margin-right: 60px; }
+            .header-row { display: flex; justify-content: space-between; margin-bottom: 30px; font-size: 1.1em; }
+            .section { margin-bottom: 25px; }
+            .label { font-weight: bold; font-size: 0.9em; color: #444; text-transform: uppercase; margin-bottom: 5px; }
+            .text-content { white-space: pre-wrap; line-height: 1.6; }
+            .signature-box { margin-top: 100px; text-align: center; page-break-inside: avoid; }
+            .line { width: 250px; border-top: 1px solid #000; margin: 0 auto 10px auto; }
+          </style>
+        </head>
+        <body>
+          <div class="page-content">
+            <div class="header-row">
+               <div><strong>Paciente:</strong> ${patient?.firstName} ${patient?.lastName}</div>
+               <div><strong>Fecha:</strong> ${date}</div>
+            </div>
+
+            ${form.diagnosis ? `
+            <div class="section">
+              <div class="label">Diagnóstico Rx:</div>
+              <div class="text-content">${form.diagnosis}</div>
+            </div>` : ''}
+
+            <div class="section">
+              <div class="label">Tratamiento / Indicaciones:</div>
+              <div class="text-content">${form.treatment || "Sin tratamiento específico."}</div>
+            </div>
+
+            <div class="signature-box">
+               <div class="line"></div>
+               <div>Firma del Médico</div>
+            </div>
+          </div>
+          <script>window.print();</script>
+        </body>
+      </html>
+    `);
+    win.document.close();
   };
 
   if (!consultation || !form) return <div style={{padding:40, textAlign:"center"}}>Cargando...</div>;
@@ -224,16 +268,20 @@ export default function ConsultationDetailPage() {
       <div style={{ marginBottom: 20 }}>
         <Link to={`/patients/${patientId}`} style={{ color: "#aaa", textDecoration: "none" }}>← Volver</Link>
         <h1 style={{ marginTop: 10, marginBottom: 5 }}>Consulta Oftalmológica</h1>
-        <div style={{ color: "#666", fontSize: "0.9em" }}>Folio: {consultation.id.slice(0,8)}</div>
       </div>
 
       <div style={{ display: "grid", gap: 30 }}>
         <section style={{ background: "#1a1a1a", padding: 24, borderRadius: 12, border: "1px solid #333" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 20 }}>
-             <label style={{ fontSize: 13, color: "#888" }}>Fecha <input type="date" value={form.visitDate} onChange={(e) => setForm(f => ({ ...f, visitDate: e.target.value }))} style={{ display:"block", marginTop:4, padding: "6px", background: "#222", border: "1px solid #444", color: "white", borderRadius: 4 }} /></label>
-             <button onClick={onSaveConsultation} style={{ background: "#2563eb", border: "none", color: "white", padding: "8px 25px", borderRadius: 6, cursor: "pointer", fontWeight: "bold", height: "fit-content", alignSelf: "center" }}>💾 GUARDAR</button>
+          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 20, background:"#111", padding:10, borderRadius:8, border:"1px solid #333" }}>
+             <label style={{ fontSize: 13, color: "#888" }}>Fecha Atención <input type="date" value={form.visitDate} onChange={(e) => setForm(f => ({ ...f, visitDate: e.target.value }))} style={{ display:"block", marginTop:4, padding: "6px 10px", background: "#222", border: "1px solid #444", color: "white", borderRadius: 4 }} /></label>
+             <div style={{display:"flex", gap:10, alignItems:"center"}}>
+                {/* BOTÓN DE IMPRIMIR */}
+                <button onClick={handlePrintPrescription} style={{ background: "#333", border: "1px solid #ccc", color: "#fff", padding: "8px 16px", borderRadius: 6, cursor: "pointer", fontWeight: "bold", height: "fit-content" }}>🖨️ Imprimir Receta</button>
+                <button onClick={onSaveConsultation} style={{ background: "#2563eb", border: "none", color: "white", padding: "8px 25px", borderRadius: 6, cursor: "pointer", fontWeight: "bold", height: "fit-content" }}>💾 GUARDAR NOTA</button>
+             </div>
           </div>
 
+          {/* ... (EL RESTO DEL CÓDIGO DEL FORMULARIO ES IGUAL, SE MANTIENE) ... */}
           <div style={{ display: "grid", gap: 30 }}>
             <div>
               <h3 style={{ color:"#60a5fa", borderBottom:"1px solid #60a5fa", paddingBottom:5 }}>1. Interrogatorio</h3>
@@ -255,7 +303,7 @@ export default function ConsultationDetailPage() {
               </div>
             </div>
 
-            {/* 3. SEGMENTO ANTERIOR CON TÍTULOS EN ESPAÑOL */}
+            {/* 3. SEGMENTO ANTERIOR (TRADUCIDO) */}
             <div>
               <h3 style={{ color:"#4ade80", borderBottom:"1px solid #4ade80", paddingBottom:5 }}>3. Biomicroscopía (Ant)</h3>
               <div style={{ display: "grid", gap: 20 }}>
@@ -284,7 +332,7 @@ export default function ConsultationDetailPage() {
                </div>
             </div>
 
-            {/* 5. SEGMENTO POSTERIOR CON TÍTULOS EN ESPAÑOL */}
+            {/* 5. SEGMENTO POSTERIOR (TRADUCIDO) */}
             <div>
               <h3 style={{ color:"#f472b6", borderBottom:"1px solid #f472b6", paddingBottom:5 }}>5. Fondo de Ojo (Post)</h3>
               <div style={{ display: "grid", gap: 20 }}>
@@ -324,10 +372,6 @@ export default function ConsultationDetailPage() {
           <div style={{ display: "grid", gap: 10 }}>{exams.map(exam => (<div key={exam.id} style={{ background: "#222", padding: 10, borderRadius: 6, borderLeft: "3px solid #60a5fa" }}><div style={{fontSize:"0.9em"}}>OD {exam.rx.od.sph} / OI {exam.rx.os.sph}</div><button onClick={() => onDeleteExam(exam.id)} style={{ fontSize: 11, background: "none", border: "none", color: "#666", cursor: "pointer" }}>Borrar</button></div>))}</div>
           {showRxForm && <div style={{ background: "#1f1f1f", padding: 15, borderRadius: 8 }}><RxPicker value={rxForm} onChange={setRxForm} /><button onClick={onSaveExam} style={{ marginTop: 10, background: "#60a5fa", border: "none", padding: "8px" }}>Guardar Rx</button></div>}
         </section>
-        
-        {/* NUEVO: PANEL DE ESTUDIOS DE LA CONSULTA */}
-        <StudiesPanel patientId={patientId} consultationId={consultationId} />
-        
       </div>
     </div>
   );
