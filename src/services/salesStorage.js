@@ -11,6 +11,7 @@ function read() {
     const str = localStorage.getItem(KEY);
     if (!str) return [];
     const parsed = JSON.parse(str);
+    // 🛡️ FILTRO DE SEGURIDAD: Elimina nulos
     return Array.isArray(parsed) ? parsed.filter(item => item && typeof item === 'object') : [];
   } catch { return []; }
 }
@@ -39,6 +40,10 @@ function normalizeItem(item, saleFallback) {
     description: base.description || fallback.description || "",
     qty: Number(base.qty) || 1,
     unitPrice: Number(base.unitPrice) || 0,
+    
+    // ✅ COSTO INTERNO (Vital para utilidad)
+    cost: Number(base.cost) || 0,
+
     requiresLab: LAB_KINDS.has(kind) || Boolean(base.requiresLab),
     consultationId: base.consultationId ?? fallback.consultationId ?? null,
     eyeExamId: base.eyeExamId ?? null,
@@ -87,9 +92,7 @@ function normalizeSale(raw) {
     id: sale.id || crypto.randomUUID(),
     patientId: sale.patientId ?? null,
     boxNumber: sale.boxNumber || "",
-    
-    // DATOS GENERALES
-    soldBy: sale.soldBy || sale.logistics?.soldBy || "", // 👈 AHORA EN RAÍZ (GENERAL)
+    soldBy: sale.soldBy || sale.logistics?.soldBy || "",
     
     kind: sale.kind || items[0]?.kind || "OTHER",
     description: sale.description || items[0]?.description || "",
@@ -98,14 +101,13 @@ function normalizeSale(raw) {
     createdAt: sale.createdAt || new Date().toISOString(),
     updatedAt: sale.updatedAt || sale.createdAt || new Date().toISOString(),
     pointsAwarded: sale.pointsAwarded || 0,
-
-    // 👈 DATOS EXCLUSIVOS DE LABORATORIO / TALLER
-    labDetails: {
-        jobMadeBy: sale.labDetails?.jobMadeBy || sale.logistics?.jobMadeBy || "",
-        sentBy: sale.labDetails?.sentBy || sale.logistics?.labSentBy || "",
-        receivedBy: sale.labDetails?.receivedBy || sale.logistics?.labReceivedBy || "",
-        courier: sale.labDetails?.courier || sale.logistics?.courier || "",
-        deliveryDate: sale.labDetails?.deliveryDate || sale.logistics?.deliveryDate || null
+    
+    logistics: {
+        jobMadeBy: sale.logistics?.jobMadeBy || sale.labDetails?.jobMadeBy || "",
+        labSentBy: sale.logistics?.labSentBy || sale.labDetails?.sentBy || "",
+        labReceivedBy: sale.logistics?.labReceivedBy || sale.labDetails?.receivedBy || "",
+        courier: sale.logistics?.courier || sale.labDetails?.courier || "",
+        deliveryDate: sale.logistics?.deliveryDate || sale.labDetails?.deliveryDate || null
     }
   };
 }
@@ -123,16 +125,24 @@ export function getSalesByPatientId(id) { return getAllSales().filter(s => s.pat
 function ensureWorkOrdersForSale(sale) {
   const existing = getAllWorkOrders();
   const existingKeys = new Set(existing.map(w => `${w.saleId}::${w.saleItemId}`));
+  
   sale.items.forEach(item => {
     if (!item.requiresLab) return;
     const key = `${sale.id}::${item.id}`;
     if (existingKeys.has(key)) return;
+    
     createWorkOrder({
-      patientId: sale.patientId, saleId: sale.id, saleItemId: item.id,
+      patientId: sale.patientId,
+      saleId: sale.id,
+      saleItemId: item.id,
       type: item.kind === "CONTACT_LENS" ? "LC" : "LENTES",
-      status: "TO_PREPARE", labName: item.labName || "",
+      status: "TO_PREPARE",
+      labName: item.labName || "",
+      // ✅ CORRECCIÓN: Pasamos el costo al taller
+      labCost: item.cost || 0, 
       rxNotes: item.rxSnapshot ? JSON.stringify(item.rxSnapshot) : "",
-      dueDate: item.dueDate || null, createdAt: sale.createdAt,
+      dueDate: item.dueDate || null,
+      createdAt: sale.createdAt,
     });
   });
 }
@@ -141,26 +151,35 @@ export function createSale(payload) {
   if (!payload?.patientId) throw new Error("patientId requerido");
   const list = read();
   const now = new Date().toISOString();
-  
+  const loyalty = getLoyaltySettings();
+
+  // Puntos
+  let pointsToAward = 0;
+  if (loyalty.enabled) {
+      const method = payload.payments?.[0]?.method || "EFECTIVO";
+      const rate = loyalty.earningRates[method] !== undefined ? loyalty.earningRates[method] : loyalty.earningRates["GLOBAL"];
+      pointsToAward = Math.floor((payload.total * rate) / 100);
+  }
+
   const normalizedSale = normalizeSale({
     id: crypto.randomUUID(),
     ...payload,
-    createdAt: now, updatedAt: now
+    createdAt: now,
+    updatedAt: now,
+    pointsAwarded: pointsToAward
   });
 
+  // Descontar stock
   normalizedSale.items.forEach(item => {
     if (item.inventoryProductId) adjustStock(item.inventoryProductId, -item.qty);
   });
 
-  // Puntos
-  const loyalty = getLoyaltySettings();
-  if (loyalty.enabled && normalizedSale.pointsAwarded > 0) {
-      adjustPatientPoints(payload.patientId, normalizedSale.pointsAwarded);
-      const p = getPatientById(payload.patientId);
-      if (p && p.referredBy) {
-         const refPts = Math.floor((normalizedSale.total * loyalty.referralBonusPercent) / 100);
-         if (refPts > 0) adjustPatientPoints(p.referredBy, refPts);
-      }
+  // Puntos a paciente y referido
+  if (pointsToAward > 0) adjustPatientPoints(payload.patientId, pointsToAward);
+  const patient = getPatientById(payload.patientId);
+  if (loyalty.enabled && patient && patient.referredBy) {
+      const referralPoints = Math.floor((payload.total * loyalty.referralBonusPercent) / 100);
+      if (referralPoints > 0) adjustPatientPoints(patient.referredBy, referralPoints);
   }
 
   write([normalizedSale, ...list]);
@@ -168,18 +187,12 @@ export function createSale(payload) {
   return withDerived(normalizedSale);
 }
 
-// Función actualizada para guardar datos de logística y vendedor
 export function updateSaleLogistics(id, data) {
     const list = read();
     const now = new Date().toISOString();
     const next = list.map(s => {
         if (s.id !== id) return s;
-        return { 
-            ...s, 
-            soldBy: data.soldBy !== undefined ? data.soldBy : s.soldBy, // Actualizar vendedor
-            labDetails: { ...(s.labDetails || {}), ...(data.labDetails || {}) }, // Actualizar lab
-            updatedAt: now
-        };
+        return { ...s, soldBy: data.soldBy!==undefined?data.soldBy:s.soldBy, logistics: { ...(s.logistics||{}), ...(data.labDetails||{}) }, updatedAt: now };
     });
     write(next);
 }
@@ -209,7 +222,7 @@ export function getFinancialReport() {
     const now = new Date();
     const todayStr = now.toISOString().slice(0, 10);
     const monthStr = now.toISOString().slice(0, 7);
-    let incomeToday = 0, incomeMonth = 0, salesToday = 0, salesMonth = 0, totalReceivable = 0, totalFees = 0;
+    let incomeToday=0, incomeMonth=0, salesToday=0, salesMonth=0, totalReceivable=0, totalFees=0;
     const incomeByMethod = { EFECTIVO: 0, TARJETA: 0, TRANSFERENCIA: 0, OTRO: 0 };
     sales.forEach(sale => {
         const date = sale.createdAt.slice(0, 10);
