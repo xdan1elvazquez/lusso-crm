@@ -1,14 +1,26 @@
 const KEY = "lusso_inventory_v1";
 
-function read() { try { return JSON.parse(localStorage.getItem(KEY) || "[]"); } catch { return []; } }
+function read() {
+  try {
+    const raw = localStorage.getItem(KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch { return []; }
+}
+
 function write(list) { localStorage.setItem(KEY, JSON.stringify(list)); }
 
-export function getAllProducts() { return read().sort((a, b) => a.brand.localeCompare(b.brand)); }
-export function getProductById(id) { return read().find((p) => p.id === id); }
+export function getAllProducts() {
+  return read().sort((a, b) => a.brand.localeCompare(b.brand));
+}
+
+export function getProductById(id) {
+  return read().find((p) => p.id === id);
+}
 
 export function getInventoryStats() {
   const products = read();
   const frames = products.filter(p => p.category === "FRAMES");
+
   return {
     totalFrames: frames.length,
     byGender: {
@@ -22,7 +34,9 @@ export function getInventoryStats() {
       acetato: frames.filter(p => p.tags?.material === "ACETATO").length,
       otro: frames.filter(p => !["METAL", "ACETATO"].includes(p.tags?.material)).length,
     },
-    lowStock: products.filter(p => !p.isOnDemand && p.stock <= p.minStock).length
+    lowStock: products.filter(p => !p.isOnDemand && p.stock <= p.minStock).length,
+    // NUEVO: Valor total del inventario (Dinero invertido)
+    inventoryValue: products.reduce((sum, p) => sum + ((Number(p.cost)||0) * (Number(p.stock)||0)), 0)
   };
 }
 
@@ -34,15 +48,19 @@ export function createProduct(data) {
     brand: data.brand?.trim() || "Genérico",
     model: data.model?.trim() || "",
     description: data.description?.trim() || "",
-    price: Number(data.price) || 0,
+    
+    price: Number(data.price) || 0, // Precio Público
+    cost: Number(data.cost) || 0,   // 👈 NUEVO: Costo Proveedor (Invisible al cliente)
+    
     isOnDemand: Boolean(data.isOnDemand), 
     stock: data.isOnDemand ? 9999 : (Number(data.stock) || 0), 
     minStock: Number(data.minStock) || 1,
+    
     taxable: data.taxable !== undefined ? Boolean(data.taxable) : true,
     
-    // NUEVO: TRAZABILIDAD COFEPRIS
-    batch: data.batch || "", // Lote
-    expiry: data.expiry || "", // Fecha Caducidad ISO YYYY-MM-DD
+    // TRAZABILIDAD COFEPRIS
+    batch: data.batch || "", 
+    expiry: data.expiry || "", 
     
     tags: {
       gender: data.tags?.gender || "UNISEX", 
@@ -50,6 +68,7 @@ export function createProduct(data) {
       color: data.tags?.color || "",
       presentation: data.tags?.presentation || "OTHER"
     },
+    
     createdAt: new Date().toISOString(),
   };
   write([newProduct, ...list]);
@@ -58,18 +77,18 @@ export function createProduct(data) {
 
 export function updateProduct(id, patch) {
   const list = read();
-  let updated = null;
   const next = list.map((p) => {
     if (p.id !== id) return p;
     const newTags = { ...p.tags, ...(patch.tags || {}) };
-    updated = { ...p, ...patch, tags: newTags };
-    return updated;
+    return { ...p, ...patch, tags: newTags };
   });
   write(next);
-  return updated;
+  return next.find(p => p.id === id);
 }
 
-export function deleteProduct(id) { write(list.filter((p) => p.id !== id)); }
+export function deleteProduct(id) {
+  write(read().filter((p) => p.id !== id));
+}
 
 export function adjustStock(id, amount) {
   const product = getProductById(id);

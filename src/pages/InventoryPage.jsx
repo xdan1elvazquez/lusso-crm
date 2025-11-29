@@ -29,8 +29,10 @@ export default function InventoryPage() {
   const [alerts, setAlerts] = useState(getAlertSettings());
 
   const [form, setForm] = useState({
-    id: null, category: "FRAMES", brand: "", model: "", price: "", stock: "", minStock: "1", isOnDemand: false, taxable: true,
-    batch: "", expiry: "", // 👈 NUEVOS CAMPOS
+    id: null, category: "FRAMES", brand: "", model: "", 
+    price: "", cost: "", // 👈 NUEVO: Costo Proveedor
+    stock: "", minStock: "1", isOnDemand: false, taxable: true,
+    batch: "", expiry: "",
     tags: { gender: "UNISEX", material: "ACETATO", color: "", presentation: "DROPS" }
   });
 
@@ -47,7 +49,9 @@ export default function InventoryPage() {
 
   const resetForm = () => {
     setForm({ 
-      id: null, category: "FRAMES", brand: "", model: "", price: "", stock: "", minStock: "1", isOnDemand: false, taxable: true, batch: "", expiry: "",
+      id: null, category: "FRAMES", brand: "", model: "", 
+      price: "", cost: "", // Resetear costo
+      stock: "", minStock: "1", isOnDemand: false, taxable: true, batch: "", expiry: "",
       tags: { gender: "UNISEX", material: "ACETATO", color: "", presentation: "DROPS" }
     });
   };
@@ -63,6 +67,7 @@ export default function InventoryPage() {
   const handleEdit = (product) => {
     setForm({
       ...product,
+      cost: product.cost || "", // Cargar costo si existe
       taxable: product.taxable !== undefined ? product.taxable : true,
       batch: product.batch || "", expiry: product.expiry || "",
       tags: { gender: "UNISEX", material: "OTRO", color: "", presentation: "DROPS", ...product.tags }
@@ -75,11 +80,14 @@ export default function InventoryPage() {
   const StatCard = ({ label, value, subtext, alertThreshold, isInverse }) => {
     let statusColor = "#4ade80";
     if (isInverse) { if (value > 0) statusColor = "#f87171"; } 
-    else { if (value < alertThreshold) statusColor = "#f87171"; else if (value < alertThreshold * 1.2) statusColor = "#facc15"; }
+    else if (alertThreshold) { if (value < alertThreshold) statusColor = "#f87171"; else if (value < alertThreshold * 1.2) statusColor = "#facc15"; }
+    // Si no hay threshold (ej. valor inventario), usar color neutro o azul
+    if (!alertThreshold && !isInverse) statusColor = "#60a5fa";
+
     return (
       <div style={{ background: "#1a1a1a", border: `1px solid ${statusColor}`, borderRadius: 10, padding: 15, position: "relative", overflow:"hidden" }}>
         <div style={{ width: 4, height: "100%", background: statusColor, position: "absolute", left: 0, top: 0 }}></div>
-        <div style={{ fontSize: 12, color: "#888", marginBottom: 4, display:"flex", justifyContent:"space-between" }}><span>{label}</span>{!isInverse && <span style={{fontSize:10, opacity:0.5}}>Meta: {alertThreshold}</span>}</div>
+        <div style={{ fontSize: 12, color: "#888", marginBottom: 4, display:"flex", justifyContent:"space-between" }}><span>{label}</span>{!isInverse && alertThreshold && <span style={{fontSize:10, opacity:0.5}}>Meta: {alertThreshold}</span>}</div>
         <div style={{ fontSize: 24, fontWeight: "bold", color: "white" }}>{value}</div>
         {subtext && <div style={{ fontSize: 11, color: "#666", marginTop: 4 }}>{subtext}</div>}
       </div>
@@ -100,7 +108,7 @@ export default function InventoryPage() {
         <StatCard label="Total Armazones" value={stats.totalFrames} alertThreshold={alerts.minTotalFrames} />
         <StatCard label="Hombres" value={stats.byGender.hombre} alertThreshold={alerts.minMen} />
         <StatCard label="Mujeres" value={stats.byGender.mujer} alertThreshold={alerts.minWomen} />
-        <StatCard label="Stock Bajo" value={stats.lowStock} isInverse={true} subtext="Productos por agotar" />
+        <StatCard label="Valor Inventario ($)" value={`$${stats.inventoryValue?.toLocaleString()}`} subtext="Costo total invertido" />
       </div>
 
       {isConfiguring && (
@@ -124,6 +132,7 @@ export default function InventoryPage() {
         <section style={{ background: "#1a1a1a", padding: 20, borderRadius: 12, border: "1px solid #333", marginBottom: 30 }}>
           <h3 style={{ marginTop: 0, color: "#e5e7eb" }}>{form.id ? "Editar Producto" : "Nuevo Producto"}</h3>
           <form onSubmit={handleSubmitProduct} style={{ display: "grid", gap: 20 }}>
+            
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 15 }}>
               <label style={{ display: "grid", gap: 4 }}><span style={{ fontSize: 12, color: "#aaa" }}>Categoría</span><select value={form.category} onChange={e => setForm({...form, category: e.target.value})} style={{ padding: 8, background: "#222", border: "1px solid #444", color: "white", borderRadius: 4 }}>{CATEGORIES.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}</select></label>
               <label style={{ display: "grid", gap: 4 }}><span style={{ fontSize: 12, color: "#aaa" }}>Marca</span><input required placeholder="Ej. RayBan" value={form.brand} onChange={e => setForm({...form, brand: e.target.value})} style={{ padding: 8, background: "#222", border: "1px solid #444", color: "white", borderRadius: 4 }} /></label>
@@ -137,7 +146,6 @@ export default function InventoryPage() {
               </div>
             )}
 
-            {/* ZONA DE TRAZABILIDAD (COFEPRIS) */}
             {(form.category === "MEDICATION" || form.category === "CONTACT_LENS") && (
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 15, padding: 15, background: "#064e3b", borderRadius: 8, border: "1px solid #059669" }}>
                 <div style={{ gridColumn: "1/-1", color: "#a7f3d0", fontSize: 11, fontWeight: "bold" }}>DATOS DE TRAZABILIDAD (OBLIGATORIO COFEPRIS)</div>
@@ -150,8 +158,19 @@ export default function InventoryPage() {
               </div>
             )}
 
+            {/* PRECIOS (PÚBLICO Y COSTO) */}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 15 }}>
-              <label style={{ display: "grid", gap: 4 }}><span style={{ fontSize: 12, color: "#aaa" }}>Precio Venta ($)</span><input type="number" required placeholder="0.00" value={form.price} onChange={e => setForm({...form, price: e.target.value})} style={{ padding: 8, background: "#222", border: "1px solid #444", color: "white", borderRadius: 4 }} /></label>
+              <label style={{ display: "grid", gap: 4 }}>
+                  <span style={{ fontSize: 12, color: "#4ade80", fontWeight:"bold" }}>Precio Venta (Público)</span>
+                  <input type="number" required placeholder="0.00" value={form.price} onChange={e => setForm({...form, price: e.target.value})} style={{ padding: 8, background: "#222", border: "1px solid #4ade80", color: "white", borderRadius: 4 }} />
+              </label>
+              
+              {/* 👈 CAMPO NUEVO: COSTO PROVEEDOR */}
+              <label style={{ display: "grid", gap: 4 }}>
+                  <span style={{ fontSize: 12, color: "#f87171", fontWeight:"bold" }}>Costo Compra (Privado)</span>
+                  <input type="number" placeholder="0.00" value={form.cost} onChange={e => setForm({...form, cost: e.target.value})} style={{ padding: 8, background: "#222", border: "1px solid #f87171", color: "white", borderRadius: 4 }} />
+              </label>
+
               <div style={{display:"flex", flexDirection:"column", gap:10}}>
                  <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", background: "#222", padding: "8px 10px", borderRadius: 4, border: "1px solid #444" }}><input type="checkbox" checked={form.taxable} onChange={e => setForm({...form, taxable: e.target.checked})} /><span style={{ fontSize: 13, color: form.taxable ? "#60a5fa" : "#aaa" }}>Grava IVA (16%)</span></label>
                  <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", background: "#222", padding: "8px 10px", borderRadius: 4, border: "1px solid #444" }}><input type="checkbox" checked={form.isOnDemand} onChange={e => setForm({...form, isOnDemand: e.target.checked})} /><span style={{ fontSize: 13, color: form.isOnDemand ? "#4ade80" : "#aaa" }}>Sobre Pedido</span></label>
@@ -183,7 +202,11 @@ export default function InventoryPage() {
                 <span style={{ fontSize: 10, background: "#333", padding: "2px 6px", borderRadius: 4, color: "#ccc" }}>{CATEGORIES.find(c => c.id === p.category)?.label || p.category}</span>
                 {p.category === "MEDICATION" && <span style={{ fontSize: 10, background: "#064e3b", padding: "2px 6px", borderRadius: 4, color: "#a7f3d0" }}>💊 {PRESENTATIONS.find(pr => pr.id === p.tags?.presentation)?.label || "Med"}</span>}
               </div>
-              <span style={{ fontSize: 18, fontWeight: "bold", color: "#4ade80" }}>${Number(p.price).toLocaleString()}</span>
+              <div style={{textAlign:"right"}}>
+                  <div style={{ fontSize: 18, fontWeight: "bold", color: "#4ade80" }}>${Number(p.price).toLocaleString()}</div>
+                  {/* Solo tú ves el costo aquí */}
+                  {p.cost > 0 && <div style={{fontSize:10, color:"#f87171"}}>Costo: ${Number(p.cost).toLocaleString()}</div>}
+              </div>
             </div>
             <div>
               <div style={{ fontWeight: "bold", fontSize: "1.1em" }}>{p.brand}</div>
