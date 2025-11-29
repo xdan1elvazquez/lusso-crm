@@ -11,6 +11,7 @@ import ConsultationsPanel from "@/components/ConsultationsPanel";
 import EyeExamsPanel from "@/components/EyeExamsPanel";
 import AnamnesisPanel from "@/components/AnamnesisPanel";
 import SalesPanel from "@/components/SalesPanel";
+import StudiesPanel from "@/components/StudiesPanel";
 // WorkOrdersPanel removed as requested
 
 function toDateInput(isoString) {
@@ -267,6 +268,7 @@ export default function PatientDetailPage() {
         <AnamnesisPanel patientId={id} />
         <ConsultationsPanel patientId={id} />
         <EyeExamsPanel patientId={id} onSell={handleSellFromExam} />
+        <StudiesPanel patientId={id} />
         <hr style={{ border: "0", borderTop: "1px solid #333", margin: "0" }} />
         <div id="sales-section">
            <SalesPanel patientId={id} prefillData={salePrefill} onClearPrefill={() => setSalePrefill(null)} />
