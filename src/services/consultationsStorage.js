@@ -1,130 +1,102 @@
-import { normalizeRxValue } from "@/utils/rxOptions";
-
-const KEY = "lusso_consultations";
-
-function normalizeConsultation(raw) {
-  const base = raw && typeof raw === "object" ? raw : {};
-  const createdAt = base.createdAt || new Date().toISOString();
-  const visitDate = base.visitDate || createdAt;
-  
-  return {
-    id: base.id,
-    patientId: base.patientId ?? null,
-    type: base.type || "OPHTHALMO",
-    
-    visitDate,
-    reason: base.reason?.trim() || "",
-    history: base.history?.trim() || "",
-
-    vitalSigns: {
-      sys: base.vitalSigns?.sys || "",
-      dia: base.vitalSigns?.dia || "",
-      heartRate: base.vitalSigns?.heartRate || "",
-      temp: base.vitalSigns?.temp || "",
-      weight: base.vitalSigns?.weight || "",
-      height: base.vitalSigns?.height || "",
-    },
-
-    exam: {
-      adnexa: base.exam?.adnexa || "",
-      conjunctiva: base.exam?.conjunctiva || "",
-      cornea: base.exam?.cornea || "",
-      anteriorChamber: base.exam?.anteriorChamber || "",
-      iris: base.exam?.iris || "",
-      lens: base.exam?.lens || "",
-      vitreous: base.exam?.vitreous || "",
-      retina: base.exam?.retina || "",
-      motility: base.exam?.motility || "",
-    },
-
-    diagnosis: base.diagnosis?.trim() || "",
-    treatment: base.treatment?.trim() || "",
-    prognosis: base.prognosis?.trim() || "",
-    
-    // --- NUEVO: Lista estructurada de medicamentos para la caja ---
-    // Estructura: { productId, productName, quantity, instructions }
-    prescribedMeds: Array.isArray(base.prescribedMeds) ? base.prescribedMeds : [],
-
-    notes: base.notes?.trim() || "",
-    
-    rx: normalizeRxValue(base.rx),
-    createdAt,
-  };
-}
+const KEY = "lusso_consultations_v1";
 
 function read() {
   try {
     const raw = localStorage.getItem(KEY);
     const parsed = raw ? JSON.parse(raw) : [];
-    return Array.isArray(parsed) ? parsed.map(normalizeConsultation) : [];
-  } catch {
-    return [];
-  }
+    return Array.isArray(parsed) ? parsed : [];
+  } catch { return []; }
 }
 
-function write(items) {
-  localStorage.setItem(KEY, JSON.stringify(items));
+function write(list) { localStorage.setItem(KEY, JSON.stringify(list)); }
+
+// Helper para estructuras vacías con soporte de archivos
+const emptyEyeData = { lids: "", conjunctiva: "", cornea: "", chamber: "", iris: "", lens: "", files: [] };
+const emptyFundusData = { vitreous: "", nerve: "", macula: "", vessels: "", retinaPeriphery: "", files: [] };
+const emptyPio = { od: "", os: "", time: "", meds: "" }; // 👈 Agregamos 'meds'
+
+function normalizeConsultation(raw) {
+  const base = raw || {};
+  const createdAt = base.createdAt || new Date().toISOString();
+
+  // Migración de datos antiguos
+  const oldExam = base.exam || {};
+  const anteriorNotes = [ oldExam.adnexa, oldExam.conjunctiva, oldExam.cornea ].filter(Boolean).join(". ");
+  const posteriorNotes = [ oldExam.vitreous, oldExam.retina ].filter(Boolean).join(". ");
+
+  return {
+    id: base.id,
+    patientId: base.patientId,
+    visitDate: base.visitDate || createdAt,
+    type: base.type || "OPHTHALMO",
+    
+    reason: base.reason || "",
+    history: base.history || "",
+    
+    vitalSigns: { 
+        sys: base.vitalSigns?.sys || "", dia: base.vitalSigns?.dia || "", 
+        heartRate: base.vitalSigns?.heartRate || "", temp: base.vitalSigns?.temp || "" 
+    },
+
+    exam: {
+        anterior: {
+            od: { ...emptyEyeData, ...(base.exam?.anterior?.od || {}) },
+            os: { ...emptyEyeData, ...(base.exam?.anterior?.os || {}) },
+            notes: base.exam?.anterior?.notes || anteriorNotes || ""
+        },
+        tonometry: { ...emptyPio, ...(base.exam?.tonometry || {}) },
+        posterior: {
+            od: { ...emptyFundusData, ...(base.exam?.posterior?.od || {}) },
+            os: { ...emptyFundusData, ...(base.exam?.posterior?.os || {}) },
+            notes: base.exam?.posterior?.notes || posteriorNotes || ""
+        },
+        motility: base.exam?.motility || oldExam.motility || "",
+        gonioscopy: base.exam?.gonioscopy || ""
+    },
+
+    diagnosis: base.diagnosis || "",
+    treatment: base.treatment || "",
+    prescribedMeds: Array.isArray(base.prescribedMeds) ? base.prescribedMeds : [],
+    prognosis: base.prognosis || "",
+    notes: base.notes || "",
+    rx: base.rx || {},
+    createdAt,
+    updatedAt: new Date().toISOString()
+  };
 }
 
 export function getAllConsultations() {
-  return read().sort((a, b) => new Date(b.visitDate) - new Date(a.visitDate));
-}
-
-export function getConsultationById(id) {
-  if (!id) return null;
-  return read().find((c) => c.id === id) || null;
+  return read().map(normalizeConsultation).sort((a, b) => new Date(b.visitDate) - new Date(a.visitDate));
 }
 
 export function getConsultationsByPatient(patientId) {
   if (!patientId) return [];
-  return read().filter((c) => c.patientId === patientId);
+  return getAllConsultations().filter(c => c.patientId === patientId);
 }
 
-function toVisitDateISO(value, fallback) {
-  if (typeof value === "string") {
-    if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return new Date(`${value}T00:00:00`).toISOString();
-    const parsed = new Date(value);
-    if (!Number.isNaN(parsed.getTime())) return parsed.toISOString();
-  }
-  return fallback;
+export function getConsultationById(id) {
+  if (!id) return null;
+  const found = read().find(c => c.id === id);
+  return found ? normalizeConsultation(found) : null;
 }
 
-export function createConsultation(data) {
+export function createConsultation(payload) {
   const list = read();
-  const now = new Date().toISOString();
-  const consultation = normalizeConsultation({
-    id: globalThis.crypto?.randomUUID?.() ?? String(Date.now()),
-    ...data,
-    createdAt: now,
-    visitDate: toVisitDateISO(data.visitDate, now),
+  const newC = normalizeConsultation({
+    id: crypto.randomUUID(),
+    ...payload,
+    createdAt: new Date().toISOString()
   });
-  const next = [consultation, ...list];
-  write(next);
-  return consultation;
+  write([newC, ...list]);
+  return newC;
 }
 
-export function updateConsultation(id, patch) {
+export function updateConsultation(id, payload) {
   const list = read();
-  let updated = null;
-  const next = list.map((item) => {
-    if (item.id !== id) return item;
-    updated = normalizeConsultation({
-      ...item,
-      ...patch,
-      vitalSigns: { ...item.vitalSigns, ...(patch.vitalSigns || {}) },
-      exam: { ...item.exam, ...(patch.exam || {}) },
-      // Aseguramos que se guarden los meds si vienen en el patch
-      prescribedMeds: patch.prescribedMeds || item.prescribedMeds || [],
-    });
-    return updated;
-  });
-  if (!updated) return null;
+  const next = list.map(c => c.id === id ? normalizeConsultation({ ...c, ...payload }) : c);
   write(next);
-  return updated;
 }
 
 export function deleteConsultation(id) {
-  const list = read();
-  const next = list.filter((c) => c.id !== id);
-  write(next);
+  write(read().filter(c => c.id !== id));
 }
