@@ -6,6 +6,7 @@ import { getAllProducts } from "@/services/inventoryStorage";
 import RxPicker from "@/components/RxPicker";
 import { normalizeRxValue } from "@/utils/rxOptions";
 import { validateRx } from "@/utils/validators";
+import StudiesPanel from "@/components/StudiesPanel";
 
 // --- DICCIONARIO VISUAL (Traducción de claves a títulos bonitos) ---
 const SEGMENTS_ANTERIOR = [
@@ -323,6 +324,10 @@ export default function ConsultationDetailPage() {
           <div style={{ display: "grid", gap: 10 }}>{exams.map(exam => (<div key={exam.id} style={{ background: "#222", padding: 10, borderRadius: 6, borderLeft: "3px solid #60a5fa" }}><div style={{fontSize:"0.9em"}}>OD {exam.rx.od.sph} / OI {exam.rx.os.sph}</div><button onClick={() => onDeleteExam(exam.id)} style={{ fontSize: 11, background: "none", border: "none", color: "#666", cursor: "pointer" }}>Borrar</button></div>))}</div>
           {showRxForm && <div style={{ background: "#1f1f1f", padding: 15, borderRadius: 8 }}><RxPicker value={rxForm} onChange={setRxForm} /><button onClick={onSaveExam} style={{ marginTop: 10, background: "#60a5fa", border: "none", padding: "8px" }}>Guardar Rx</button></div>}
         </section>
+        
+        {/* NUEVO: PANEL DE ESTUDIOS DE LA CONSULTA */}
+        <StudiesPanel patientId={patientId} consultationId={consultationId} />
+        
       </div>
     </div>
   );
