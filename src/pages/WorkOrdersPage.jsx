@@ -3,6 +3,7 @@ import { getPatients } from "@/services/patientsStorage";
 import { getAllSales } from "@/services/salesStorage";
 import { getAllWorkOrders, updateWorkOrder, nextStatus, prevStatus, applyWarranty, deleteWorkOrder } from "@/services/workOrdersStorage";
 import { getLabs } from "@/services/labStorage"; 
+import SaleDetailModal from "@/components/SaleDetailModal"; // 👈 IMPORTAMOS EL VISOR DE VENTAS
 
 const STATUS_LABELS = { TO_PREPARE: "Por preparar", SENT_TO_LAB: "Enviado a laboratorio", READY: "Listo para entregar", DELIVERED: "Entregado", CANCELLED: "Cancelado" };
 const STATUS_COLORS = { TO_PREPARE: "#facc15", SENT_TO_LAB: "#60a5fa", READY: "#4ade80", DELIVERED: "#9ca3af", CANCELLED: "#f87171" };
@@ -13,17 +14,22 @@ export default function WorkOrdersPage() {
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
   
+  // Modals
   const [sendLabModal, setSendLabModal] = useState(null); 
   const [warrantyModal, setWarrantyModal] = useState(null); 
+  const [viewSale, setViewSale] = useState(null); // 👈 NUEVO: ESTADO PARA VER VENTA
 
+  // Data
   const patients = useMemo(() => getPatients(), [tick]);
   const sales = useMemo(() => getAllSales(), [tick]);
   const workOrders = useMemo(() => getAllWorkOrders(), [tick]);
   const labs = useMemo(() => getLabs(), []);
 
+  // Mapas
   const patientMap = useMemo(() => patients.reduce((acc, p) => ({ ...acc, [p.id]: p }), {}), [patients]);
   const salesMap = useMemo(() => sales.reduce((acc, s) => ({ ...acc, [s.id]: s }), {}), [sales]);
 
+  // Filtros
   const filtered = useMemo(() => {
     const q = query.toLowerCase();
     return workOrders.filter(w => (statusFilter === "ALL" || w.status === statusFilter) && (
@@ -179,12 +185,25 @@ export default function WorkOrdersPage() {
         <h1>Work Orders</h1>
         <button onClick={() => setTick(t => t + 1)} style={{ background: "#333", color: "white", border: "1px solid #555", padding: "6px 12px", borderRadius: 6, cursor: "pointer" }}>Actualizar</button>
       </div>
+      
+      {/* MODALES */}
       {sendLabModal && <SendLabModal order={sendLabModal} onClose={() => setSendLabModal(null)} />}
       {warrantyModal && <WarrantyModal order={warrantyModal} onClose={() => setWarrantyModal(null)} />}
+      {/* 👈 AQUÍ RENDERIZAMOS EL VISOR DE VENTA SI ESTÁ ACTIVO */}
+      {viewSale && (
+        <SaleDetailModal 
+            sale={viewSale} 
+            patient={patientMap[viewSale.patientId]} 
+            onClose={() => setViewSale(null)} 
+            onUpdate={() => setTick(t => t + 1)} 
+        />
+      )}
+
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 20 }}>
         {STATUS_TABS.map((tab) => <button key={tab} onClick={() => setStatusFilter(tab)} style={{ padding: "6px 12px", borderRadius: 20, border: statusFilter === tab ? `1px solid ${STATUS_COLORS[tab]}` : "1px solid #333", background: statusFilter === tab ? "rgba(255,255,255,0.1)" : "transparent", color: statusFilter === tab ? "white" : "#888", cursor: "pointer", fontSize: "0.9em" }}>{STATUS_LABELS[tab] || "Todos"}</button>)}
       </div>
       <input placeholder="Buscar..." value={query} onChange={(e) => setQuery(e.target.value)} style={{ width: "100%", padding: 10, borderRadius: 8, border: "1px solid rgba(255,255,255,0.15)", background: "rgba(255,255,255,0.05)", color: "white", marginBottom: 20 }} />
+      
       <div style={{ display: "grid", gap: 15 }}>
         {filtered.map((o) => {
           const patient = patientMap[o.patientId];
@@ -214,13 +233,37 @@ export default function WorkOrdersPage() {
                     {o.status !== "CANCELLED" && <button onClick={() => setWarrantyModal(o)} style={{ background: "#450a0a", border: "1px solid #f87171", color: "#f87171", padding: "6px 10px", borderRadius: 4, cursor: "pointer", fontSize: "0.8em" }}>⚠️ Garantía</button>}
                  </div>
               </div>
-              <div style={{ paddingLeft: 10, display: "flex", gap: 20, fontSize: "0.9em", background: "#111", padding: 10, borderRadius: 6 }}>
-                 <div><div style={{ color: "#aaa", fontSize: 11 }}>LABORATORIO</div><div style={{ fontWeight: "bold" }}>{o.labName || "Pendiente"}</div></div>
-                 <div><div style={{ color: "#aaa", fontSize: 11 }}>COSTO</div><div style={{ fontWeight: "bold", color: "#f87171" }}>${o.labCost}</div></div>
-                 <div><div style={{ color: "#aaa", fontSize: 11 }}>UTILIDAD</div><div style={{ fontWeight: "bold", color: profit >= 0 ? "#4ade80" : "#f87171" }}>${profit} ({profitMargin}%)</div></div>
-                 {o.isWarranty && <div style={{ color: "#f87171", fontSize: 11, alignSelf: "center", fontWeight: "bold" }}>🚨 TIENE GARANTÍA</div>}
+
+              <div style={{ paddingLeft: 10, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
+                 {/* COLUMNA IZQUIERDA: DATOS DE TALLER Y VENTA */}
+                 <div>
+                    <div style={{ fontSize: "0.85em", color: "#666", textTransform: "uppercase" }}>Taller</div>
+                    <div style={{ marginTop: 4, display: "flex", gap: 10 }}>
+                       <span style={{ fontSize: "0.85em", background: "#222", padding: "3px 6px", borderRadius: 4, color: "#aaa" }}>Lab: {o.labName || "Interno"}</span>
+                       <span style={{ fontSize: "0.85em", color: profit >= 0 ? "#4ade80" : "#f87171" }}>Utilidad: ${profit} ({profitMargin}%)</span>
+                    </div>
+
+                    {/* 👇 ENLACE CLICKEABLE A LA VENTA */}
+                    {sale && (
+                      <div 
+                        onClick={() => setViewSale(sale)} 
+                        style={{ marginTop: 8, fontSize: "0.9em", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6, padding: "4px 8px", background: "rgba(255,255,255,0.05)", borderRadius: 4 }}
+                        title="Ver detalle completo de la venta"
+                      >
+                         <span style={{ color: sale.balance > 0 ? "#f87171" : "#4ade80", fontWeight: "bold" }}>
+                            {sale.balance > 0 ? `⚠️ Restan $${sale.balance.toLocaleString()}` : "✅ Pagado"}
+                         </span>
+                         <span style={{ textDecoration: "underline", color: "#60a5fa", fontSize: "0.9em" }}>Ver Venta 👁️</span>
+                      </div>
+                    )}
+                 </div>
+
+                 {/* COLUMNA DERECHA: RX */}
+                 <div>
+                    <div style={{ fontSize: "0.85em", color: "#666", textTransform: "uppercase", marginBottom: 4 }}>Graduación</div>
+                    <RxDisplay rxNotes={o.rxNotes} />
+                 </div>
               </div>
-              <RxDisplay rxNotes={o.rxNotes} />
             </div>
           );
         })}
