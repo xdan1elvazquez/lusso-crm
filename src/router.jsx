@@ -23,6 +23,7 @@ import ReceivablesPage from "@/pages/ReceivablesPage.jsx";
 import TeamPage from "@/pages/TeamPage.jsx";
 import PayablesPage from "@/pages/PayablesPage.jsx";
 import PayrollPage from "@/pages/PayrollPage.jsx";
+import SalesHistoryPage from "@/pages/SalesHistoryPage.jsx";
 
 function RequireAuth({ children }) {
   if (!isAuthed()) return <Navigate to="/login" replace />;
@@ -62,6 +63,7 @@ const router = createBrowserRouter([
       { path: "team", element: <TeamPage /> },
       { path: "payables", element: <PayablesPage /> },
       { path: "payroll", element: <PayrollPage /> },
+      { path: "sales-history", element: <SalesHistoryPage /> },
     ],
   },
 ]);

@@ -44,6 +44,10 @@ export default function AppLayout() {
             👤 Pacientes
           </NavLink>
 
+          <NavLink to="sales-history" className={linkClass}>
+            📋 Historial Ventas
+          </NavLink>
+
           <NavLink to="work-orders" className={linkClass}>
             👓 Ordenes de trabajo
           </NavLink>
