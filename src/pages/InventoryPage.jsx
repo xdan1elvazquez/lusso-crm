@@ -1,6 +1,7 @@
 import { useMemo, useState, useEffect } from "react";
 import { getAllProducts, createProduct, updateProduct, deleteProduct, getInventoryStats } from "@/services/inventoryStorage";
 import { getAlertSettings, updateAlertSettings } from "@/services/settingsStorage";
+import { getLogsByProductId } from "@/services/inventoryLogStorage"; // 👈 IMPORTAR LOGGER
 
 const CATEGORIES = [
   { id: "FRAMES", label: "Armazones" },
@@ -27,10 +28,13 @@ export default function InventoryPage() {
   const [isEditingProduct, setIsEditingProduct] = useState(false);
   const [isConfiguring, setIsConfiguring] = useState(false);
   const [alerts, setAlerts] = useState(getAlertSettings());
+  
+  // 👈 NUEVO: Estado para ver historial
+  const [historyProduct, setHistoryProduct] = useState(null);
 
   const [form, setForm] = useState({
     id: null, category: "FRAMES", brand: "", model: "", 
-    price: "", cost: "", // 👈 NUEVO: Costo Proveedor
+    price: "", cost: "",
     stock: "", minStock: "1", isOnDemand: false, taxable: true,
     batch: "", expiry: "",
     tags: { gender: "UNISEX", material: "ACETATO", color: "", presentation: "DROPS" }
@@ -50,7 +54,7 @@ export default function InventoryPage() {
   const resetForm = () => {
     setForm({ 
       id: null, category: "FRAMES", brand: "", model: "", 
-      price: "", cost: "", // Resetear costo
+      price: "", cost: "", 
       stock: "", minStock: "1", isOnDemand: false, taxable: true, batch: "", expiry: "",
       tags: { gender: "UNISEX", material: "ACETATO", color: "", presentation: "DROPS" }
     });
@@ -67,7 +71,7 @@ export default function InventoryPage() {
   const handleEdit = (product) => {
     setForm({
       ...product,
-      cost: product.cost || "", // Cargar costo si existe
+      cost: product.cost || "",
       taxable: product.taxable !== undefined ? product.taxable : true,
       batch: product.batch || "", expiry: product.expiry || "",
       tags: { gender: "UNISEX", material: "OTRO", color: "", presentation: "DROPS", ...product.tags }
@@ -77,11 +81,59 @@ export default function InventoryPage() {
   const handleDelete = (id) => { if (confirm("¿Borrar?")) { deleteProduct(id); setTick(t => t + 1); } };
   const handleSaveConfig = (e) => { e.preventDefault(); updateAlertSettings(alerts); setIsConfiguring(false); };
 
+  // --- MODAL KARDEX ---
+  const HistoryModal = ({ product, onClose }) => {
+      const logs = getLogsByProductId(product.id);
+      return (
+        <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.8)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 200 }}>
+            <div style={{ background: "#1a1a1a", padding: 25, borderRadius: 12, border: "1px solid #333", width: "90%", maxWidth: 600, maxHeight:"80vh", overflowY:"auto" }}>
+                <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20}}>
+                    <h3 style={{ margin: 0, color: "#60a5fa" }}>Kardex: {product.brand} {product.model}</h3>
+                    <button onClick={onClose} style={{background:"none", border:"none", color:"#aaa", fontSize:"1.5em", cursor:"pointer"}}>×</button>
+                </div>
+                
+                <table style={{width:"100%", borderCollapse:"collapse", fontSize:"0.9em"}}>
+                    <thead>
+                        <tr style={{borderBottom:"1px solid #444", color:"#888", textAlign:"left"}}>
+                            <th style={{padding:8}}>Fecha</th>
+                            <th style={{padding:8}}>Movimiento</th>
+                            <th style={{padding:8}}>Cant</th>
+                            <th style={{padding:8}}>Saldo</th>
+                            <th style={{padding:8}}>Ref.</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {logs.map(log => (
+                            <tr key={log.id} style={{borderBottom:"1px solid #222"}}>
+                                <td style={{padding:8}}>{new Date(log.date).toLocaleDateString()} {new Date(log.date).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</td>
+                                <td style={{padding:8}}>
+                                    <span style={{
+                                        fontSize:"0.8em", padding:"2px 6px", borderRadius:4, 
+                                        background: log.type==="SALE"?"#450a0a": log.type==="PURCHASE"?"#064e3b": "#333",
+                                        color: log.type==="SALE"?"#f87171": log.type==="PURCHASE"?"#4ade80": "#ccc"
+                                    }}>
+                                        {log.type}
+                                    </span>
+                                </td>
+                                <td style={{padding:8, fontWeight:"bold", color: log.quantity < 0 ? "#f87171" : "#4ade80"}}>
+                                    {log.quantity > 0 ? "+" : ""}{log.quantity}
+                                </td>
+                                <td style={{padding:8, color:"#ddd"}}>{log.finalStock}</td>
+                                <td style={{padding:8, color:"#888", fontSize:"0.85em"}}>{log.reference}</td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+                {logs.length === 0 && <p style={{opacity:0.5, textAlign:"center", marginTop:20}}>Sin movimientos registrados.</p>}
+            </div>
+        </div>
+      );
+  };
+
   const StatCard = ({ label, value, subtext, alertThreshold, isInverse }) => {
     let statusColor = "#4ade80";
     if (isInverse) { if (value > 0) statusColor = "#f87171"; } 
     else if (alertThreshold) { if (value < alertThreshold) statusColor = "#f87171"; else if (value < alertThreshold * 1.2) statusColor = "#facc15"; }
-    // Si no hay threshold (ej. valor inventario), usar color neutro o azul
     if (!alertThreshold && !isInverse) statusColor = "#60a5fa";
 
     return (
@@ -128,6 +180,8 @@ export default function InventoryPage() {
         </div>
       )}
 
+      {historyProduct && <HistoryModal product={historyProduct} onClose={() => setHistoryProduct(null)} />}
+
       {isEditingProduct && (
         <section style={{ background: "#1a1a1a", padding: 20, borderRadius: 12, border: "1px solid #333", marginBottom: 30 }}>
           <h3 style={{ marginTop: 0, color: "#e5e7eb" }}>{form.id ? "Editar Producto" : "Nuevo Producto"}</h3>
@@ -158,14 +212,12 @@ export default function InventoryPage() {
               </div>
             )}
 
-            {/* PRECIOS (PÚBLICO Y COSTO) */}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 15 }}>
               <label style={{ display: "grid", gap: 4 }}>
                   <span style={{ fontSize: 12, color: "#4ade80", fontWeight:"bold" }}>Precio Venta (Público)</span>
                   <input type="number" required placeholder="0.00" value={form.price} onChange={e => setForm({...form, price: e.target.value})} style={{ padding: 8, background: "#222", border: "1px solid #4ade80", color: "white", borderRadius: 4 }} />
               </label>
               
-              {/* 👈 CAMPO NUEVO: COSTO PROVEEDOR */}
               <label style={{ display: "grid", gap: 4 }}>
                   <span style={{ fontSize: 12, color: "#f87171", fontWeight:"bold" }}>Costo Compra (Privado)</span>
                   <input type="number" placeholder="0.00" value={form.cost} onChange={e => setForm({...form, cost: e.target.value})} style={{ padding: 8, background: "#222", border: "1px solid #f87171", color: "white", borderRadius: 4 }} />
@@ -204,7 +256,6 @@ export default function InventoryPage() {
               </div>
               <div style={{textAlign:"right"}}>
                   <div style={{ fontSize: 18, fontWeight: "bold", color: "#4ade80" }}>${Number(p.price).toLocaleString()}</div>
-                  {/* Solo tú ves el costo aquí */}
                   {p.cost > 0 && <div style={{fontSize:10, color:"#f87171"}}>Costo: ${Number(p.cost).toLocaleString()}</div>}
               </div>
             </div>
@@ -215,7 +266,12 @@ export default function InventoryPage() {
             </div>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 8, paddingTop: 10, borderTop: "1px solid #222" }}>
               {p.isOnDemand ? <div style={{ color: "#60a5fa", fontSize: 12, display: "flex", alignItems: "center", gap: 4 }}>🔄 Sobre Pedido</div> : <div style={{ color: Number(p.stock) <= Number(p.minStock) ? "#f87171" : "#fff", fontWeight: "bold", display: "flex", alignItems: "center", gap: 6 }}>📦 Stock: {p.stock}</div>}
+              
               <div style={{ display: "flex", gap: 8 }}>
+                {/* 👈 BOTÓN HISTORIAL */}
+                {!p.isOnDemand && (
+                    <button onClick={() => setHistoryProduct(p)} style={{ fontSize: 11, background: "#333", border: "1px solid #555", color: "#ddd", cursor: "pointer", borderRadius:4, padding:"2px 6px" }}>📜 Kardex</button>
+                )}
                 <button onClick={() => handleEdit(p)} style={{ fontSize: 12, background: "transparent", border: "none", color: "#60a5fa", cursor: "pointer" }}>Editar</button>
                 <button onClick={() => handleDelete(p.id)} style={{ fontSize: 12, background: "transparent", border: "none", color: "#666", cursor: "pointer" }}>Borrar</button>
               </div>

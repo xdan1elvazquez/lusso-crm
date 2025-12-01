@@ -167,8 +167,15 @@ export function createSale(payload) {
     pointsAwarded: pointsToAward
   });
 
+  // 👈 AQUÍ EL CAMBIO: Enviamos la referencia "Venta #..."
   normalizedSale.items.forEach(item => {
-    if (item.inventoryProductId) adjustStock(item.inventoryProductId, -item.qty);
+    if (item.inventoryProductId) {
+        adjustStock(
+            item.inventoryProductId, 
+            -item.qty, 
+            `Venta #${normalizedSale.id.slice(0,6)}` // Razón del ajuste
+        );
+    }
   });
 
   if (pointsToAward > 0) adjustPatientPoints(payload.patientId, pointsToAward);
@@ -230,6 +237,17 @@ export function deleteSale(id) {
                 adjustPatientPoints(patient.referredBy, -referralPoints);
             }
         }
+        
+        // 👈 REVERSIÓN DE STOCK AL BORRAR VENTA
+        sale.items.forEach(item => {
+            if (item.inventoryProductId) {
+                adjustStock(
+                    item.inventoryProductId, 
+                    item.qty, // Sumamos de vuelta
+                    `Cancelación Venta #${sale.id.slice(0,6)}`
+                );
+            }
+        });
     }
 
     deleteWorkOrdersBySaleId(id);
@@ -264,14 +282,12 @@ export function getFinancialReport() {
     return { incomeToday, incomeMonth, salesToday, salesMonth, totalReceivable, incomeByMethod, totalFees };
 }
 
-// 👈 NUEVO: REPORTE DE RENTABILIDAD
 export function getProfitabilityReport() {
     const sales = getAllSales();
     const workOrders = getAllWorkOrders();
     const now = new Date();
-    const monthStr = now.toISOString().slice(0, 7); // YYYY-MM
+    const monthStr = now.toISOString().slice(0, 7); 
 
-    // Mapa rápido de costos de laboratorio por item de venta
     const labCostMap = {};
     workOrders.forEach(w => {
         if (w.saleId && w.saleItemId) {
@@ -299,12 +315,10 @@ export function getProfitabilityReport() {
             const totalItemCost = itemProductCost + itemServiceCost;
             const itemProfit = itemSaleTotal - totalItemCost;
 
-            // Acumular Global
             report.global.sales += itemSaleTotal;
             report.global.cost += totalItemCost;
             report.global.profit += itemProfit;
 
-            // Acumular por Categoría
             if (!report.byCategory[kind]) {
                 report.byCategory[kind] = { sales: 0, cost: 0, profit: 0, count: 0 };
             }
@@ -314,7 +328,6 @@ export function getProfitabilityReport() {
             report.byCategory[kind].count += item.qty;
         });
         
-        // Ajuste de descuento global en utilidad global
         if (sale.discount > 0) {
             report.global.sales -= sale.discount;
             report.global.profit -= sale.discount;

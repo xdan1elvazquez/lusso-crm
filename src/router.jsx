@@ -21,6 +21,8 @@ import LabsPage from "@/pages/LabsPage.jsx";
 import StatisticsPage from "@/pages/StatisticsPage.jsx";
 import ReceivablesPage from "@/pages/ReceivablesPage.jsx";
 import TeamPage from "@/pages/TeamPage.jsx";
+import PayablesPage from "@/pages/PayablesPage.jsx";
+import PayrollPage from "@/pages/PayrollPage.jsx";
 
 function RequireAuth({ children }) {
   if (!isAuthed()) return <Navigate to="/login" replace />;
@@ -58,6 +60,8 @@ const router = createBrowserRouter([
       { path: "labs", element: <LabsPage /> },
       { path: "receivables", element: <ReceivablesPage /> },
       { path: "team", element: <TeamPage /> },
+      { path: "payables", element: <PayablesPage /> },
+      { path: "payroll", element: <PayrollPage /> },
     ],
   },
 ]);
