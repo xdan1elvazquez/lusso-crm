@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { getLabs, createLab, updateLab, deleteLab } from "@/services/labStorage";
+import { parseDiopter } from "@/utils/rxUtils";
 
 const LENS_DESIGNS = ["Monofocal", "Bifocal Flat Top", "Bifocal Invisible", "Progresivo", "Ocupacional"];
 const LENS_MATERIALS = ["CR-39", "Policarbonato", "Hi-Index 1.56", "Hi-Index 1.60", "Hi-Index 1.67", "Hi-Index 1.74", "Trivex", "Cristal"];
@@ -79,13 +80,23 @@ export default function LabsPage() {
       setEditingLens(null); // Volver a la lista
   };
 
+  // FIX B3: Control estricto de inputs de rango
+  const handleRangeChange = (field, value) => {
+      setTempRange(prev => ({ ...prev, [field]: value }));
+  };
+
+  const handleRangeBlur = (field) => {
+      // Al salir del input, normalizamos a float (0.25 steps)
+      setTempRange(prev => ({ ...prev, [field]: parseDiopter(prev[field]) }));
+  };
+
   const addRangeToLens = () => {
       if (!editingLens) return;
       setEditingLens(prev => ({
           ...prev,
           ranges: [...prev.ranges, { ...tempRange, id: crypto.randomUUID() }]
       }));
-      // No reseteamos tempRange completo para facilitar captura masiva, solo el costo tal vez?
+      // No reseteamos tempRange completo para facilitar captura masiva
   };
 
   const removeRange = (idx) => {
@@ -188,14 +199,40 @@ export default function LabsPage() {
                               </div>
                           </div>
 
-                          {/* Matriz de Rangos */}
+                          {/* Matriz de Rangos (FIX B3: Inputs Estrictos) */}
                           <h5 style={{margin:"0 0 10px 0", color:"#aaa"}}>Tabla de Costos (Rangos)</h5>
                           <div style={{display:"grid", gridTemplateColumns:"1fr 1fr 1fr 1fr 1fr auto", gap:5, alignItems:"end", marginBottom:10, background:"#222", padding:10, borderRadius:6}}>
-                              <label style={{fontSize:10, color:"#aaa"}}>Esfera Min<input type="number" step="0.25" value={tempRange.sphMin} onChange={e=>setTempRange({...tempRange, sphMin:e.target.value})} style={{width:"100%", padding:4, background:"#333", border:"1px solid #555", color:"white"}} /></label>
-                              <label style={{fontSize:10, color:"#aaa"}}>Esfera Max<input type="number" step="0.25" value={tempRange.sphMax} onChange={e=>setTempRange({...tempRange, sphMax:e.target.value})} style={{width:"100%", padding:4, background:"#333", border:"1px solid #555", color:"white"}} /></label>
-                              <label style={{fontSize:10, color:"#aaa"}}>Cil Min<input type="number" step="0.25" value={tempRange.cylMin} onChange={e=>setTempRange({...tempRange, cylMin:e.target.value})} style={{width:"100%", padding:4, background:"#333", border:"1px solid #555", color:"white"}} /></label>
-                              <label style={{fontSize:10, color:"#aaa"}}>Cil Max<input type="number" step="0.25" value={tempRange.cylMax} onChange={e=>setTempRange({...tempRange, cylMax:e.target.value})} style={{width:"100%", padding:4, background:"#333", border:"1px solid #555", color:"white"}} /></label>
-                              <label style={{fontSize:10, color:"#4ade80", fontWeight:"bold"}}>COSTO $<input type="number" value={tempRange.cost} onChange={e=>setTempRange({...tempRange, cost:e.target.value})} style={{width:"100%", padding:4, background:"#064e3b", border:"1px solid #4ade80", color:"white", fontWeight:"bold"}} /></label>
+                              <label style={{fontSize:10, color:"#aaa"}}>Esfera Min
+                                  <input type="number" step="0.25" 
+                                      value={tempRange.sphMin} 
+                                      onChange={e=>handleRangeChange('sphMin', e.target.value)} 
+                                      onBlur={()=>handleRangeBlur('sphMin')}
+                                      style={{width:"100%", padding:4, background:"#333", border:"1px solid #555", color:"white"}} />
+                              </label>
+                              <label style={{fontSize:10, color:"#aaa"}}>Esfera Max
+                                  <input type="number" step="0.25" 
+                                      value={tempRange.sphMax} 
+                                      onChange={e=>handleRangeChange('sphMax', e.target.value)} 
+                                      onBlur={()=>handleRangeBlur('sphMax')}
+                                      style={{width:"100%", padding:4, background:"#333", border:"1px solid #555", color:"white"}} />
+                              </label>
+                              <label style={{fontSize:10, color:"#aaa"}}>Cil Min
+                                  <input type="number" step="0.25" 
+                                      value={tempRange.cylMin} 
+                                      onChange={e=>handleRangeChange('cylMin', e.target.value)} 
+                                      onBlur={()=>handleRangeBlur('cylMin')}
+                                      style={{width:"100%", padding:4, background:"#333", border:"1px solid #555", color:"white"}} />
+                              </label>
+                              <label style={{fontSize:10, color:"#aaa"}}>Cil Max
+                                  <input type="number" step="0.25" 
+                                      value={tempRange.cylMax} 
+                                      onChange={e=>handleRangeChange('cylMax', e.target.value)} 
+                                      onBlur={()=>handleRangeBlur('cylMax')}
+                                      style={{width:"100%", padding:4, background:"#333", border:"1px solid #555", color:"white"}} />
+                              </label>
+                              <label style={{fontSize:10, color:"#4ade80", fontWeight:"bold"}}>COSTO $
+                                  <input type="number" value={tempRange.cost} onChange={e=>setTempRange({...tempRange, cost:e.target.value})} style={{width:"100%", padding:4, background:"#064e3b", border:"1px solid #4ade80", color:"white", fontWeight:"bold"}} />
+                              </label>
                               <button onClick={addRangeToLens} style={{background:"#fbbf24", color:"black", border:"none", padding:"6px 10px", borderRadius:4, cursor:"pointer", height:30, alignSelf:"end"}}>✚</button>
                           </div>
 
