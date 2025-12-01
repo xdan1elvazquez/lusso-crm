@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { createSale, getSalesByPatientId, deleteSale } from "@/services/salesStorage";
+import { createSale, getSalesByPatientId, deleteSale } from "@/services/salesStorage"; // 👈 Asegúrate de importar deleteSale
 import { getExamsByPatient } from "@/services/eyeExamStorage"; 
 import { getAllProducts } from "@/services/inventoryStorage"; 
 import { getConsultationsByPatient } from "@/services/consultationsStorage"; 
@@ -16,6 +16,7 @@ import { parseDiopter } from "@/utils/rxUtils";
 const PAYMENT_METHODS = ["EFECTIVO", "TARJETA", "TRANSFERENCIA", "OTRO"];
 
 export default function SalesPanel({ patientId, prefillData, onClearPrefill }) {
+  // ... (Todos los estados y hooks se mantienen igual)
   const navigate = useNavigate();
   const [tick, setTick] = useState(0);
   const [cart, setCart] = useState([]);
@@ -26,7 +27,6 @@ export default function SalesPanel({ patientId, prefillData, onClearPrefill }) {
   const [soldBy, setSoldBy] = useState(""); 
   const [showOpticalSpecs, setShowOpticalSpecs] = useState(false);
   
-  // Servicios por defecto: Bisel SI, Tallado NO
   const [itemDetails, setItemDetails] = useState({ 
       material: "", design: "", treatment: "", 
       frameModel: "", frameStatus: "NUEVO", notes: "",
@@ -42,6 +42,8 @@ export default function SalesPanel({ patientId, prefillData, onClearPrefill }) {
 
   const patient = useMemo(() => getPatientById(patientId), [patientId]); 
   const sales = useMemo(() => getSalesByPatientId(patientId), [patientId, tick]);
+  // ... (Resto de los useMemos y useEffects igual)
+  
   const exams = useMemo(() => getExamsByPatient(patientId), [patientId, tick]);
   const products = useMemo(() => getAllProducts(), []);
   const consultations = useMemo(() => getConsultationsByPatient(patientId), [patientId, tick]);
@@ -75,6 +77,8 @@ export default function SalesPanel({ patientId, prefillData, onClearPrefill }) {
     }
   }, [payment.method]);
 
+  // ... (Funciones filterOptions, validLenses, findLensCost, updateFee, handleTerminalChange, handleInstallmentsChange se mantienen igual)
+  
   const filterOptions = useMemo(() => {
     const designs = new Set();
     const materials = new Set();
@@ -139,6 +143,8 @@ export default function SalesPanel({ patientId, prefillData, onClearPrefill }) {
   const handleTerminalChange = (e) => { const tId = e.target.value; const newFee = updateFee(tId, payment.installments); setPayment(p => ({ ...p, terminalId: tId, feePercent: newFee })); };
   const handleInstallmentsChange = (e) => { const months = e.target.value; const newFee = updateFee(payment.terminalId, months); setPayment(p => ({ ...p, installments: months, feePercent: newFee })); };
 
+  // ... (addToCart, removeFromCart, handleImportExam, selectSmartLens, selectCatalogLens, handleImportConsultation, useEffect prefill, subtotalGross, handleCheckout, calculatedFee se mantienen igual)
+
   const addToCart = (item) => { 
       const specsToSave = showOpticalSpecs || item.specs ? { ...itemDetails, ...(item.specs || {}) } : {};
       setCart(prev => [...prev, { ...item, specs: specsToSave, _tempId: Date.now() + Math.random() }]); 
@@ -149,30 +155,18 @@ export default function SalesPanel({ patientId, prefillData, onClearPrefill }) {
   const handleImportExam = (e) => {
     const examId = e.target.value; if(!examId) return;
     const exam = exams.find(x => x.id === examId);
-    
     const cleanRx = {
         od: { sph: parseDiopter(exam.rx.od?.sph), cyl: parseDiopter(exam.rx.od?.cyl), axis: exam.rx.od?.axis, add: parseDiopter(exam.rx.od?.add) },
         os: { sph: parseDiopter(exam.rx.os?.sph), cyl: parseDiopter(exam.rx.os?.cyl), axis: exam.rx.os?.axis, add: parseDiopter(exam.rx.os?.add) },
         pd: exam.rx.pd, notes: exam.rx.notes
     };
     setCurrentRx(cleanRx);
-    
     const autoSpecs = { 
-        design: exam.recommendations?.design || "", 
-        material: exam.recommendations?.material || "", 
-        treatment: exam.recommendations?.coating || "", 
-        frameModel: "", frameStatus: "NUEVO", notes: "",
-        requiresBisel: true, requiresTallado: false
+        design: exam.recommendations?.design || "", material: exam.recommendations?.material || "", treatment: exam.recommendations?.coating || "", 
+        frameModel: "", frameStatus: "NUEVO", notes: "", requiresBisel: true, requiresTallado: false
     };
-    
-    setFilters({
-        design: exam.recommendations?.design || "",
-        material: exam.recommendations?.material || "",
-        treatment: exam.recommendations?.coating || ""
-    });
-
-    setShowOpticalSpecs(true); 
-    setItemDetails(autoSpecs);
+    setFilters({ design: exam.recommendations?.design || "", material: exam.recommendations?.material || "", treatment: exam.recommendations?.coating || "" });
+    setShowOpticalSpecs(true); setItemDetails(autoSpecs);
     alert("Rx cargada. Revisa las opciones compatibles.");
   };
 
@@ -187,19 +181,7 @@ export default function SalesPanel({ patientId, prefillData, onClearPrefill }) {
           requiresBisel: itemDetails.requiresBisel,
           requiresTallado: itemDetails.requiresTallado
       };
-
-      addToCart({ 
-          kind: "LENSES", 
-          description: `Lente ${lens.name}`, 
-          qty: 1, 
-          unitPrice: lens.calculatedPrice || 0, 
-          cost: lens.calculatedCost, 
-          requiresLab: true, 
-          rxSnapshot: currentRx, 
-          labName: lens.labName, 
-          taxable: true,
-          specs: finalSpecs
-      });
+      addToCart({ kind: "LENSES", description: `Lente ${lens.name}`, qty: 1, unitPrice: lens.calculatedPrice || 0, cost: lens.calculatedCost, requiresLab: true, rxSnapshot: currentRx, labName: lens.labName, taxable: true, specs: finalSpecs });
   };
 
   const selectCatalogLens = (lens) => {
@@ -229,10 +211,7 @@ export default function SalesPanel({ patientId, prefillData, onClearPrefill }) {
         pd: exam.rx.pd, notes: exam.rx.notes
       };
       setCurrentRx(cleanRx);
-      const autoSpecs = { 
-          design: exam.recommendations?.design || "", material: exam.recommendations?.material || "", treatment: exam.recommendations?.coating || "", 
-          frameModel: "", frameStatus: "NUEVO", notes: "", requiresBisel: true, requiresTallado: false 
-      };
+      const autoSpecs = { design: exam.recommendations?.design || "", material: exam.recommendations?.material || "", treatment: exam.recommendations?.coating || "", frameModel: "", frameStatus: "NUEVO", notes: "", requiresBisel: true, requiresTallado: false };
       setFilters({ design: exam.recommendations?.design || "", material: exam.recommendations?.material || "", treatment: exam.recommendations?.coating || "" });
       setShowOpticalSpecs(true); setItemDetails(autoSpecs);
       if (onClearPrefill) onClearPrefill();
@@ -273,6 +252,15 @@ export default function SalesPanel({ patientId, prefillData, onClearPrefill }) {
   
   const calculatedFee = payment.method === "TARJETA" ? (Number(payment.initial) * Number(payment.feePercent) / 100) : 0;
 
+  // NUEVO: Función para eliminar venta
+  const handleDeleteSale = (e, saleId) => {
+      e.stopPropagation(); // Evitar que se abra el modal
+      if(confirm("¿Estás seguro de eliminar esta venta? Se borrarán todos los abonos y no se podrá recuperar.")) {
+          deleteSale(saleId);
+          setTick(t => t + 1);
+      }
+  };
+
   return (
     <section style={{ background: "#1a1a1a", padding: 24, borderRadius: 12, border: "1px solid #333" }}>
       <h3 style={{ margin: "0 0 20px 0", color: "#e5e7eb" }}>Caja y Ventas</h3>
@@ -281,6 +269,7 @@ export default function SalesPanel({ patientId, prefillData, onClearPrefill }) {
       <div style={{ display:"grid", gridTemplateColumns:"2fr 1fr", gap:20 }}>
           <div style={{ background: "#111", padding: 20, borderRadius: 10, border: "1px dashed #444" }}>
             
+            {/* CABECERA (Igual) */}
             <div style={{display:"flex", gap:10, marginBottom:15}}>
                 <div style={{flex:1}}>
                     <label style={{fontSize:12, color:"#fbbf24", fontWeight:"bold"}}>No. Caja</label>
@@ -292,6 +281,7 @@ export default function SalesPanel({ patientId, prefillData, onClearPrefill }) {
                 </div>
             </div>
 
+            {/* ZONA DE IMPORTACIÓN (Igual) */}
             <div style={{ marginBottom: 15, padding: 10, background: "#1e3a8a", borderRadius: 6, display: "grid", gap: 10 }}>
                <select onChange={handleImportExam} style={{ width: "100%", padding: 8, borderRadius: 4, background: "rgba(0,0,0,0.2)", color: "white", border: "1px solid rgba(255,255,255,0.2)", fontWeight: "bold" }}>
                    <option value="">👓 Importar Graduación (Examen)</option>
@@ -304,11 +294,12 @@ export default function SalesPanel({ patientId, prefillData, onClearPrefill }) {
                {currentRx.od.sph !== null && <div style={{fontSize:11, color:"#bfdbfe", marginTop:5}}>Rx Cargada: OD {currentRx.od.sph} / OI {currentRx.os.sph}</div>}
             </div>
 
+            {/* DETALLES ÓPTICA Y SELECTOR (Igual) */}
             {showOpticalSpecs && (
                 <div style={{ background: "#1f1f1f", padding: 10, borderRadius: 8, marginBottom: 15, border:"1px solid #60a5fa" }}>
                     <div style={{fontSize:11, color:"#60a5fa", fontWeight:"bold", marginBottom:10}}>SELECTOR DE MICA (Rx Inteligente)</div>
                     
-                    {/* MOVIDO ARRIBA: Checkboxes de Servicios para que el usuario los vea PRIMERO */}
+                    {/* CHECKBOXES DE SERVICIOS (Movidos Arriba en la iteración anterior) */}
                     <div style={{display:"flex", gap:15, marginBottom:15, fontSize:12, color:"#ddd", background:"#333", padding:8, borderRadius:4}}>
                         <div style={{fontWeight:"bold", color:"#fbbf24"}}>SERVICIOS A INCLUIR:</div>
                         <label style={{display:"flex", alignItems:"center", gap:5, cursor:"pointer"}}>
@@ -367,6 +358,7 @@ export default function SalesPanel({ patientId, prefillData, onClearPrefill }) {
                         )}
                     </div>
                     
+                    {/* Búsqueda manual como fallback */}
                     <div style={{marginTop:10, borderTop:"1px dashed #444", paddingTop:8}}>
                         <input value={lensQuery} onChange={e => setLensQuery(e.target.value)} placeholder="O busca manualmente por nombre..." style={{ width: "100%", padding: 6, background: "#222", color: "#aaa", border: "1px solid #333", borderRadius: 4, fontSize:12 }} />
                          {lensQuery && filteredLenses.length > 0 && (
@@ -390,6 +382,7 @@ export default function SalesPanel({ patientId, prefillData, onClearPrefill }) {
                 </div>
             )}
 
+            {/* BUSCADOR PRODUCTOS */}
             <div style={{ position: "relative" }}>
               <label style={{ fontSize: 12, color: "#aaa" }}>Agregar otro producto (Armazón / Accesorios)</label>
               <input value={prodQuery} onChange={e => setProdQuery(e.target.value)} placeholder="Escribe marca..." style={{ width: "100%", padding: 10, background: "#222", color: "white", border: "1px solid #444", borderRadius: 6 }} />
@@ -411,6 +404,7 @@ export default function SalesPanel({ patientId, prefillData, onClearPrefill }) {
             )}
           </div>
 
+          {/* DERECHA: CARRITO Y COBRO */}
           <div style={{ background: "#111", padding: 20, borderRadius: 12, border: "1px solid #333", display: "flex", flexDirection: "column" }}>
              <h3 style={{ marginTop: 0, color: "#4ade80" }}>🛒 Carrito</h3>
              <div style={{ maxHeight: 200, overflowY: "auto", marginBottom: 20 }}>
@@ -422,7 +416,7 @@ export default function SalesPanel({ patientId, prefillData, onClearPrefill }) {
                         </div>
                         {item.cost > 0 && <div style={{fontSize:10, color:"#f87171"}}>Costo Lab: ${item.cost}</div>}
                         
-                        {/* NUEVO: Feedback Visual de Servicios */}
+                        {/* Feedback de Servicios */}
                         {item.specs && (item.specs.requiresBisel || item.specs.requiresTallado) && (
                             <div style={{fontSize:10, color:"#bfdbfe", marginTop:2}}>
                                 Servicios: {item.specs.requiresBisel && "🛠️ Bisel "} {item.specs.requiresTallado && "⚙️ Tallado"}
@@ -434,6 +428,7 @@ export default function SalesPanel({ patientId, prefillData, onClearPrefill }) {
                 ))}
              </div>
              
+             {/* TOTALES Y COBRO (Se mantiene igual) */}
              <div style={{ borderTop: "1px solid #333", paddingTop: 15 }}>
                <div style={{ background: "#1e293b", padding: 10, borderRadius: 6, marginBottom: 15 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.9em", color: "#aaa", marginBottom: 5 }}><span>Subtotal:</span><span>${subtotalGross.toLocaleString()}</span></div>
@@ -467,13 +462,24 @@ export default function SalesPanel({ patientId, prefillData, onClearPrefill }) {
                <button onClick={handleCheckout} disabled={cart.length === 0} style={{ width: "100%", padding: 12, background: cart.length > 0 ? "#16a34a" : "#333", color: "white", border: "none", borderRadius: 6, fontWeight: "bold" }}>Cobrar Venta</button>
              </div>
 
+             {/* HISTORIAL + BOTÓN ELIMINAR (Modificado aquí) */}
              <div style={{ marginTop: 20, borderTop: "1px solid #333", paddingTop: 10 }}>
                <h4 style={{margin:"0 0 10px 0", color:"#aaa"}}>Historial</h4>
                <div style={{display:"grid", gap:8}}>
                  {sales.map(s => (
                     <div key={s.id} onClick={() => setViewSale(s)} style={{ display: "flex", justifyContent: "space-between", padding: 10, background: "#222", borderRadius: 6, cursor: "pointer", border: "1px solid #333" }}>
                         <div><div style={{fontWeight:"bold", color:"white"}}>{s.description}</div><div style={{fontSize:"0.85em", color:"#888"}}>{new Date(s.createdAt).toLocaleDateString()}</div></div>
-                        <div style={{textAlign:"right"}}><div style={{fontWeight:"bold"}}>${s.total.toLocaleString()}</div><div style={{fontSize:"0.8em", color: s.balance>0 ? "#f87171" : "#4ade80"}}>{s.balance>0 ? "Pendiente" : "Pagado"}</div></div>
+                        <div style={{textAlign:"right"}}>
+                            <div style={{fontWeight:"bold"}}>${s.total.toLocaleString()}</div>
+                            <div style={{fontSize:"0.8em", color: s.balance>0 ? "#f87171" : "#4ade80"}}>{s.balance>0 ? "Pendiente" : "Pagado"}</div>
+                            {/* BOTÓN ELIMINAR */}
+                            <button 
+                                onClick={(e) => handleDeleteSale(e, s.id)}
+                                style={{marginTop: 5, color:"#666", fontSize:10, background:"none", border:"none", textDecoration:"underline", cursor:"pointer"}}
+                            >
+                                Eliminar
+                            </button>
+                        </div>
                     </div>
                  ))}
                </div>

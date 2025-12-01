@@ -84,6 +84,15 @@ export function updateWorkOrder(id, patch) {
 
 export function deleteWorkOrder(id) { write(read().filter(w => w.id !== id)); }
 
+// NUEVO: Función para eliminar en cascada
+export function deleteWorkOrdersBySaleId(saleId) {
+  const list = read();
+  const next = list.filter(w => w.saleId !== saleId);
+  if (list.length !== next.length) {
+      write(next);
+  }
+}
+
 export function nextStatus(current) {
   const idx = STATUS_FLOW.indexOf(current);
   if (idx === -1) return STATUS_FLOW[0];

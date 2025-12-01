@@ -1,13 +1,31 @@
 import { useMemo, useState, useEffect } from "react";
 import { getPatients } from "@/services/patientsStorage";
 import { getAllSales } from "@/services/salesStorage";
-import { getAllWorkOrders, updateWorkOrder, nextStatus, prevStatus, applyWarranty } from "@/services/workOrdersStorage";
+import { getAllWorkOrders, updateWorkOrder, nextStatus, prevStatus, applyWarranty, deleteWorkOrder } from "@/services/workOrdersStorage";
 import { getLabs } from "@/services/labStorage"; 
 import { getEmployees, ROLES } from "@/services/employeesStorage"; 
 import SaleDetailModal from "@/components/SaleDetailModal"; 
 
-const STATUS_LABELS = { ON_HOLD: "En Espera (Anticipo)", TO_PREPARE: "Por Preparar", SENT_TO_LAB: "En Laboratorio", QUALITY_CHECK: "Revisión / Calidad", READY: "Listo para Entregar", DELIVERED: "Entregado", CANCELLED: "Cancelado" };
-const STATUS_COLORS = { ON_HOLD: "#fca5a5", TO_PREPARE: "#facc15", SENT_TO_LAB: "#60a5fa", QUALITY_CHECK: "#a78bfa", READY: "#4ade80", DELIVERED: "#9ca3af", CANCELLED: "#f87171" };
+const STATUS_LABELS = { 
+  ON_HOLD: "En Espera (Anticipo)",
+  TO_PREPARE: "Por Preparar", 
+  SENT_TO_LAB: "En Laboratorio", 
+  QUALITY_CHECK: "Revisión / Calidad",
+  READY: "Listo para Entregar", 
+  DELIVERED: "Entregado", 
+  CANCELLED: "Cancelado" 
+};
+
+const STATUS_COLORS = { 
+  ON_HOLD: "#fca5a5",
+  TO_PREPARE: "#facc15", 
+  SENT_TO_LAB: "#60a5fa", 
+  QUALITY_CHECK: "#a78bfa", // Morado
+  READY: "#4ade80", 
+  DELIVERED: "#9ca3af", 
+  CANCELLED: "#f87171" 
+};
+
 const STATUS_TABS = ["ALL", "ON_HOLD", "TO_PREPARE", "SENT_TO_LAB", "QUALITY_CHECK", "READY", "DELIVERED"];
 
 export default function WorkOrdersPage() {
@@ -15,11 +33,13 @@ export default function WorkOrdersPage() {
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
   
+  // Modals
   const [sendLabModal, setSendLabModal] = useState(null); 
   const [revisionModal, setRevisionModal] = useState(null); 
   const [warrantyModal, setWarrantyModal] = useState(null); 
   const [viewSale, setViewSale] = useState(null); 
 
+  // Data
   const patients = useMemo(() => getPatients(), [tick]);
   const sales = useMemo(() => getAllSales(), [tick]);
   const workOrders = useMemo(() => getAllWorkOrders(), [tick]);
@@ -38,10 +58,29 @@ export default function WorkOrdersPage() {
     )).sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
   }, [workOrders, statusFilter, query, patientMap]);
 
+  // Handlers
+  const handleDelete = (id) => {
+      if(confirm("¿Eliminar orden de trabajo? Esto no borra la venta asociada.")) {
+          deleteWorkOrder(id);
+          setTick(t => t + 1);
+      }
+  };
+
   const handleAdvance = (order) => {
     const next = nextStatus(order.status);
-    if (order.status === "TO_PREPARE") { setSendLabModal(order); return; }
-    if (order.status === "SENT_TO_LAB") { setRevisionModal(order); return; }
+    
+    // 1. De TO_PREPARE -> SENT_TO_LAB: Pedir mensajero
+    if (order.status === "TO_PREPARE") {
+      setSendLabModal(order);
+      return;
+    }
+    
+    // 2. De SENT_TO_LAB -> QUALITY_CHECK: Pedir revisión (Lab y Costos)
+    if (order.status === "SENT_TO_LAB") {
+      setRevisionModal(order);
+      return;
+    }
+
     updateWorkOrder(order.id, { status: next });
     setTick(t => t + 1);
   };
@@ -77,15 +116,13 @@ export default function WorkOrdersPage() {
 
   const handlePrintOrder = (order) => { alert("Imprimiendo orden..."); };
 
-  // --- MODAL 1: ENVIAR (Simplificado) ---
+  // --- MODAL 1: ENVIAR (Solo Logística) ---
   const SendLabModal = ({ order, onClose }) => {
     const [courier, setCourier] = useState("");
-    
     return (
       <div style={{ position: "fixed", top:0, left:0, right:0, bottom:0, background:"rgba(0,0,0,0.8)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:100 }}>
         <div style={{ background: "#1a1a1a", padding: 20, borderRadius: 10, width: 400, border: "1px solid #60a5fa" }}>
           <h3 style={{ marginTop: 0, color: "#60a5fa" }}>Enviar a Laboratorio</h3>
-          
           <label style={{ display: "block", marginBottom: 20 }}>
             <span style={{ fontSize: 12, color: "#aaa" }}>¿Qué mensajero envía?</span>
             <select value={courier} onChange={e => setCourier(e.target.value)} style={{ width: "100%", padding: 8, background: "#222", color: "white", border: "1px solid #444", marginTop: 4 }}>
@@ -94,82 +131,75 @@ export default function WorkOrdersPage() {
                 <option value="Servicio Externo (Uber/Paquetería)">Servicio Externo (Uber/Paquetería)</option>
             </select>
           </label>
-          
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
              <button onClick={onClose} style={{ background: "transparent", color: "#aaa", border: "none", cursor: "pointer" }}>Cancelar</button>
-             <button onClick={() => { 
-                 updateWorkOrder(order.id, { 
-                     status: "SENT_TO_LAB", 
-                     courier // Solo guardamos mensajero
-                 }); 
-                 setTick(t => t + 1); onClose(); 
-             }} style={{ background: "#60a5fa", color: "black", padding: "8px 16px", border: "none", borderRadius: 4, fontWeight: "bold", cursor: "pointer" }}>Confirmar Envío</button>
+             <button onClick={() => { updateWorkOrder(order.id, { status: "SENT_TO_LAB", courier }); setTick(t => t + 1); onClose(); }} style={{ background: "#60a5fa", color: "black", padding: "8px 16px", border: "none", borderRadius: 4, fontWeight: "bold", cursor: "pointer" }}>Confirmar Envío</button>
           </div>
         </div>
       </div>
     );
   };
 
-  // --- MODAL 2: REVISIÓN DE CALIDAD Y COSTOS (Avanzado) ---
+  // --- MODAL 2: REVISIÓN Y CÁLCULO AUTOMÁTICO DE COSTOS ---
   const RevisionModal = ({ order, salesMap, onClose }) => {
-      // Costos desglosados
+      const [receivedBy, setReceivedBy] = useState("");
+      
+      // Costos Desglosados
       const [baseMicaCost, setBaseMicaCost] = useState(order.labCost || 0);
       const [biselCost, setBiselCost] = useState(0);
       const [talladoCost, setTalladoCost] = useState(0);
       
-      // Responsables (Laboratorios)
-      const [jobMadeBy, setJobMadeBy] = useState(""); // Bisel Lab ID
-      const [talladoBy, setTalladoBy] = useState(""); // Tallado Lab ID
+      // Laboratorios Responsables
+      const [jobMadeBy, setJobMadeBy] = useState(""); // ID Lab Bisel
+      const [talladoBy, setTalladoBy] = useState(""); // ID Lab Tallado
       
-      // Logística
-      const [receivedBy, setReceivedBy] = useState("");
       const [frameCondition, setFrameCondition] = useState("Llega en buen estado");
 
       const sale = salesMap[order.saleId];
       const saleItem = sale?.items?.find(i => i.id === order.saleItemId);
       const specs = saleItem?.specs || {};
 
-      // Calcular costo de Bisel según el Lab seleccionado
+      // Lógica de Costo Automático: Buscar servicio BISEL en el lab seleccionado
       const handleBiselLabChange = (e) => {
           const id = e.target.value;
           setJobMadeBy(id);
           if (id === "INTERNAL" || !id) { setBiselCost(0); return; }
           const lab = labs.find(l => l.id === id);
-          // Buscar servicio etiquetado como BISEL
           const service = lab?.services.find(s => s.type === "BISEL");
           setBiselCost(service ? Number(service.price) : 0);
       };
 
-      // Calcular costo de Tallado según el Lab seleccionado
+      // Lógica de Costo Automático: Buscar servicio TALLADO en el lab seleccionado
       const handleTalladoLabChange = (e) => {
           const id = e.target.value;
           setTalladoBy(id);
           if (id === "INTERNAL" || !id) { setTalladoCost(0); return; }
           const lab = labs.find(l => l.id === id);
-          // Buscar servicio etiquetado como TALLADO
           const service = lab?.services.find(s => s.type === "TALLADO");
           setTalladoCost(service ? Number(service.price) : 0);
       };
 
+      // Suma final dinámica
       const finalTotal = Number(baseMicaCost) + Number(biselCost) + Number(talladoCost);
 
       const handleConfirm = () => {
-          if(!receivedBy) return alert("Indica quién recibe el trabajo.");
+          if(!receivedBy) return alert("Indica quién recibe.");
           
-          // Definimos el nombre del laboratorio principal para mostrar en la lista (prioridad: Tallado -> Bisel -> Mica)
-          // O podemos guardar ambos. Aquí guardamos los nombres para referencia rápida.
+          // Definimos nombres legibles para guardar en historial
           const biselLabName = labs.find(l => l.id === jobMadeBy)?.name || (jobMadeBy === "INTERNAL" ? "Taller Interno" : "");
           const talladoLabName = labs.find(l => l.id === talladoBy)?.name || (talladoBy === "INTERNAL" ? "Taller Interno" : "");
           
-          // Usamos el lab de tallado como "Lab Principal" visual si existe, si no el de bisel
-          const mainLabName = talladoLabName || biselLabName || "Externo";
+          // "Main Lab" para la tarjeta principal será el de Tallado (o Bisel si no hay tallado)
+          const mainLabId = talladoBy !== "INTERNAL" ? talladoBy : jobMadeBy !== "INTERNAL" ? jobMadeBy : "";
+          const mainLabName = labs.find(l => l.id === mainLabId)?.name || "Taller Interno";
 
           updateWorkOrder(order.id, {
               status: "READY", 
               receivedBy,
-              labName: mainLabName, 
-              labCost: finalTotal, // Costo total sumado
-              jobMadeBy: biselLabName, // Guardamos nombre del lab/taller
+              labId: mainLabId,
+              labName: mainLabName,
+              labCost: finalTotal, // Guardamos el total sumado
+              jobMadeBy: biselLabName, // Guardamos nombres de responsables
               talladoBy: talladoLabName,
               frameCondition
           });
@@ -184,7 +214,7 @@ export default function WorkOrdersPage() {
                 
                 <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:20, marginBottom:20}}>
                     
-                    {/* COLUMNA IZQUIERDA: RESPONSABLES Y SERVICIOS */}
+                    {/* COLUMNA IZQUIERDA: RESPONSABLES Y COSTOS */}
                     <div style={{display:"grid", gap:15}}>
                         <div>
                             <div style={{fontSize:11, color:"#aaa", marginBottom:5}}>COSTO BASE MICA (Editable)</div>
@@ -275,7 +305,6 @@ export default function WorkOrdersPage() {
         <button onClick={() => setTick(t => t + 1)} style={{ background: "#333", color: "white", border: "1px solid #555", padding: "6px 12px", borderRadius: 6, cursor: "pointer" }}>Actualizar</button>
       </div>
       
-      {/* Pasamos salesMap al modal */}
       {sendLabModal && <SendLabModal order={sendLabModal} onClose={() => setSendLabModal(null)} />}
       {revisionModal && <RevisionModal order={revisionModal} salesMap={salesMap} onClose={() => setRevisionModal(null)} />}
       {warrantyModal && <WarrantyModal order={warrantyModal} onClose={() => setWarrantyModal(null)} />}
@@ -316,6 +345,7 @@ export default function WorkOrdersPage() {
                       </>
                     )}
                     {o.status !== "CANCELLED" && <button onClick={() => setWarrantyModal(o)} style={{ background: "#450a0a", border: "1px solid #f87171", color: "#f87171", padding: "6px 10px", borderRadius: 4, cursor: "pointer", fontSize: "0.8em" }}>⚠️ Garantía</button>}
+                    <button onClick={() => handleDelete(o.id)} style={{background:"none", border:"1px solid #333", color:"#666", cursor:"pointer", padding:"6px", borderRadius:4}}>🗑️</button>
                  </div>
               </div>
 
@@ -338,7 +368,7 @@ export default function WorkOrdersPage() {
                     )}
                  </div>
                  <div>
-                    <div style={{ fontSize: "0.85em", color: "#666", textTransform: "uppercase", marginBottom: 4 }}>Graduación</div>
+                    <div style={{ fontSize: "0.85em", color: "#666", textTransform: "uppercase" }}>Graduación</div>
                     <RxDisplay rxNotes={o.rxNotes} />
                  </div>
               </div>

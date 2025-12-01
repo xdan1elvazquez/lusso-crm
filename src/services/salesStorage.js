@@ -1,4 +1,4 @@
-import { createWorkOrder, getAllWorkOrders } from "./workOrdersStorage";
+import { createWorkOrder, getAllWorkOrders, deleteWorkOrdersBySaleId } from "./workOrdersStorage"; // 👈 IMPORTADO
 import { adjustStock } from "./inventoryStorage";
 import { getPatientById, adjustPatientPoints } from "./patientsStorage"; 
 import { getLoyaltySettings } from "./settingsStorage"; 
@@ -11,7 +11,6 @@ function read() {
     const str = localStorage.getItem(KEY);
     if (!str) return [];
     const parsed = JSON.parse(str);
-    // 🛡️ FILTRO DE SEGURIDAD: Elimina nulos
     return Array.isArray(parsed) ? parsed.filter(item => item && typeof item === 'object') : [];
   } catch { return []; }
 }
@@ -40,10 +39,7 @@ function normalizeItem(item, saleFallback) {
     description: base.description || fallback.description || "",
     qty: Number(base.qty) || 1,
     unitPrice: Number(base.unitPrice) || 0,
-    
-    // ✅ COSTO INTERNO (Vital para utilidad)
     cost: Number(base.cost) || 0,
-
     requiresLab: LAB_KINDS.has(kind) || Boolean(base.requiresLab),
     consultationId: base.consultationId ?? fallback.consultationId ?? null,
     eyeExamId: base.eyeExamId ?? null,
@@ -52,7 +48,6 @@ function normalizeItem(item, saleFallback) {
     rxSnapshot: base.rxSnapshot ?? null,
     labName: base.labName || "",
     dueDate: base.dueDate || null,
-    
     specs: {
         material: base.specs?.material || "",
         design: base.specs?.design || "",
@@ -60,7 +55,6 @@ function normalizeItem(item, saleFallback) {
         frameModel: base.specs?.frameModel || "",
         frameStatus: base.specs?.frameStatus || "NUEVO",
         notes: base.specs?.notes || "",
-        // Flags de servicios adicionales
         requiresBisel: base.specs?.requiresBisel !== undefined ? base.specs.requiresBisel : true,
         requiresTallado: base.specs?.requiresTallado || false
     }
@@ -96,7 +90,6 @@ function normalizeSale(raw) {
     patientId: sale.patientId ?? null,
     boxNumber: sale.boxNumber || "",
     soldBy: sale.soldBy || sale.logistics?.soldBy || "",
-    
     kind: sale.kind || items[0]?.kind || "OTHER",
     description: sale.description || items[0]?.description || "",
     subtotalGross, discount, total,
@@ -104,7 +97,6 @@ function normalizeSale(raw) {
     createdAt: sale.createdAt || new Date().toISOString(),
     updatedAt: sale.updatedAt || sale.createdAt || new Date().toISOString(),
     pointsAwarded: sale.pointsAwarded || 0,
-    
     logistics: {
         jobMadeBy: sale.logistics?.jobMadeBy || sale.labDetails?.jobMadeBy || "",
         labSentBy: sale.logistics?.labSentBy || sale.labDetails?.sentBy || "",
@@ -125,18 +117,13 @@ function withDerived(sale) {
 export function getAllSales() { return read().map(s => withDerived(normalizeSale(s))); }
 export function getSalesByPatientId(id) { return getAllSales().filter(s => s.patientId === id); }
 
-// --- MODIFICADO: REGLA 50% ANTICIPO ---
 function ensureWorkOrdersForSale(sale) {
   const existing = getAllWorkOrders();
   const existingKeys = new Set(existing.map(w => `${w.saleId}::${w.saleItemId}`));
   
-  // Calculamos porcentaje pagado
   const total = Number(sale.total) || 0;
   const paid = Number(sale.paidAmount) || 0;
-  // Si total es 0, asumimos pagado (100%)
   const ratio = total > 0 ? paid / total : 1;
-  
-  // Si pagó menos del 50%, la orden nace en espera (ON_HOLD)
   const initialStatus = ratio >= 0.5 ? "TO_PREPARE" : "ON_HOLD";
 
   sale.items.forEach(item => {
@@ -165,7 +152,6 @@ export function createSale(payload) {
   const now = new Date().toISOString();
   const loyalty = getLoyaltySettings();
 
-  // Puntos
   let pointsToAward = 0;
   if (loyalty.enabled) {
       const method = payload.payments?.[0]?.method || "EFECTIVO";
@@ -181,12 +167,10 @@ export function createSale(payload) {
     pointsAwarded: pointsToAward
   });
 
-  // Descontar stock
   normalizedSale.items.forEach(item => {
     if (item.inventoryProductId) adjustStock(item.inventoryProductId, -item.qty);
   });
 
-  // Puntos a paciente y referido
   if (pointsToAward > 0) adjustPatientPoints(payload.patientId, pointsToAward);
   const patient = getPatientById(payload.patientId);
   if (loyalty.enabled && patient && patient.referredBy) {
@@ -196,10 +180,8 @@ export function createSale(payload) {
 
   write([normalizedSale, ...list]);
   
-  // Recalculamos derived para tener el paidAmount correcto antes de crear Work Orders
   const finalSale = withDerived(normalizedSale);
   ensureWorkOrdersForSale(finalSale);
-  
   return finalSale;
 }
 
@@ -231,7 +213,11 @@ export function addPaymentToSale(saleId, payment) {
   return updated;
 }
 
-export function deleteSale(id) { write(read().filter(s => s.id !== id)); }
+export function deleteSale(id) { 
+    // Borrado en cascada
+    deleteWorkOrdersBySaleId(id);
+    write(read().filter(s => s.id !== id)); 
+}
 
 export function getFinancialReport() {
     const sales = getAllSales();
