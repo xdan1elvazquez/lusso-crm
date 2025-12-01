@@ -6,16 +6,24 @@ const LENS_DESIGNS = ["Monofocal", "Bifocal Flat Top", "Bifocal Invisible", "Pro
 const LENS_MATERIALS = ["CR-39", "Policarbonato", "Hi-Index 1.56", "Hi-Index 1.60", "Hi-Index 1.67", "Hi-Index 1.74", "Trivex", "Cristal"];
 const LENS_TREATMENTS = ["Blanco", "Antireflejante (AR)", "Blue Ray / Blue Free", "Fotocromático (Grey)", "Fotocromático (Brown)", "Polarizado", "Espejeado", "Transitions"];
 
+// TIPOS DE SERVICIO PARA ETIQUETAR
+const SERVICE_TYPES = [
+    { id: "GENERIC", label: "Genérico" },
+    { id: "BISEL", label: "Bisel / Montaje" },
+    { id: "TALLADO", label: "Tallado Digital" }
+];
+
 export default function LabsPage() {
   const [labs, setLabs] = useState([]);
   const [isEditing, setIsEditing] = useState(false);
   
   const [form, setForm] = useState({ id: null, name: "", services: [], lensCatalog: [] });
   const [activeTab, setActiveTab] = useState("SERVICES");
-  const [tempService, setTempService] = useState({ name: "", price: "" });
+  
+  // Estado para nuevo servicio (ahora con TYPE)
+  const [tempService, setTempService] = useState({ name: "", price: "", type: "GENERIC" });
   
   const [editingLens, setEditingLens] = useState(null);
-  // NUEVO: Agregamos 'price' al estado inicial
   const [tempRange, setTempRange] = useState({ sphMin: -20, sphMax: 20, cylMin: -6, cylMax: 0, cost: 0, price: 0 });
 
   useEffect(() => { setLabs(getLabs()); }, [isEditing]);
@@ -37,10 +45,16 @@ export default function LabsPage() {
     if(!tempService.name || !tempService.price) return;
     setForm(prev => ({
       ...prev,
-      services: [...prev.services, { id: crypto.randomUUID(), name: tempService.name, price: Number(tempService.price) }]
+      services: [...prev.services, { 
+          id: crypto.randomUUID(), 
+          name: tempService.name, 
+          price: Number(tempService.price),
+          type: tempService.type || "GENERIC" // Guardamos la etiqueta
+      }]
     }));
-    setTempService({ name: "", price: "" });
+    setTempService({ name: "", price: "", type: "GENERIC" });
   };
+  
   const removeService = (idx) => {
     setForm(prev => ({ ...prev, services: prev.services.filter((_, i) => i !== idx) }));
   };
@@ -70,7 +84,6 @@ export default function LabsPage() {
   };
 
   const handleRangeBlur = (field) => {
-      // Si son campos de dinero, no aplicamos parseDiopter, solo Number
       if (field === 'cost' || field === 'price') {
           setTempRange(prev => ({ ...prev, [field]: Number(prev[field]) || 0 }));
       } else {
@@ -80,7 +93,6 @@ export default function LabsPage() {
 
   const addRangeToLens = () => {
       if (!editingLens) return;
-      // Validar que min <= max
       if (Number(tempRange.sphMin) > Number(tempRange.sphMax)) return alert("Esfera Min debe ser menor que Max");
       if (Number(tempRange.cylMin) > Number(tempRange.cylMax)) return alert("Cilindro Min debe ser menor que Max");
 
@@ -94,7 +106,6 @@ export default function LabsPage() {
       setEditingLens(prev => ({ ...prev, ranges: prev.ranges.filter((_, i) => i !== idx) }));
   };
 
-  // NUEVO: Editar rango existente (lo carga en inputs y lo borra de la lista)
   const editRange = (range, idx) => {
       setTempRange({
           sphMin: range.sphMin, sphMax: range.sphMax,
@@ -111,7 +122,6 @@ export default function LabsPage() {
       }
   };
 
-  // Cálculo de utilidad en tiempo real para visualización
   const currentUtility = (Number(tempRange.price) || 0) - (Number(tempRange.cost) || 0);
   const utilityColor = currentUtility > 0 ? "#4ade80" : currentUtility < 0 ? "#f87171" : "#aaa";
 
@@ -135,18 +145,25 @@ export default function LabsPage() {
                <button onClick={() => setActiveTab("LENSES")} style={{ padding: "8px 16px", borderRadius: 20, border: activeTab==="LENSES" ? "1px solid #60a5fa" : "1px solid #444", background: activeTab==="LENSES" ? "rgba(96, 165, 250, 0.1)" : "transparent", color: activeTab==="LENSES" ? "white" : "#888", cursor: "pointer" }}>👓 Catálogo de Micas</button>
            </div>
            
+           {/* --- TAB 1: SERVICIOS CON ETIQUETAS --- */}
            {activeTab === "SERVICES" && (
                <div style={{ background: "#111", padding: 15, borderRadius: 8 }}>
                   <h4 style={{ margin: "0 0 10px 0", fontSize: "0.9em", color: "#4ade80" }}>Lista de Precios (Servicios, Bisel, Soldadura)</h4>
                   <div style={{ display: "flex", gap: 10, marginBottom: 10 }}>
-                     <input placeholder="Servicio (ej. Bisel Ranurado)" value={tempService.name} onChange={e => setTempService({...tempService, name: e.target.value})} style={{ flex: 1, padding: 6, background: "#222", border: "1px solid #444", color: "white" }} />
+                     <input placeholder="Servicio (ej. Bisel Ranurado)" value={tempService.name} onChange={e => setTempService({...tempService, name: e.target.value})} style={{ flex: 2, padding: 6, background: "#222", border: "1px solid #444", color: "white" }} />
+                     
+                     {/* NUEVO: SELECTOR DE TIPO DE SERVICIO */}
+                     <select value={tempService.type} onChange={e => setTempService({...tempService, type: e.target.value})} style={{ flex: 1, padding: 6, background: "#222", border: "1px solid #444", color: "white" }}>
+                         {SERVICE_TYPES.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
+                     </select>
+
                      <input type="number" placeholder="$ Costo" value={tempService.price} onChange={e => setTempService({...tempService, price: e.target.value})} style={{ width: 80, padding: 6, background: "#222", border: "1px solid #444", color: "white" }} />
                      <button onClick={handleAddService} style={{ background: "#4ade80", border: "none", cursor: "pointer", borderRadius: 4, padding: "0 12px", fontWeight:"bold" }}>+</button>
                   </div>
                   <div style={{ display: "grid", gap: 5 }}>
                      {form.services.map((s, i) => (
                         <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: "0.9em", borderBottom: "1px solid #333", padding: 4 }}>
-                           <span>{s.name}</span>
+                           <span>{s.name} <span style={{fontSize:10, color:"#aaa", background:"#222", padding:"1px 4px", borderRadius:3, marginLeft:5}}>{SERVICE_TYPES.find(t => t.id === s.type)?.label || "Genérico"}</span></span>
                            <span>${s.price} <span onClick={() => removeService(i)} style={{ color: "red", cursor: "pointer", marginLeft: 8 }}>x</span></span>
                         </div>
                      ))}
@@ -154,6 +171,7 @@ export default function LabsPage() {
                </div>
            )}
 
+           {/* --- TAB 2: CATÁLOGO DE MICAS --- */}
            {activeTab === "LENSES" && (
                <div style={{ background: "#111", padding: 15, borderRadius: 8, border: "1px solid #60a5fa" }}>
                   {!editingLens ? (
@@ -196,7 +214,6 @@ export default function LabsPage() {
                           </div>
 
                           <h5 style={{margin:"0 0 10px 0", color:"#aaa"}}>Matriz de Costos y Precios</h5>
-                          {/* INPUTS DE RANGO MEJORADOS */}
                           <div style={{display:"grid", gridTemplateColumns:"repeat(4, 1fr) 80px 80px auto", gap:5, alignItems:"end", marginBottom:5, background:"#222", padding:10, borderRadius:6}}>
                               <label style={{fontSize:10, color:"#aaa"}}>Esf Min<input type="number" step="0.25" value={tempRange.sphMin} onChange={e=>handleRangeChange('sphMin', e.target.value)} onBlur={()=>handleRangeBlur('sphMin')} style={{width:"100%", padding:4, background:"#333", border:"1px solid #555", color:"white"}} /></label>
                               <label style={{fontSize:10, color:"#aaa"}}>Esf Max<input type="number" step="0.25" value={tempRange.sphMax} onChange={e=>handleRangeChange('sphMax', e.target.value)} onBlur={()=>handleRangeBlur('sphMax')} style={{width:"100%", padding:4, background:"#333", border:"1px solid #555", color:"white"}} /></label>
@@ -205,13 +222,11 @@ export default function LabsPage() {
                               
                               <label style={{fontSize:10, color:"#f87171", fontWeight:"bold"}}>COSTO<input type="number" value={tempRange.cost} onChange={e=>handleRangeChange('cost', e.target.value)} onBlur={()=>handleRangeBlur('cost')} style={{width:"100%", padding:4, background:"#450a0a", border:"1px solid #f87171", color:"white", fontWeight:"bold"}} /></label>
                               
-                              {/* NUEVO: INPUT PRECIO VENTA */}
                               <label style={{fontSize:10, color:"#4ade80", fontWeight:"bold"}}>VENTA<input type="number" value={tempRange.price} onChange={e=>handleRangeChange('price', e.target.value)} onBlur={()=>handleRangeBlur('price')} style={{width:"100%", padding:4, background:"#064e3b", border:"1px solid #4ade80", color:"white", fontWeight:"bold"}} /></label>
                               
                               <button onClick={addRangeToLens} style={{background:"#fbbf24", color:"black", border:"none", padding:"6px 10px", borderRadius:4, cursor:"pointer", height:30, alignSelf:"end"}}>✚</button>
                           </div>
                           
-                          {/* INDICADOR DE UTILIDAD EN TIEMPO REAL */}
                           <div style={{textAlign:"right", fontSize:11, color: utilityColor, marginBottom: 15, paddingRight: 50}}>
                               Utilidad por par: ${currentUtility.toLocaleString()}
                           </div>
@@ -230,7 +245,6 @@ export default function LabsPage() {
                                                 <td style={{padding:4, color:"#4ade80", fontWeight:"bold"}}>${r.price}</td>
                                                 <td style={{padding:4, color: util>0?"#4ade80":"#f87171"}}>${util}</td>
                                                 <td style={{padding:4, display:"flex", gap:5}}>
-                                                    {/* NUEVO: BOTÓN EDITAR RANGO */}
                                                     <button onClick={() => editRange(r, i)} style={{color:"#60a5fa", background:"none", border:"none", cursor:"pointer"}}>✏️</button>
                                                     <button onClick={() => removeRange(i)} style={{color:"#f87171", background:"none", border:"none", cursor:"pointer"}}>✕</button>
                                                 </td>
