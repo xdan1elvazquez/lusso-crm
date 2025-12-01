@@ -1,5 +1,6 @@
 const KEY = "lusso_workorders_v1";
-const STATUS_FLOW = ["TO_PREPARE", "SENT_TO_LAB", "READY", "DELIVERED"];
+// NUEVO FLUJO: ON_HOLD -> TO_PREPARE -> SENT_TO_LAB -> QUALITY_CHECK -> READY -> DELIVERED
+const STATUS_FLOW = ["ON_HOLD", "TO_PREPARE", "SENT_TO_LAB", "QUALITY_CHECK", "READY", "DELIVERED"];
 
 function read() {
   try { return JSON.parse(localStorage.getItem(KEY) || "[]"); } catch { return []; }
@@ -7,7 +8,7 @@ function read() {
 function write(list) { localStorage.setItem(KEY, JSON.stringify(list)); }
 
 function normalizeStatus(status) {
-  const allowed = ["TO_PREPARE", "SENT_TO_LAB", "READY", "DELIVERED", "CANCELLED", "WARRANTY"];
+  const allowed = [...STATUS_FLOW, "CANCELLED", "WARRANTY"];
   return allowed.includes(status) ? status : "TO_PREPARE";
 }
 
@@ -31,6 +32,13 @@ function normalize(item) {
     labName: base.labName || "",    
     labCost: Number(base.labCost) || 0, 
     
+    // LOGÍSTICA (NUEVOS CAMPOS)
+    courier: base.courier || "",          // Mensajero envío
+    receivedBy: base.receivedBy || "",    // Quien recibe en óptica
+    jobMadeBy: base.jobMadeBy || "",      // Quien hizo el bisel
+    talladoBy: base.talladoBy || "",      // Quien hizo el tallado
+    frameCondition: base.frameCondition || "", // Estado del armazón al recibir
+
     // GARANTÍAS
     isWarranty: Boolean(base.isWarranty),
     warrantyHistory: Array.isArray(base.warrantyHistory) ? base.warrantyHistory : [], 
@@ -52,7 +60,8 @@ export function createWorkOrder(payload) {
   const wo = normalize({
     id: globalThis.crypto?.randomUUID?.() ?? String(Date.now()),
     ...payload,
-    status: "TO_PREPARE",
+    // El status inicial ahora se define desde salesStorage o default a TO_PREPARE
+    status: payload.status || "TO_PREPARE", 
     createdAt: new Date().toISOString()
   });
   write([wo, ...list]);
@@ -88,7 +97,6 @@ export function prevStatus(current) {
   return STATUS_FLOW[idx - 1];
 }
 
-// APLICAR GARANTÍA
 export function applyWarranty(id, reason, extraCost) {
   const list = read();
   const next = list.map(w => {
@@ -100,9 +108,9 @@ export function applyWarranty(id, reason, extraCost) {
     };
     return normalize({
       ...w,
-      status: "TO_PREPARE", // Regresa al inicio
+      status: "TO_PREPARE", 
       isWarranty: true,
-      labCost: (Number(w.labCost) || 0) + event.cost, // Suma costo
+      labCost: (Number(w.labCost) || 0) + event.cost, 
       warrantyHistory: [...(w.warrantyHistory || []), event]
     });
   });

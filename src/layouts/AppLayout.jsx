@@ -60,6 +60,10 @@ export default function AppLayout() {
             📊 Estadísticas
           </NavLink>
 
+          <NavLink to="team" className={linkClass}>
+            🧷 Equipo
+          </NavLink>
+
         </nav>
 
         <div className="sidebarBottom">

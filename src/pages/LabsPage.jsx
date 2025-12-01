@@ -10,29 +10,20 @@ export default function LabsPage() {
   const [labs, setLabs] = useState([]);
   const [isEditing, setIsEditing] = useState(false);
   
-  // Estado del Laboratorio
   const [form, setForm] = useState({ id: null, name: "", services: [], lensCatalog: [] });
-  
-  // Estado de UI interna
-  const [activeTab, setActiveTab] = useState("SERVICES"); // SERVICES | LENSES
+  const [activeTab, setActiveTab] = useState("SERVICES");
   const [tempService, setTempService] = useState({ name: "", price: "" });
   
-  // Estado para editar una MICA específica dentro del catálogo
-  const [editingLens, setEditingLens] = useState(null); // Objeto lens o null
-  const [tempRange, setTempRange] = useState({ sphMin: -20, sphMax: 20, cylMin: 0, cylMax: -6, cost: 0 });
+  const [editingLens, setEditingLens] = useState(null);
+  // NUEVO: Agregamos 'price' al estado inicial
+  const [tempRange, setTempRange] = useState({ sphMin: -20, sphMax: 20, cylMin: -6, cylMax: 0, cost: 0, price: 0 });
 
   useEffect(() => { setLabs(getLabs()); }, [isEditing]);
 
-  // --- LOGICA GENERAL ---
   const handleSaveLab = () => {
-    // Si estábamos editando una mica, guardarla en el catálogo antes de salir
-    if (editingLens) {
-        saveLensToCatalog();
-    }
-    
+    if (editingLens) saveLensToCatalog();
     if (form.id) updateLab(form.id, form);
     else createLab(form);
-    
     setIsEditing(false);
     setEditingLens(null);
     setForm({ id: null, name: "", services: [], lensCatalog: [] });
@@ -42,7 +33,6 @@ export default function LabsPage() {
     if(confirm("¿Borrar laboratorio y todas sus listas de precios?")) { deleteLab(id); setLabs(getLabs()); }
   };
 
-  // --- LOGICA DE SERVICIOS BASICOS ---
   const handleAddService = () => {
     if(!tempService.name || !tempService.price) return;
     setForm(prev => ({
@@ -55,52 +45,63 @@ export default function LabsPage() {
     setForm(prev => ({ ...prev, services: prev.services.filter((_, i) => i !== idx) }));
   };
 
-  // --- LOGICA DE MATRIZ DE MICAS (LO CHIDO) ---
   const handleNewLens = () => {
       setEditingLens({
           id: crypto.randomUUID(),
-          name: "", // Ej. "Poly Blue Ray"
+          name: "", 
           design: "Monofocal",
           material: "Policarbonato",
-          treatment: "Blue Ray / Blue Free",
-          ranges: [] // Aquí van los costos por graduación
+          treatment: "Antireflejante (AR)",
+          ranges: [] 
       });
   };
 
   const saveLensToCatalog = () => {
       if (!editingLens || !editingLens.name) return;
-      
       let newCatalog = [...(form.lensCatalog || [])];
       const index = newCatalog.findIndex(l => l.id === editingLens.id);
-      
-      if (index >= 0) newCatalog[index] = editingLens;
-      else newCatalog.push(editingLens);
-      
+      if (index >= 0) newCatalog[index] = editingLens; else newCatalog.push(editingLens);
       setForm(f => ({ ...f, lensCatalog: newCatalog }));
-      setEditingLens(null); // Volver a la lista
+      setEditingLens(null); 
   };
 
-  // FIX B3: Control estricto de inputs de rango
   const handleRangeChange = (field, value) => {
       setTempRange(prev => ({ ...prev, [field]: value }));
   };
 
   const handleRangeBlur = (field) => {
-      // Al salir del input, normalizamos a float (0.25 steps)
-      setTempRange(prev => ({ ...prev, [field]: parseDiopter(prev[field]) }));
+      // Si son campos de dinero, no aplicamos parseDiopter, solo Number
+      if (field === 'cost' || field === 'price') {
+          setTempRange(prev => ({ ...prev, [field]: Number(prev[field]) || 0 }));
+      } else {
+          setTempRange(prev => ({ ...prev, [field]: parseDiopter(prev[field]) }));
+      }
   };
 
   const addRangeToLens = () => {
       if (!editingLens) return;
+      // Validar que min <= max
+      if (Number(tempRange.sphMin) > Number(tempRange.sphMax)) return alert("Esfera Min debe ser menor que Max");
+      if (Number(tempRange.cylMin) > Number(tempRange.cylMax)) return alert("Cilindro Min debe ser menor que Max");
+
       setEditingLens(prev => ({
           ...prev,
           ranges: [...prev.ranges, { ...tempRange, id: crypto.randomUUID() }]
       }));
-      // No reseteamos tempRange completo para facilitar captura masiva
   };
 
   const removeRange = (idx) => {
       setEditingLens(prev => ({ ...prev, ranges: prev.ranges.filter((_, i) => i !== idx) }));
+  };
+
+  // NUEVO: Editar rango existente (lo carga en inputs y lo borra de la lista)
+  const editRange = (range, idx) => {
+      setTempRange({
+          sphMin: range.sphMin, sphMax: range.sphMax,
+          cylMin: range.cylMin, cylMax: range.cylMax,
+          cost: range.cost, price: range.price || 0
+      });
+      removeRange(idx);
   };
 
   const removeLensFromCatalog = (idx) => {
@@ -109,6 +110,10 @@ export default function LabsPage() {
           setForm(f => ({ ...f, lensCatalog: newCatalog }));
       }
   };
+
+  // Cálculo de utilidad en tiempo real para visualización
+  const currentUtility = (Number(tempRange.price) || 0) - (Number(tempRange.cost) || 0);
+  const utilityColor = currentUtility > 0 ? "#4ade80" : currentUtility < 0 ? "#f87171" : "#aaa";
 
   return (
     <div style={{ width: "100%", paddingBottom: 40 }}>
@@ -119,21 +124,17 @@ export default function LabsPage() {
 
       {isEditing && (
         <div style={{ background: "#1a1a1a", padding: 20, borderRadius: 12, border: "1px solid #333", marginBottom: 20 }}>
-           
-           {/* ENCABEZADO DEL LABORATORIO */}
            <div style={{ marginBottom: 20, borderBottom: "1px solid #333", paddingBottom: 15 }}>
               <h3 style={{ marginTop: 0, color:"#e5e7eb" }}>{form.id ? "Editar" : "Registrar"} Proveedor</h3>
               <label style={{ display: "block", fontSize: 12, color: "#aaa" }}>Nombre del Laboratorio</label>
               <input value={form.name} onChange={e => setForm({...form, name: e.target.value})} style={{ width: "100%", padding: 8, background: "#222", border: "1px solid #444", color: "white", borderRadius: 4, fontSize: "1.2em" }} placeholder="Ej. Laboratorio Augu" />
            </div>
 
-           {/* TABS */}
            <div style={{ display: "flex", gap: 10, marginBottom: 20 }}>
                <button onClick={() => setActiveTab("SERVICES")} style={{ padding: "8px 16px", borderRadius: 20, border: activeTab==="SERVICES" ? "1px solid #4ade80" : "1px solid #444", background: activeTab==="SERVICES" ? "rgba(74, 222, 128, 0.1)" : "transparent", color: activeTab==="SERVICES" ? "white" : "#888", cursor: "pointer" }}>🛠️ Servicios Extra</button>
                <button onClick={() => setActiveTab("LENSES")} style={{ padding: "8px 16px", borderRadius: 20, border: activeTab==="LENSES" ? "1px solid #60a5fa" : "1px solid #444", background: activeTab==="LENSES" ? "rgba(96, 165, 250, 0.1)" : "transparent", color: activeTab==="LENSES" ? "white" : "#888", cursor: "pointer" }}>👓 Catálogo de Micas</button>
            </div>
            
-           {/* --- TAB 1: SERVICIOS BASICOS --- */}
            {activeTab === "SERVICES" && (
                <div style={{ background: "#111", padding: 15, borderRadius: 8 }}>
                   <h4 style={{ margin: "0 0 10px 0", fontSize: "0.9em", color: "#4ade80" }}>Lista de Precios (Servicios, Bisel, Soldadura)</h4>
@@ -153,12 +154,9 @@ export default function LabsPage() {
                </div>
            )}
 
-           {/* --- TAB 2: CATÁLOGO DE MICAS (MATRIZ) --- */}
            {activeTab === "LENSES" && (
                <div style={{ background: "#111", padding: 15, borderRadius: 8, border: "1px solid #60a5fa" }}>
-                  
                   {!editingLens ? (
-                      // VISTA: LISTA DE MICAS
                       <>
                         <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom: 10}}>
                             <h4 style={{ margin: 0, color: "#60a5fa" }}>Micas Configuradas</h4>
@@ -182,14 +180,12 @@ export default function LabsPage() {
                         </div>
                       </>
                   ) : (
-                      // VISTA: EDITOR DE UNA MICA
                       <div style={{animation: "fadeIn 0.2s"}}>
                           <div style={{display:"flex", justifyContent:"space-between", marginBottom:15}}>
                               <h4 style={{margin:0, color:"#fbbf24"}}>Configurando Mica</h4>
                               <button onClick={saveLensToCatalog} style={{background:"#fbbf24", color:"black", border:"none", padding:"4px 12px", borderRadius:4, fontWeight:"bold", cursor:"pointer"}}>Guardar Mica</button>
                           </div>
                           
-                          {/* Atributos de la Mica */}
                           <div style={{display:"grid", gap:10, marginBottom:20, background:"#222", padding:10, borderRadius:8}}>
                               <label style={{fontSize:12, color:"#aaa"}}>Nombre Interno <input value={editingLens.name} onChange={e=>setEditingLens({...editingLens, name:e.target.value})} placeholder="Ej. Poly AR Green" style={{width:"100%", padding:6, background:"#333", border:"1px solid #555", color:"white", borderRadius:4}} /></label>
                               <div style={{display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:10}}>
@@ -199,56 +195,48 @@ export default function LabsPage() {
                               </div>
                           </div>
 
-                          {/* Matriz de Rangos (FIX B3: Inputs Estrictos) */}
-                          <h5 style={{margin:"0 0 10px 0", color:"#aaa"}}>Tabla de Costos (Rangos)</h5>
-                          <div style={{display:"grid", gridTemplateColumns:"1fr 1fr 1fr 1fr 1fr auto", gap:5, alignItems:"end", marginBottom:10, background:"#222", padding:10, borderRadius:6}}>
-                              <label style={{fontSize:10, color:"#aaa"}}>Esfera Min
-                                  <input type="number" step="0.25" 
-                                      value={tempRange.sphMin} 
-                                      onChange={e=>handleRangeChange('sphMin', e.target.value)} 
-                                      onBlur={()=>handleRangeBlur('sphMin')}
-                                      style={{width:"100%", padding:4, background:"#333", border:"1px solid #555", color:"white"}} />
-                              </label>
-                              <label style={{fontSize:10, color:"#aaa"}}>Esfera Max
-                                  <input type="number" step="0.25" 
-                                      value={tempRange.sphMax} 
-                                      onChange={e=>handleRangeChange('sphMax', e.target.value)} 
-                                      onBlur={()=>handleRangeBlur('sphMax')}
-                                      style={{width:"100%", padding:4, background:"#333", border:"1px solid #555", color:"white"}} />
-                              </label>
-                              <label style={{fontSize:10, color:"#aaa"}}>Cil Min
-                                  <input type="number" step="0.25" 
-                                      value={tempRange.cylMin} 
-                                      onChange={e=>handleRangeChange('cylMin', e.target.value)} 
-                                      onBlur={()=>handleRangeBlur('cylMin')}
-                                      style={{width:"100%", padding:4, background:"#333", border:"1px solid #555", color:"white"}} />
-                              </label>
-                              <label style={{fontSize:10, color:"#aaa"}}>Cil Max
-                                  <input type="number" step="0.25" 
-                                      value={tempRange.cylMax} 
-                                      onChange={e=>handleRangeChange('cylMax', e.target.value)} 
-                                      onBlur={()=>handleRangeBlur('cylMax')}
-                                      style={{width:"100%", padding:4, background:"#333", border:"1px solid #555", color:"white"}} />
-                              </label>
-                              <label style={{fontSize:10, color:"#4ade80", fontWeight:"bold"}}>COSTO $
-                                  <input type="number" value={tempRange.cost} onChange={e=>setTempRange({...tempRange, cost:e.target.value})} style={{width:"100%", padding:4, background:"#064e3b", border:"1px solid #4ade80", color:"white", fontWeight:"bold"}} />
-                              </label>
+                          <h5 style={{margin:"0 0 10px 0", color:"#aaa"}}>Matriz de Costos y Precios</h5>
+                          {/* INPUTS DE RANGO MEJORADOS */}
+                          <div style={{display:"grid", gridTemplateColumns:"repeat(4, 1fr) 80px 80px auto", gap:5, alignItems:"end", marginBottom:5, background:"#222", padding:10, borderRadius:6}}>
+                              <label style={{fontSize:10, color:"#aaa"}}>Esf Min<input type="number" step="0.25" value={tempRange.sphMin} onChange={e=>handleRangeChange('sphMin', e.target.value)} onBlur={()=>handleRangeBlur('sphMin')} style={{width:"100%", padding:4, background:"#333", border:"1px solid #555", color:"white"}} /></label>
+                              <label style={{fontSize:10, color:"#aaa"}}>Esf Max<input type="number" step="0.25" value={tempRange.sphMax} onChange={e=>handleRangeChange('sphMax', e.target.value)} onBlur={()=>handleRangeBlur('sphMax')} style={{width:"100%", padding:4, background:"#333", border:"1px solid #555", color:"white"}} /></label>
+                              <label style={{fontSize:10, color:"#aaa"}}>Cil Min<input type="number" step="0.25" value={tempRange.cylMin} onChange={e=>handleRangeChange('cylMin', e.target.value)} onBlur={()=>handleRangeBlur('cylMin')} style={{width:"100%", padding:4, background:"#333", border:"1px solid #555", color:"white"}} /></label>
+                              <label style={{fontSize:10, color:"#aaa"}}>Cil Max<input type="number" step="0.25" value={tempRange.cylMax} onChange={e=>handleRangeChange('cylMax', e.target.value)} onBlur={()=>handleRangeBlur('cylMax')} style={{width:"100%", padding:4, background:"#333", border:"1px solid #555", color:"white"}} /></label>
+                              
+                              <label style={{fontSize:10, color:"#f87171", fontWeight:"bold"}}>COSTO<input type="number" value={tempRange.cost} onChange={e=>handleRangeChange('cost', e.target.value)} onBlur={()=>handleRangeBlur('cost')} style={{width:"100%", padding:4, background:"#450a0a", border:"1px solid #f87171", color:"white", fontWeight:"bold"}} /></label>
+                              
+                              {/* NUEVO: INPUT PRECIO VENTA */}
+                              <label style={{fontSize:10, color:"#4ade80", fontWeight:"bold"}}>VENTA<input type="number" value={tempRange.price} onChange={e=>handleRangeChange('price', e.target.value)} onBlur={()=>handleRangeBlur('price')} style={{width:"100%", padding:4, background:"#064e3b", border:"1px solid #4ade80", color:"white", fontWeight:"bold"}} /></label>
+                              
                               <button onClick={addRangeToLens} style={{background:"#fbbf24", color:"black", border:"none", padding:"6px 10px", borderRadius:4, cursor:"pointer", height:30, alignSelf:"end"}}>✚</button>
                           </div>
+                          
+                          {/* INDICADOR DE UTILIDAD EN TIEMPO REAL */}
+                          <div style={{textAlign:"right", fontSize:11, color: utilityColor, marginBottom: 15, paddingRight: 50}}>
+                              Utilidad por par: ${currentUtility.toLocaleString()}
+                          </div>
 
-                          {/* Lista de Rangos */}
                           <div style={{maxHeight:200, overflowY:"auto"}}>
                               <table style={{width:"100%", fontSize:"0.85em", color:"#ccc", borderCollapse:"collapse"}}>
-                                  <thead><tr style={{background:"#333", textAlign:"left"}}><th style={{padding:4}}>Esfera</th><th style={{padding:4}}>Cilindro</th><th style={{padding:4, color:"#4ade80"}}>Costo</th><th style={{padding:4}}></th></tr></thead>
+                                  <thead><tr style={{background:"#333", textAlign:"left"}}><th style={{padding:4}}>Esfera</th><th style={{padding:4}}>Cilindro</th><th style={{padding:4, color:"#f87171"}}>Costo</th><th style={{padding:4, color:"#4ade80"}}>Precio</th><th style={{padding:4}}>Utilidad</th><th style={{padding:4}}></th></tr></thead>
                                   <tbody>
-                                      {editingLens.ranges.map((r, i) => (
-                                          <tr key={i} style={{borderBottom:"1px solid #333"}}>
-                                              <td style={{padding:4}}>{r.sphMin} a {r.sphMax}</td>
-                                              <td style={{padding:4}}>{r.cylMin} a {r.cylMax}</td>
-                                              <td style={{padding:4, color:"#4ade80", fontWeight:"bold"}}>${r.cost}</td>
-                                              <td style={{padding:4}}><button onClick={() => removeRange(i)} style={{color:"#f87171", background:"none", border:"none", cursor:"pointer"}}>x</button></td>
-                                          </tr>
-                                      ))}
+                                      {editingLens.ranges.map((r, i) => {
+                                          const util = (Number(r.price)||0) - (Number(r.cost)||0);
+                                          return (
+                                            <tr key={i} style={{borderBottom:"1px solid #333"}}>
+                                                <td style={{padding:4}}>{r.sphMin} a {r.sphMax}</td>
+                                                <td style={{padding:4}}>{r.cylMin} a {r.cylMax}</td>
+                                                <td style={{padding:4, color:"#f87171"}}>${r.cost}</td>
+                                                <td style={{padding:4, color:"#4ade80", fontWeight:"bold"}}>${r.price}</td>
+                                                <td style={{padding:4, color: util>0?"#4ade80":"#f87171"}}>${util}</td>
+                                                <td style={{padding:4, display:"flex", gap:5}}>
+                                                    {/* NUEVO: BOTÓN EDITAR RANGO */}
+                                                    <button onClick={() => editRange(r, i)} style={{color:"#60a5fa", background:"none", border:"none", cursor:"pointer"}}>✏️</button>
+                                                    <button onClick={() => removeRange(i)} style={{color:"#f87171", background:"none", border:"none", cursor:"pointer"}}>✕</button>
+                                                </td>
+                                            </tr>
+                                          );
+                                      })}
                                   </tbody>
                               </table>
                           </div>
