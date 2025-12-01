@@ -5,6 +5,7 @@ import { getAllWorkOrders, updateWorkOrder, nextStatus, prevStatus, applyWarrant
 import { getLabs } from "@/services/labStorage"; 
 import { getEmployees, ROLES } from "@/services/employeesStorage"; 
 import SaleDetailModal from "@/components/SaleDetailModal"; 
+import { createExpense } from "@/services/expensesStorage"; // 👈 IMPORTANTE
 
 const STATUS_LABELS = { 
   ON_HOLD: "En Espera (Anticipo)",
@@ -37,6 +38,7 @@ export default function WorkOrdersPage() {
   const [sendLabModal, setSendLabModal] = useState(null); 
   const [revisionModal, setRevisionModal] = useState(null); 
   const [warrantyModal, setWarrantyModal] = useState(null); 
+  const [payLabModal, setPayLabModal] = useState(null); // 👈 NUEVO MODAL PAGO
   const [viewSale, setViewSale] = useState(null); 
 
   // Data
@@ -143,15 +145,12 @@ export default function WorkOrdersPage() {
   // --- MODAL 2: REVISIÓN Y CÁLCULO AUTOMÁTICO DE COSTOS ---
   const RevisionModal = ({ order, salesMap, onClose }) => {
       const [receivedBy, setReceivedBy] = useState("");
-      
-      // Costos Desglosados
       const [baseMicaCost, setBaseMicaCost] = useState(order.labCost || 0);
       const [biselCost, setBiselCost] = useState(0);
       const [talladoCost, setTalladoCost] = useState(0);
       
-      // Laboratorios Responsables
-      const [jobMadeBy, setJobMadeBy] = useState(""); // ID Lab Bisel
-      const [talladoBy, setTalladoBy] = useState(""); // ID Lab Tallado
+      const [jobMadeBy, setJobMadeBy] = useState(""); 
+      const [talladoBy, setTalladoBy] = useState(""); 
       
       const [frameCondition, setFrameCondition] = useState("Llega en buen estado");
 
@@ -159,7 +158,6 @@ export default function WorkOrdersPage() {
       const saleItem = sale?.items?.find(i => i.id === order.saleItemId);
       const specs = saleItem?.specs || {};
 
-      // Lógica de Costo Automático: Buscar servicio BISEL en el lab seleccionado
       const handleBiselLabChange = (e) => {
           const id = e.target.value;
           setJobMadeBy(id);
@@ -169,7 +167,6 @@ export default function WorkOrdersPage() {
           setBiselCost(service ? Number(service.price) : 0);
       };
 
-      // Lógica de Costo Automático: Buscar servicio TALLADO en el lab seleccionado
       const handleTalladoLabChange = (e) => {
           const id = e.target.value;
           setTalladoBy(id);
@@ -179,17 +176,12 @@ export default function WorkOrdersPage() {
           setTalladoCost(service ? Number(service.price) : 0);
       };
 
-      // Suma final dinámica
       const finalTotal = Number(baseMicaCost) + Number(biselCost) + Number(talladoCost);
 
       const handleConfirm = () => {
           if(!receivedBy) return alert("Indica quién recibe.");
-          
-          // Definimos nombres legibles para guardar en historial
           const biselLabName = labs.find(l => l.id === jobMadeBy)?.name || (jobMadeBy === "INTERNAL" ? "Taller Interno" : "");
           const talladoLabName = labs.find(l => l.id === talladoBy)?.name || (talladoBy === "INTERNAL" ? "Taller Interno" : "");
-          
-          // "Main Lab" para la tarjeta principal será el de Tallado (o Bisel si no hay tallado)
           const mainLabId = talladoBy !== "INTERNAL" ? talladoBy : jobMadeBy !== "INTERNAL" ? jobMadeBy : "";
           const mainLabName = labs.find(l => l.id === mainLabId)?.name || "Taller Interno";
 
@@ -198,8 +190,8 @@ export default function WorkOrdersPage() {
               receivedBy,
               labId: mainLabId,
               labName: mainLabName,
-              labCost: finalTotal, // Guardamos el total sumado
-              jobMadeBy: biselLabName, // Guardamos nombres de responsables
+              labCost: finalTotal,
+              jobMadeBy: biselLabName,
               talladoBy: talladoLabName,
               frameCondition
           });
@@ -211,16 +203,12 @@ export default function WorkOrdersPage() {
         <div style={{ position: "fixed", top:0, left:0, right:0, bottom:0, background:"rgba(0,0,0,0.8)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:100 }}>
             <div style={{ background: "#1a1a1a", padding: 20, borderRadius: 10, width: 600, border: "1px solid #a78bfa" }}>
                 <h3 style={{ marginTop: 0, color: "#a78bfa" }}>Recepción y Cálculo de Costos</h3>
-                
                 <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:20, marginBottom:20}}>
-                    
-                    {/* COLUMNA IZQUIERDA: RESPONSABLES Y COSTOS */}
                     <div style={{display:"grid", gap:15}}>
                         <div>
                             <div style={{fontSize:11, color:"#aaa", marginBottom:5}}>COSTO BASE MICA (Editable)</div>
                             <input type="number" value={baseMicaCost} onChange={e => setBaseMicaCost(e.target.value)} style={{width:"100%", padding:8, background:"#222", border:"1px solid #444", color:"white", borderRadius:4}} />
                         </div>
-
                         {specs.requiresBisel && (
                             <div>
                                 <div style={{fontSize:11, color:"#aaa", marginBottom:5}}>¿QUIÉN BISELÓ? (Servicio: Bisel)</div>
@@ -232,7 +220,6 @@ export default function WorkOrdersPage() {
                                 <div style={{fontSize:10, color:"#f87171", marginTop:2}}>Costo Bisel: ${biselCost}</div>
                             </div>
                         )}
-
                         {specs.requiresTallado && (
                             <div>
                                 <div style={{fontSize:11, color:"#aaa", marginBottom:5}}>¿QUIÉN TALLÓ? (Servicio: Tallado)</div>
@@ -245,8 +232,6 @@ export default function WorkOrdersPage() {
                             </div>
                         )}
                     </div>
-
-                    {/* COLUMNA DERECHA: LOGÍSTICA Y TOTAL */}
                     <div style={{display:"grid", gap:15, alignContent:"start"}}>
                         <div>
                             <div style={{fontSize:11, color:"#aaa", marginBottom:5}}>¿QUIÉN RECIBE EN ÓPTICA?</div>
@@ -255,19 +240,16 @@ export default function WorkOrdersPage() {
                                 {employees.map(e => <option key={e.id} value={e.name}>{e.name}</option>)}
                             </select>
                         </div>
-                        
                         <div>
                             <div style={{fontSize:11, color:"#aaa", marginBottom:5}}>ESTADO DEL ARMAZÓN</div>
                             <textarea rows={2} value={frameCondition} onChange={e => setFrameCondition(e.target.value)} style={{width:"100%", padding:8, background:"#222", border:"1px solid #444", color:"white", borderRadius:4}} />
                         </div>
-
                         <div style={{background:"#333", padding:15, borderRadius:8, marginTop:10, textAlign:"center"}}>
                             <div style={{fontSize:12, color:"#aaa"}}>COSTO TOTAL REAL</div>
                             <div style={{fontSize:24, fontWeight:"bold", color:"#f87171"}}>${finalTotal.toLocaleString()}</div>
                         </div>
                     </div>
                 </div>
-
                 <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, borderTop:"1px solid #333", paddingTop:15 }}>
                     <button onClick={onClose} style={{ background: "transparent", color: "#aaa", border: "none", cursor: "pointer" }}>Cancelar</button>
                     <button onClick={handleConfirm} style={{ background: "#a78bfa", color: "black", padding: "10px 25px", border: "none", borderRadius: 6, fontWeight: "bold", cursor: "pointer" }}>✅ Aprobar Calidad</button>
@@ -298,6 +280,53 @@ export default function WorkOrdersPage() {
     );
   };
 
+  // --- MODAL 3: PAGAR LABORATORIO (NUEVO) ---
+  const PayLabModal = ({ order, onClose }) => {
+      const [method, setMethod] = useState("EFECTIVO");
+      
+      const handlePay = () => {
+          if (!order.labCost || order.labCost <= 0) return alert("No hay costo que pagar.");
+          
+          createExpense({
+              description: `Pago Lab: ${order.labName} (P: ${patientMap[order.patientId]?.lastName})`,
+              amount: order.labCost,
+              category: "COSTO_VENTA",
+              method: method,
+              date: new Date().toISOString()
+          });
+
+          updateWorkOrder(order.id, { isPaid: true });
+          
+          setTick(t => t + 1);
+          alert("Pago registrado y orden actualizada.");
+          onClose();
+      };
+
+      return (
+        <div style={{ position: "fixed", top:0, left:0, right:0, bottom:0, background:"rgba(0,0,0,0.8)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:100 }}>
+            <div style={{ background: "#1a1a1a", padding: 20, borderRadius: 10, width: 350, border: "1px solid #4ade80" }}>
+                <h3 style={{ marginTop: 0, color: "#4ade80" }}>Registrar Pago a Proveedor</h3>
+                <p style={{color:"#ccc", fontSize:"0.9em"}}>
+                    Vas a registrar un pago de <strong>${order.labCost?.toLocaleString()}</strong> al laboratorio <strong>{order.labName}</strong>.
+                </p>
+                <label style={{ display: "block", marginBottom: 15 }}>
+                    <span style={{ fontSize: 12, color: "#aaa" }}>Método de Pago</span>
+                    <select value={method} onChange={e => setMethod(e.target.value)} style={{ width: "100%", padding: 8, background: "#222", color: "white", border: "1px solid #444", marginTop: 4 }}>
+                        <option value="EFECTIVO">Efectivo (Caja Chica)</option>
+                        <option value="TRANSFERENCIA">Transferencia</option>
+                        <option value="TARJETA">Tarjeta Corporativa</option>
+                        <option value="CHEQUE">Cheque</option>
+                    </select>
+                </label>
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+                    <button onClick={onClose} style={{ background: "transparent", color: "#aaa", border: "none", cursor: "pointer" }}>Cancelar</button>
+                    <button onClick={handlePay} style={{ background: "#4ade80", color: "black", padding: "8px 16px", border: "none", borderRadius: 4, fontWeight: "bold", cursor: "pointer" }}>💸 Pagar</button>
+                </div>
+            </div>
+        </div>
+      );
+  };
+
   return (
     <div style={{ width: "100%", paddingBottom: 40 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
@@ -308,6 +337,7 @@ export default function WorkOrdersPage() {
       {sendLabModal && <SendLabModal order={sendLabModal} onClose={() => setSendLabModal(null)} />}
       {revisionModal && <RevisionModal order={revisionModal} salesMap={salesMap} onClose={() => setRevisionModal(null)} />}
       {warrantyModal && <WarrantyModal order={warrantyModal} onClose={() => setWarrantyModal(null)} />}
+      {payLabModal && <PayLabModal order={payLabModal} onClose={() => setPayLabModal(null)} />}
       {viewSale && <SaleDetailModal sale={viewSale} patient={patientMap[viewSale.patientId]} onClose={() => setViewSale(null)} onUpdate={() => setTick(t => t + 1)} />}
 
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 20 }}>
@@ -356,9 +386,19 @@ export default function WorkOrdersPage() {
                        <span style={{ fontSize: "0.85em", background: "#222", padding: "3px 6px", borderRadius: 4, color: "#aaa" }}>Lab: {o.labName || "Interno"}</span>
                        <span style={{ fontSize: "0.85em", color: profit >= 0 ? "#4ade80" : "#f87171" }}>Utilidad: ${profit.toLocaleString()}</span>
                     </div>
-                    {/* INFO ADICIONAL SEGÚN ESTADO */}
+                    {/* INFO ADICIONAL */}
                     {o.courier && <div style={{fontSize:"0.8em", color:"#aaa", marginTop:4}}>🚚 Enviado con: {o.courier}</div>}
                     {o.receivedBy && <div style={{fontSize:"0.8em", color:"#a78bfa", marginTop:4}}>✅ Recibido por: {o.receivedBy}</div>}
+
+                    {/* Botón Pagar Lab */}
+                    <div style={{marginTop:8, display:"flex", gap:10, alignItems:"center"}}>
+                        {o.labCost > 0 && !o.isPaid && o.status !== "CANCELLED" && (
+                            <button onClick={() => setPayLabModal(o)} style={{ background: "#064e3b", border: "1px solid #4ade80", color: "#4ade80", padding: "4px 10px", borderRadius: 4, cursor: "pointer", fontSize: "0.8em" }}>
+                                💸 Pagar ${o.labCost.toLocaleString()}
+                            </button>
+                        )}
+                        {o.isPaid && <span style={{fontSize:"0.8em", color:"#4ade80", border:"1px solid #4ade80", padding:"2px 6px", borderRadius:4}}>✅ Pagado</span>}
+                    </div>
 
                     {sale && (
                       <div onClick={() => setViewSale(sale)} style={{ marginTop: 8, fontSize: "0.9em", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6, padding: "4px 8px", background: "rgba(255,255,255,0.05)", borderRadius: 4 }}>

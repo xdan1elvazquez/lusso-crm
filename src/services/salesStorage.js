@@ -213,23 +213,18 @@ export function addPaymentToSale(saleId, payment) {
   return updated;
 }
 
-// --- MODIFICADO: BORRADO INTELIGENTE (Reversa Puntos y Work Orders) ---
 export function deleteSale(id) { 
     const list = read();
     const sale = list.find(s => s.id === id);
 
     if (sale) {
-        // 1. Revertir puntos del paciente (Comprador)
         if (sale.pointsAwarded > 0) {
             adjustPatientPoints(sale.patientId, -sale.pointsAwarded);
         }
-
-        // 2. Revertir puntos del referido (Padrino)
         const loyalty = getLoyaltySettings();
         const patient = getPatientById(sale.patientId);
         
         if (loyalty.enabled && patient && patient.referredBy) {
-            // Recalculamos la bonificación que se dio
             const referralPoints = Math.floor((sale.total * loyalty.referralBonusPercent) / 100);
             if (referralPoints > 0) {
                 adjustPatientPoints(patient.referredBy, -referralPoints);
@@ -237,10 +232,7 @@ export function deleteSale(id) {
         }
     }
 
-    // 3. Borrado en cascada de Work Orders
     deleteWorkOrdersBySaleId(id);
-    
-    // 4. Eliminar venta de la lista
     write(list.filter(s => s.id !== id)); 
 }
 
@@ -270,4 +262,64 @@ export function getFinancialReport() {
         });
     });
     return { incomeToday, incomeMonth, salesToday, salesMonth, totalReceivable, incomeByMethod, totalFees };
+}
+
+// 👈 NUEVO: REPORTE DE RENTABILIDAD
+export function getProfitabilityReport() {
+    const sales = getAllSales();
+    const workOrders = getAllWorkOrders();
+    const now = new Date();
+    const monthStr = now.toISOString().slice(0, 7); // YYYY-MM
+
+    // Mapa rápido de costos de laboratorio por item de venta
+    const labCostMap = {};
+    workOrders.forEach(w => {
+        if (w.saleId && w.saleItemId) {
+            const key = `${w.saleId}::${w.saleItemId}`;
+            labCostMap[key] = (labCostMap[key] || 0) + (w.labCost || 0);
+        }
+    });
+
+    const report = {
+        global: { sales: 0, cost: 0, profit: 0 },
+        byCategory: {} 
+    };
+
+    sales.forEach(sale => {
+        if (sale.createdAt.slice(0, 7) !== monthStr) return;
+
+        sale.items.forEach(item => {
+            const kind = item.kind || "OTHER";
+            const itemSaleTotal = item.unitPrice * item.qty;
+            const itemProductCost = (item.cost || 0) * item.qty;
+            
+            const woKey = `${sale.id}::${item.id}`;
+            const itemServiceCost = labCostMap[woKey] || 0;
+
+            const totalItemCost = itemProductCost + itemServiceCost;
+            const itemProfit = itemSaleTotal - totalItemCost;
+
+            // Acumular Global
+            report.global.sales += itemSaleTotal;
+            report.global.cost += totalItemCost;
+            report.global.profit += itemProfit;
+
+            // Acumular por Categoría
+            if (!report.byCategory[kind]) {
+                report.byCategory[kind] = { sales: 0, cost: 0, profit: 0, count: 0 };
+            }
+            report.byCategory[kind].sales += itemSaleTotal;
+            report.byCategory[kind].cost += totalItemCost;
+            report.byCategory[kind].profit += itemProfit;
+            report.byCategory[kind].count += item.qty;
+        });
+        
+        // Ajuste de descuento global en utilidad global
+        if (sale.discount > 0) {
+            report.global.sales -= sale.discount;
+            report.global.profit -= sale.discount;
+        }
+    });
+
+    return report;
 }

@@ -31,6 +31,7 @@ function normalize(item) {
     labId: base.labId || "",        
     labName: base.labName || "",    
     labCost: Number(base.labCost) || 0, 
+    isPaid: Boolean(base.isPaid), // 👈 NUEVO: Bandera de pago al proveedor
     
     // LOGÍSTICA (NUEVOS CAMPOS)
     courier: base.courier || "",          // Mensajero envío
@@ -120,6 +121,7 @@ export function applyWarranty(id, reason, extraCost) {
       status: "TO_PREPARE", 
       isWarranty: true,
       labCost: (Number(w.labCost) || 0) + event.cost, 
+      isPaid: false, // 👈 NUEVO: Si hay garantía con costo, se resetea el pago para cobrar el extra
       warrantyHistory: [...(w.warrantyHistory || []), event]
     });
   });
