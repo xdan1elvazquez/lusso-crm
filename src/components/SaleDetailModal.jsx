@@ -1,19 +1,32 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import { updateSaleLogistics } from "@/services/salesStorage";
+import { getAllWorkOrders } from "@/services/workOrdersStorage"; // 👈 Conectamos con W.O.
+
+const STATUS_LABELS = { 
+  ON_HOLD: "En Espera", TO_PREPARE: "Por Preparar", SENT_TO_LAB: "En Laboratorio", 
+  QUALITY_CHECK: "Revisión Calidad", READY: "Listo entrega", DELIVERED: "Entregado", 
+  CANCELLED: "Cancelado", WARRANTY: "Garantía" 
+};
+
+const STATUS_COLORS = { 
+  ON_HOLD: "#fca5a5", TO_PREPARE: "#facc15", SENT_TO_LAB: "#60a5fa", 
+  QUALITY_CHECK: "#a78bfa", READY: "#4ade80", DELIVERED: "#9ca3af", 
+  CANCELLED: "#f87171", WARRANTY: "#ef4444"
+};
 
 export default function SaleDetailModal({ sale, patient, onClose, onUpdate }) {
   const [activeTab, setActiveTab] = useState("GENERAL"); // GENERAL, LAB, PAYMENTS
-  
-  // Estados locales editables
   const [soldBy, setSoldBy] = useState(sale.soldBy || "");
-  const [labDetails, setLabDetails] = useState(sale.labDetails || {});
+
+  // 1. Buscamos las órdenes de trabajo vinculadas a esta venta en tiempo real
+  const relatedWorkOrders = useMemo(() => {
+      const allWos = getAllWorkOrders();
+      return allWos.filter(w => w.saleId === sale.id);
+  }, [sale.id]);
 
   const handleSave = () => {
-      updateSaleLogistics(sale.id, { 
-          soldBy, 
-          labDetails 
-      });
-      alert("Información actualizada");
+      updateSaleLogistics(sale.id, { soldBy });
+      alert("Vendedor actualizado");
       if (onUpdate) onUpdate();
   };
 
@@ -61,15 +74,16 @@ export default function SaleDetailModal({ sale, patient, onClose, onUpdate }) {
                 {/* TAB 1: GENERAL */}
                 {activeTab === "GENERAL" && (
                     <div style={{ display: "grid", gap: 20 }}>
-                        {/* RESUMEN CABECERA */}
                         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 15, background: "#222", padding: 15, borderRadius: 8 }}>
                              <div><div style={labelStyle}>Paciente</div><div style={valStyle}>{patient?.firstName} {patient?.lastName}</div></div>
                              <div><div style={labelStyle}>Teléfono</div><div style={valStyle}>{patient?.phone}</div></div>
                              <div><div style={labelStyle}>No. Caja</div><div style={{...valStyle, color:"#fbbf24", fontSize:"1.2em"}}>{sale.boxNumber || "-"}</div></div>
                              <div>
                                  <div style={labelStyle}>Vendedor</div>
-                                 {/* Vendedor Editable Aquí */}
-                                 <input value={soldBy} onChange={e => setSoldBy(e.target.value)} style={{...inputStyle, padding:4, width:"100%"}} placeholder="Nombre..." />
+                                 <div style={{display:"flex", gap:5}}>
+                                    <input value={soldBy} onChange={e => setSoldBy(e.target.value)} style={{...inputStyle, padding:4, width:"100%"}} placeholder="Nombre..." />
+                                    <button onClick={handleSave} style={{background:"#2563eb", border:"none", borderRadius:4, color:"white", cursor:"pointer"}}>💾</button>
+                                 </div>
                              </div>
                         </div>
 
@@ -83,7 +97,6 @@ export default function SaleDetailModal({ sale, patient, onClose, onUpdate }) {
                                 
                                 {item.kind === "LENSES" || item.kind === "CONTACT_LENS" ? (
                                     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, fontSize: "0.9em" }}>
-                                        {/* DETALLES TÉCNICOS */}
                                         <div>
                                             <div style={{color:"#aaa", marginBottom:4, fontSize:"0.9em", fontWeight:"bold"}}>ESPECIFICACIONES</div>
                                             <ul style={{ margin: "0", paddingLeft: 15, color: "#ccc", lineHeight:"1.6" }}>
@@ -94,7 +107,6 @@ export default function SaleDetailModal({ sale, patient, onClose, onUpdate }) {
                                             </ul>
                                             {item.specs?.notes && <div style={{color:"#fca5a5", fontStyle:"italic", marginTop:5}}>Nota: {item.specs.notes}</div>}
                                         </div>
-                                        {/* GRADUACIÓN */}
                                         <div>
                                             <div style={{color:"#aaa", marginBottom:4, fontSize:"0.9em", fontWeight:"bold"}}>GRADUACIÓN</div>
                                             <RxDisplay rx={item.rxSnapshot} />
@@ -105,23 +117,70 @@ export default function SaleDetailModal({ sale, patient, onClose, onUpdate }) {
                                 )}
                             </div>
                         ))}
-
-                        <button onClick={handleSave} style={{ marginTop: 10, background: "#333", color: "white", padding: "10px", border: "1px solid #555", borderRadius: 6, cursor: "pointer" }}>Guardar Cambios (Vendedor)</button>
                     </div>
                 )}
 
-                {/* TAB 2: TALLER Y LOGÍSTICA */}
+                {/* TAB 2: TALLER Y LOGÍSTICA (VISTA DE WORK ORDERS) */}
                 {activeTab === "LAB" && (
                     <div style={{ display: "grid", gap: 15 }}>
-                        <h4 style={{ margin: "0", color: "#60a5fa", borderBottom: "1px solid #60a5fa", paddingBottom: 5 }}>Seguimiento de Taller</h4>
-                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 15 }}>
-                            <label><span style={labelStyle}>¿Quién elaboró/biseló?</span><input value={labDetails.jobMadeBy} onChange={e => setLabDetails({...labDetails, jobMadeBy:e.target.value})} style={inputStyle} placeholder="Técnico" /></label>
-                            <label><span style={labelStyle}>Fecha Promesa Entrega</span><input type="date" value={labDetails.deliveryDate} onChange={e => setLabDetails({...labDetails, deliveryDate:e.target.value})} style={inputStyle} /></label>
-                            <label><span style={labelStyle}>Envió a Lab</span><input value={labDetails.sentBy} onChange={e => setLabDetails({...labDetails, sentBy:e.target.value})} style={inputStyle} placeholder="Nombre" /></label>
-                            <label><span style={labelStyle}>Recibió de Lab</span><input value={labDetails.receivedBy} onChange={e => setLabDetails({...labDetails, receivedBy:e.target.value})} style={inputStyle} placeholder="Nombre" /></label>
-                            <label><span style={labelStyle}>Mensajería / Chofer</span><input value={labDetails.courier} onChange={e => setLabDetails({...labDetails, courier:e.target.value})} style={inputStyle} /></label>
+                        <h4 style={{ margin: "0", color: "#60a5fa", borderBottom: "1px solid #60a5fa", paddingBottom: 5 }}>Rastreo de Trabajos (Work Orders)</h4>
+                        
+                        {relatedWorkOrders.length === 0 ? (
+                            <p style={{opacity:0.5, fontStyle:"italic"}}>No hay órdenes de laboratorio generadas para esta venta.</p>
+                        ) : (
+                            relatedWorkOrders.map(wo => (
+                                <div key={wo.id} style={{background:"#222", padding:15, borderRadius:8, borderLeft: `4px solid ${STATUS_COLORS[wo.status]}`}}>
+                                    <div style={{display:"flex", justifyContent:"space-between", marginBottom:10}}>
+                                        <div>
+                                            <div style={{fontWeight:"bold", color:"white"}}>{wo.type} - {wo.labName}</div>
+                                            <div style={{fontSize:"0.8em", color:"#aaa"}}>ID: {wo.id.slice(0,8)}</div>
+                                        </div>
+                                        <div style={{textAlign:"right"}}>
+                                            <div style={{fontWeight:"bold", color:STATUS_COLORS[wo.status]}}>{STATUS_LABELS[wo.status]}</div>
+                                            <div style={{fontSize:"0.8em", color:"#aaa"}}>{new Date(wo.updatedAt).toLocaleDateString()}</div>
+                                        </div>
+                                    </div>
+
+                                    {/* GRID DE DATOS DE RASTREO (LEÍDOS DEL EMPLEADO SELECCIONADO) */}
+                                    <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, fontSize:"0.9em", background:"#1a1a1a", padding:10, borderRadius:6}}>
+                                        <div>
+                                            <div style={{fontSize:10, color:"#666", textTransform:"uppercase"}}>Mensajería / Envío</div>
+                                            <div style={{color: wo.courier ? "white" : "#444"}}>{wo.courier || "—"}</div>
+                                        </div>
+                                        <div>
+                                            <div style={{fontSize:10, color:"#666", textTransform:"uppercase"}}>Recibido Por</div>
+                                            <div style={{color: wo.receivedBy ? "#a78bfa" : "#444"}}>{wo.receivedBy || "—"}</div>
+                                        </div>
+                                        <div>
+                                            <div style={{fontSize:10, color:"#666", textTransform:"uppercase"}}>Bisel / Montaje</div>
+                                            <div style={{color: wo.jobMadeBy ? "white" : "#444"}}>{wo.jobMadeBy || "—"}</div>
+                                        </div>
+                                        <div>
+                                            <div style={{fontSize:10, color:"#666", textTransform:"uppercase"}}>Tallado</div>
+                                            <div style={{color: wo.talladoBy ? "white" : "#444"}}>{wo.talladoBy || "—"}</div>
+                                        </div>
+                                    </div>
+
+                                    {wo.frameCondition && (
+                                        <div style={{marginTop:10, fontSize:"0.9em"}}>
+                                            <div style={{fontSize:10, color:"#666", textTransform:"uppercase"}}>Estado del Armazón</div>
+                                            <div style={{fontStyle:"italic", color:"#ccc"}}>"{wo.frameCondition}"</div>
+                                        </div>
+                                    )}
+                                    
+                                    {/* VISUALIZAR COSTO REAL (Solo informativo) */}
+                                    {wo.labCost > 0 && (
+                                        <div style={{marginTop:10, textAlign:"right", fontSize:"0.85em", color:"#666"}}>
+                                            Costo Real Lab: ${wo.labCost.toLocaleString()}
+                                        </div>
+                                    )}
+                                </div>
+                            ))
+                        )}
+                        
+                        <div style={{fontSize:"0.8em", color:"#666", marginTop:10, textAlign:"center"}}>
+                            * Para actualizar estos estados, ve a la sección "Órdenes de Trabajo".
                         </div>
-                        <button onClick={handleSave} style={{ marginTop: 20, background: "#2563eb", color: "white", padding: 12, border: "none", borderRadius: 6, fontWeight: "bold", cursor: "pointer" }}>Guardar Datos de Taller</button>
                     </div>
                 )}
 
