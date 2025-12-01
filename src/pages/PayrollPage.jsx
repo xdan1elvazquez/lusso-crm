@@ -1,27 +1,39 @@
-// ... imports igual
 import { useState, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { calculatePayrollReport } from "@/services/payrollService";
 import { createExpense } from "@/services/expensesStorage";
+
+const PERIODS = [
+    { id: 'MONTH', label: 'Mes Completo' },
+    { id: 'Q1', label: '1ra Quincena (1-15)' },
+    { id: 'Q2', label: '2da Quincena (16-Fin)' }
+];
 
 export default function PayrollPage() {
   const [tick, setTick] = useState(0);
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
+  const [period, setPeriod] = useState("MONTH"); // 👈 NUEVO ESTADO
 
-  const report = useMemo(() => calculatePayrollReport(year, month), [year, month, tick]);
+  // Pasamos el periodo al servicio
+  const report = useMemo(() => calculatePayrollReport(year, month, period), [year, month, period, tick]);
 
-  const totalPayroll = report.reduce((sum, r) => sum + r.totalToPay, 0);
+  const totalCommissions = report.reduce((sum, r) => sum + r.commissionAmount, 0);
+  const totalBase = report.reduce((sum, r) => sum + r.baseSalary, 0);
+  const grandTotal = totalCommissions + totalBase;
 
   const handlePay = (empReport) => {
       if (empReport.totalToPay <= 0) return alert("Monto 0, nada que pagar.");
       
-      const confirmMsg = `¿Registrar pago a ${empReport.name}?\n\nSueldo: $${empReport.baseSalary}\nComisión: $${empReport.commissionAmount}\nTOTAL: $${empReport.totalToPay}`;
+      const periodLabel = PERIODS.find(p => p.id === period)?.label || period;
+      
+      const confirmMsg = `¿Registrar pago a ${empReport.name}?\n\nPeriodo: ${periodLabel}\nSueldo Base: $${empReport.baseSalary.toLocaleString()}\nComisiones: $${empReport.commissionAmount.toLocaleString()}\nTOTAL A PAGAR: $${empReport.totalToPay.toLocaleString()}`;
+      
       if (!confirm(confirmMsg)) return;
 
       createExpense({
-          description: `Nómina ${month}/${year}: ${empReport.name}`,
+          description: `Nómina ${periodLabel} ${month}/${year}: ${empReport.name}`,
           amount: empReport.totalToPay,
           category: "NOMINA",
           method: "TRANSFERENCIA",
@@ -40,21 +52,36 @@ export default function PayrollPage() {
            <h1 style={{ margin: 0 }}>Nómina y Comisiones</h1>
            
            <div style={{display:"flex", gap:10}}>
-               <select value={year} onChange={e => setYear(Number(e.target.value))} style={{padding:8, borderRadius:6, background:"#333", color:"white", border:"1px solid #555"}}>
-                   {[2024, 2025, 2026].map(y => <option key={y} value={y}>{y}</option>)}
+               <select value={period} onChange={e => setPeriod(e.target.value)} style={{padding:8, borderRadius:6, background:"#1e3a8a", color:"white", border:"1px solid #60a5fa", fontWeight:"bold"}}>
+                   {PERIODS.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}
                </select>
                <select value={month} onChange={e => setMonth(Number(e.target.value))} style={{padding:8, borderRadius:6, background:"#333", color:"white", border:"1px solid #555"}}>
                    {Array.from({length:12}, (_, i) => i+1).map(m => <option key={m} value={m}>Mes {m}</option>)}
+               </select>
+               <select value={year} onChange={e => setYear(Number(e.target.value))} style={{padding:8, borderRadius:6, background:"#333", color:"white", border:"1px solid #555"}}>
+                   {[2024, 2025, 2026].map(y => <option key={y} value={y}>{y}</option>)}
                </select>
            </div>
         </div>
       </div>
 
-      <div style={{ background: "#1a1a1a", padding: 20, borderRadius: 12, border: "1px solid #fbbf24", marginBottom: 30, textAlign:"center" }}>
-          <div style={{ fontSize: 12, color: "#fbbf24", textTransform:"uppercase" }}>Total a Pagar (Nómina + Comisiones)</div>
-          <div style={{ fontSize: "2.5em", fontWeight: "bold", color: "white" }}>${totalPayroll.toLocaleString()}</div>
+      {/* RESUMEN */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 20, marginBottom: 30 }}>
+          <div style={{ background: "#1a1a1a", padding: 20, borderRadius: 12, border: "1px solid #333" }}>
+              <div style={{ fontSize: 12, color: "#aaa" }}>SUELDOS BASE ({period === 'MONTH' ? 'MENSUAL' : 'QUINCENAL'})</div>
+              <div style={{ fontSize: "1.8em", fontWeight: "bold", color: "#4ade80" }}>${totalBase.toLocaleString()}</div>
+          </div>
+          <div style={{ background: "#1a1a1a", padding: 20, borderRadius: 12, border: "1px solid #333" }}>
+              <div style={{ fontSize: 12, color: "#aaa" }}>COMISIONES DE VENTAS</div>
+              <div style={{ fontSize: "1.8em", fontWeight: "bold", color: "#fbbf24" }}>${totalCommissions.toLocaleString()}</div>
+          </div>
+          <div style={{ background: "#1a1a1a", padding: 20, borderRadius: 12, border: "1px solid #60a5fa" }}>
+              <div style={{ fontSize: 12, color: "#60a5fa" }}>TOTAL A DISPERSAR</div>
+              <div style={{ fontSize: "1.8em", fontWeight: "bold", color: "white" }}>${grandTotal.toLocaleString()}</div>
+          </div>
       </div>
 
+      {/* TABLA DE EMPLEADOS */}
       <div style={{ display: "grid", gap: 10 }}>
           {report.map(row => (
               <div key={row.id} style={{ background: "#111", border: "1px solid #333", borderRadius: 10, padding: 15, display: "grid", gridTemplateColumns: "1.5fr 1fr 1fr 1fr auto", alignItems: "center", gap: 15 }}>
@@ -64,7 +91,7 @@ export default function PayrollPage() {
                   </div>
                   
                   <div style={{textAlign:"right"}}>
-                      <div style={{fontSize:"0.8em", color:"#aaa"}}>Sueldo Base</div>
+                      <div style={{fontSize:"0.8em", color:"#aaa"}}>Base {period==='MONTH'?'Mensual':'Quincenal'}</div>
                       <div style={{color:"#4ade80"}}>${row.baseSalary.toLocaleString()}</div>
                   </div>
 
@@ -74,7 +101,7 @@ export default function PayrollPage() {
                   </div>
 
                   <div style={{textAlign:"right"}}>
-                      <div style={{fontSize:"0.8em", color:"#aaa"}}>Total</div>
+                      <div style={{fontSize:"0.8em", color:"#aaa"}}>Total a Pagar</div>
                       <div style={{fontWeight:"bold", color:"white", fontSize:"1.1em"}}>${row.totalToPay.toLocaleString()}</div>
                   </div>
 
@@ -89,6 +116,10 @@ export default function PayrollPage() {
           ))}
           {report.length === 0 && <p style={{opacity:0.5, textAlign:"center"}}>No hay empleados registrados.</p>}
       </div>
+      
+      <p style={{marginTop:30, fontSize:12, color:"#666", textAlign:"center"}}>
+          * Nota: Al seleccionar quincena, el sueldo mensual se divide automáticamente entre 2.
+      </p>
     </div>
   );
 }

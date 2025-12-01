@@ -6,6 +6,9 @@ import { getLoyaltySettings } from "./settingsStorage";
 const KEY = "lusso_sales_v1";
 const LAB_KINDS = new Set(["LENSES", "CONTACT_LENS"]);
 
+// Helper simple para obtener YYYY-MM-DD
+const getDay = (iso) => iso ? iso.slice(0, 10) : "";
+
 function read() {
   try {
     const str = localStorage.getItem(KEY);
@@ -167,14 +170,9 @@ export function createSale(payload) {
     pointsAwarded: pointsToAward
   });
 
-  // 👈 AQUÍ EL CAMBIO: Enviamos la referencia "Venta #..."
   normalizedSale.items.forEach(item => {
     if (item.inventoryProductId) {
-        adjustStock(
-            item.inventoryProductId, 
-            -item.qty, 
-            `Venta #${normalizedSale.id.slice(0,6)}` // Razón del ajuste
-        );
+        adjustStock(item.inventoryProductId, -item.qty, `Venta #${normalizedSale.id.slice(0,6)}`);
     }
   });
 
@@ -225,28 +223,17 @@ export function deleteSale(id) {
     const sale = list.find(s => s.id === id);
 
     if (sale) {
-        if (sale.pointsAwarded > 0) {
-            adjustPatientPoints(sale.patientId, -sale.pointsAwarded);
-        }
+        if (sale.pointsAwarded > 0) adjustPatientPoints(sale.patientId, -sale.pointsAwarded);
         const loyalty = getLoyaltySettings();
         const patient = getPatientById(sale.patientId);
         
         if (loyalty.enabled && patient && patient.referredBy) {
             const referralPoints = Math.floor((sale.total * loyalty.referralBonusPercent) / 100);
-            if (referralPoints > 0) {
-                adjustPatientPoints(patient.referredBy, -referralPoints);
-            }
+            if (referralPoints > 0) adjustPatientPoints(patient.referredBy, -referralPoints);
         }
         
-        // 👈 REVERSIÓN DE STOCK AL BORRAR VENTA
         sale.items.forEach(item => {
-            if (item.inventoryProductId) {
-                adjustStock(
-                    item.inventoryProductId, 
-                    item.qty, // Sumamos de vuelta
-                    `Cancelación Venta #${sale.id.slice(0,6)}`
-                );
-            }
+            if (item.inventoryProductId) adjustStock(item.inventoryProductId, item.qty, `Cancelación Venta #${sale.id.slice(0,6)}`);
         });
     }
 
@@ -254,40 +241,48 @@ export function deleteSale(id) {
     write(list.filter(s => s.id !== id)); 
 }
 
-export function getFinancialReport() {
+// 👈 ACTUALIZADO: Soporta filtrado por fechas
+export function getFinancialReport(startDate, endDate) {
     const sales = getAllSales();
-    const now = new Date();
-    const todayStr = now.toISOString().slice(0, 10);
-    const monthStr = now.toISOString().slice(0, 7);
-    let incomeToday=0, incomeMonth=0, salesToday=0, salesMonth=0, totalReceivable=0, totalFees=0;
+    
+    let totalSales = 0;      // Ventas generadas en el periodo
+    let totalIncome = 0;     // Dinero cobrado en el periodo (pagos)
+    let totalReceivable = 0; // Deuda generada en el periodo (Saldo pendiente de estas ventas)
+    
     const incomeByMethod = { EFECTIVO: 0, TARJETA: 0, TRANSFERENCIA: 0, OTRO: 0 };
+    
     sales.forEach(sale => {
-        const date = sale.createdAt.slice(0, 10);
-        const month = sale.createdAt.slice(0, 7);
-        if (date === todayStr) salesToday += sale.total;
-        if (month === monthStr) salesMonth += sale.total;
-        if (sale.balance > 0) totalReceivable += sale.balance;
+        const saleDate = getDay(sale.createdAt);
+        const isSaleInRange = (!startDate || saleDate >= startDate) && (!endDate || saleDate <= endDate);
+        
+        if (isSaleInRange) {
+            totalSales += sale.total;
+            if (sale.balance > 0) totalReceivable += sale.balance;
+        }
+
+        // Los pagos se evalúan independientemente de la fecha de venta
+        // (Ej: Venta ayer, pago hoy -> Ingreso de hoy)
         sale.payments.forEach(pay => {
-            const pDate = pay.paidAt.slice(0, 10);
-            const pMonth = pay.paidAt.slice(0, 7);
-            if (pDate === todayStr) incomeToday += pay.amount;
-            if (pMonth === monthStr) {
-                incomeMonth += pay.amount;
+            const payDate = getDay(pay.paidAt);
+            const isPayInRange = (!startDate || payDate >= startDate) && (!endDate || payDate <= endDate);
+            
+            if (isPayInRange) {
+                totalIncome += pay.amount;
                 const m = (pay.method || "OTRO").toUpperCase();
                 incomeByMethod[m] = (incomeByMethod[m] || 0) + pay.amount;
-                if (pay.feeAmount) totalFees += pay.feeAmount;
             }
         });
     });
-    return { incomeToday, incomeMonth, salesToday, salesMonth, totalReceivable, incomeByMethod, totalFees };
+
+    return { totalSales, totalIncome, totalReceivable, incomeByMethod };
 }
 
-export function getProfitabilityReport() {
+// 👈 ACTUALIZADO: Soporta filtrado por fechas
+export function getProfitabilityReport(startDate, endDate) {
     const sales = getAllSales();
     const workOrders = getAllWorkOrders();
-    const now = new Date();
-    const monthStr = now.toISOString().slice(0, 7); 
-
+    
+    // Mapa rápido de costos de laboratorio
     const labCostMap = {};
     workOrders.forEach(w => {
         if (w.saleId && w.saleItemId) {
@@ -302,7 +297,9 @@ export function getProfitabilityReport() {
     };
 
     sales.forEach(sale => {
-        if (sale.createdAt.slice(0, 7) !== monthStr) return;
+        const saleDate = getDay(sale.createdAt);
+        if (startDate && saleDate < startDate) return;
+        if (endDate && saleDate > endDate) return;
 
         sale.items.forEach(item => {
             const kind = item.kind || "OTHER";

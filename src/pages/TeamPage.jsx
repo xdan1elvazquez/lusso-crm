@@ -46,7 +46,7 @@ export default function TeamPage() {
                 </select>
              </label>
              <label>
-                <div style={{fontSize:12, color:"#4ade80", marginBottom:5}}>Sueldo Base ($)</div>
+                <div style={{fontSize:12, color:"#4ade80", marginBottom:5}}>Sueldo Mensual ($)</div>
                 <input type="number" value={form.baseSalary} onChange={e => setForm({...form, baseSalary: e.target.value})} style={{width:"100%", padding:10, background:"#222", border:"1px solid #444", color:"white", borderRadius:6}} placeholder="0" />
              </label>
              <label>
@@ -74,7 +74,7 @@ export default function TeamPage() {
                  <div style={{display:"flex", gap:20, alignItems:"center", marginRight:20}}>
                      {/* EDITOR SUELDO */}
                      <label style={{display:"flex", alignItems:"center", gap:5}}>
-                        <span style={{fontSize:12, color:"#aaa"}}>Sueldo: $</span>
+                        <span style={{fontSize:12, color:"#aaa"}}>Mensual: $</span>
                         <input 
                             type="number" 
                             value={emp.baseSalary || 0} 

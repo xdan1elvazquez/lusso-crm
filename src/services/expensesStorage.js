@@ -1,12 +1,7 @@
 const KEY = "lusso_expenses_v1";
 
 const CATEGORIES = [
-  "INVENTARIO",   // Compras de mercancía
-  "OPERATIVO",    // Luz, Agua, Internet, Renta
-  "NOMINA",       // Sueldos
-  "MARKETING",    // Publicidad
-  "MANTENIMIENTO", // Reparaciones
-  "OTROS"
+  "INVENTARIO", "OPERATIVO", "NOMINA", "MARKETING", "MANTENIMIENTO", "COSTO_VENTA", "OTROS"
 ];
 
 function read() {
@@ -16,9 +11,7 @@ function read() {
   } catch { return []; }
 }
 
-function write(data) {
-  localStorage.setItem(KEY, JSON.stringify(data));
-}
+function write(data) { localStorage.setItem(KEY, JSON.stringify(data)); }
 
 export function getAllExpenses() {
   return read().sort((a, b) => new Date(b.date) - new Date(a.date));
@@ -31,7 +24,7 @@ export function createExpense(data) {
     description: data.description,
     amount: Number(data.amount),
     category: data.category || "OTROS",
-    method: data.method || "EFECTIVO", // Importante para corte de caja
+    method: data.method || "EFECTIVO", 
     date: data.date || new Date().toISOString(),
     createdAt: new Date().toISOString()
   };
@@ -43,27 +36,32 @@ export function deleteExpense(id) {
   write(read().filter(e => e.id !== id));
 }
 
-// Reporte rápido de gastos del mes/día
-export function getExpensesReport() {
+// 👈 ACTUALIZADO: Reporte flexible
+export function getExpensesReport(startDate, endDate) {
   const expenses = getAllExpenses();
-  const now = new Date();
-  const todayStr = now.toISOString().slice(0, 10);
-  const monthStr = now.toISOString().slice(0, 7);
+  
+  let totalExpense = 0;
+  let cashOut = 0; // Salidas de efectivo reales
+  let byCategory = {};
 
-  let todayTotal = 0;
-  let monthTotal = 0;
-  let cashOutToday = 0; // Dinero que salió físicamente de la caja hoy
+  // Inicializar categorías
+  CATEGORIES.forEach(c => byCategory[c] = 0);
 
   expenses.forEach(e => {
     const eDate = e.date.slice(0, 10);
-    const eMonth = e.date.slice(0, 7);
+    
+    if (startDate && eDate < startDate) return;
+    if (endDate && eDate > endDate) return;
 
-    if (eDate === todayStr) {
-        todayTotal += e.amount;
-        if (e.method === "EFECTIVO") cashOutToday += e.amount;
+    totalExpense += e.amount;
+    
+    if (e.method === "EFECTIVO") {
+        cashOut += e.amount;
     }
-    if (eMonth === monthStr) monthTotal += e.amount;
+    
+    const cat = e.category || "OTROS";
+    byCategory[cat] = (byCategory[cat] || 0) + e.amount;
   });
 
-  return { todayTotal, monthTotal, cashOutToday };
+  return { totalExpense, cashOut, byCategory };
 }
