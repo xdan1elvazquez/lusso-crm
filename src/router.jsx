@@ -20,6 +20,7 @@ import ExpensesPage from "@/pages/ExpensesPage.jsx";
 import LabsPage from "@/pages/LabsPage.jsx";
 import StatisticsPage from "@/pages/StatisticsPage.jsx";
 import ReceivablesPage from "@/pages/ReceivablesPage.jsx";
+import TeamPage from "@/pages/TeamPage.jsx";
 
 function RequireAuth({ children }) {
   if (!isAuthed()) return <Navigate to="/login" replace />;
@@ -56,6 +57,7 @@ const router = createBrowserRouter([
       { path: "statistics", element: <StatisticsPage /> },
       { path: "labs", element: <LabsPage /> },
       { path: "receivables", element: <ReceivablesPage /> },
+      { path: "team", element: <TeamPage /> },
     ],
   },
 ]);

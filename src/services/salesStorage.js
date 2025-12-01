@@ -59,7 +59,10 @@ function normalizeItem(item, saleFallback) {
         treatment: base.specs?.treatment || "",
         frameModel: base.specs?.frameModel || "",
         frameStatus: base.specs?.frameStatus || "NUEVO",
-        notes: base.specs?.notes || ""
+        notes: base.specs?.notes || "",
+        // Flags de servicios adicionales
+        requiresBisel: base.specs?.requiresBisel !== undefined ? base.specs.requiresBisel : true,
+        requiresTallado: base.specs?.requiresTallado || false
     }
   };
 }
@@ -122,10 +125,20 @@ function withDerived(sale) {
 export function getAllSales() { return read().map(s => withDerived(normalizeSale(s))); }
 export function getSalesByPatientId(id) { return getAllSales().filter(s => s.patientId === id); }
 
+// --- MODIFICADO: REGLA 50% ANTICIPO ---
 function ensureWorkOrdersForSale(sale) {
   const existing = getAllWorkOrders();
   const existingKeys = new Set(existing.map(w => `${w.saleId}::${w.saleItemId}`));
   
+  // Calculamos porcentaje pagado
+  const total = Number(sale.total) || 0;
+  const paid = Number(sale.paidAmount) || 0;
+  // Si total es 0, asumimos pagado (100%)
+  const ratio = total > 0 ? paid / total : 1;
+  
+  // Si pagó menos del 50%, la orden nace en espera (ON_HOLD)
+  const initialStatus = ratio >= 0.5 ? "TO_PREPARE" : "ON_HOLD";
+
   sale.items.forEach(item => {
     if (!item.requiresLab) return;
     const key = `${sale.id}::${item.id}`;
@@ -136,9 +149,8 @@ function ensureWorkOrdersForSale(sale) {
       saleId: sale.id,
       saleItemId: item.id,
       type: item.kind === "CONTACT_LENS" ? "LC" : "LENTES",
-      status: "TO_PREPARE",
+      status: initialStatus,
       labName: item.labName || "",
-      // ✅ CORRECCIÓN: Pasamos el costo al taller
       labCost: item.cost || 0, 
       rxNotes: item.rxSnapshot ? JSON.stringify(item.rxSnapshot) : "",
       dueDate: item.dueDate || null,
@@ -183,8 +195,12 @@ export function createSale(payload) {
   }
 
   write([normalizedSale, ...list]);
-  ensureWorkOrdersForSale(normalizedSale);
-  return withDerived(normalizedSale);
+  
+  // Recalculamos derived para tener el paidAmount correcto antes de crear Work Orders
+  const finalSale = withDerived(normalizedSale);
+  ensureWorkOrdersForSale(finalSale);
+  
+  return finalSale;
 }
 
 export function updateSaleLogistics(id, data) {
