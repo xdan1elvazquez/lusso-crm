@@ -1,24 +1,24 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { getAllWorkOrders, updateWorkOrder } from "@/services/workOrdersStorage";
-import { getAllSupplierDebts, createSupplierDebt, markDebtAsPaid, deleteSupplierDebt } from "@/services/supplierDebtsStorage"; // 👈 Importar nuevo servicio
+import { getAllSupplierDebts, createSupplierDebt, markDebtAsPaid, deleteSupplierDebt } from "@/services/supplierDebtsStorage";
+import { getSuppliers } from "@/services/suppliersStorage"; // 👈 IMPORTAR
 import { getPatients } from "@/services/patientsStorage";
 import { createExpense } from "@/services/expensesStorage";
 
 export default function PayablesPage() {
   const [tick, setTick] = useState(0);
   const [payModal, setPayModal] = useState(null);
-  const [isCreating, setIsCreating] = useState(false); // Modal para crear deuda
+  const [isCreating, setIsCreating] = useState(false);
 
-  // Cargar datos
   const orders = useMemo(() => getAllWorkOrders(), [tick]);
-  const supplierDebts = useMemo(() => getAllSupplierDebts(), [tick]); // 👈 Cargar deudas proveedores
+  const supplierDebts = useMemo(() => getAllSupplierDebts(), [tick]);
   const patients = useMemo(() => getPatients(), []);
+  const suppliers = useMemo(() => getSuppliers(), []); // 👈 Catálogo
   const patientMap = useMemo(() => patients.reduce((acc, p) => ({ ...acc, [p.id]: p }), {}), [patients]);
 
-  // UNIFICAR LISTAS: TRABAJOS + PROVEEDORES
+  // UNIFICAR LISTAS
   const allDebts = useMemo(() => {
-    // 1. Trabajos de Laboratorio (Work Orders)
     const labDebts = orders
       .filter(w => w.labCost > 0 && !w.isPaid && w.status !== "CANCELLED")
       .map(w => ({
@@ -31,7 +31,6 @@ export default function PayablesPage() {
           date: w.createdAt
       }));
 
-    // 2. Deudas Directas (Proveedores Inventario)
     const supplyDebts = supplierDebts
       .filter(d => !d.isPaid)
       .map(d => ({
@@ -39,20 +38,20 @@ export default function PayablesPage() {
           uniqueId: `SUP-${d.id}`,
           source: 'SUPPLIER',
           title: d.provider,
-          subtitle: d.concept, // Ej. "Factura F-3992 Armazones"
+          subtitle: d.concept,
           amount: d.amount,
           date: d.createdAt
       }));
 
-    // Unir y ordenar por antigüedad (lo más viejo primero para pagar)
     return [...labDebts, ...supplyDebts].sort((a, b) => new Date(a.date) - new Date(b.date));
   }, [orders, supplierDebts, patientMap]);
 
   const totalDebt = allDebts.reduce((sum, d) => sum + d.amount, 0);
 
-  // --- MODAL NUEVA DEUDA (INVENTARIO/INSUMOS) ---
+  // --- MODAL NUEVA DEUDA ---
   const NewDebtModal = ({ onClose }) => {
       const [form, setForm] = useState({ provider: "", concept: "", amount: "", category: "INVENTARIO" });
+      
       const handleSubmit = (e) => {
           e.preventDefault();
           if(!form.provider || !form.amount) return alert("Faltan datos");
@@ -66,16 +65,26 @@ export default function PayablesPage() {
       return (
         <div style={{ position: "fixed", top:0, left:0, right:0, bottom:0, background:"rgba(0,0,0,0.8)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:100 }}>
             <form onSubmit={handleSubmit} style={{ background: "#1a1a1a", padding: 25, borderRadius: 12, border: "1px solid #333", width: 400 }}>
-                <h3 style={{ marginTop: 0, color: "#e5e7eb" }}>Registrar Factura / Crédito</h3>
+                <h3 style={{ marginTop: 0, color: "#e5e7eb" }}>Registrar Factura</h3>
+                
+                {/* SELECTOR DE PROVEEDOR */}
                 <label style={{display:"block", fontSize:12, color:"#aaa", marginBottom:5}}>Proveedor</label>
-                <input autoFocus placeholder="Ej. Luxottica, Alcon..." value={form.provider} onChange={e => setForm({...form, provider: e.target.value})} style={inputStyle} />
+                <select 
+                    value={form.provider} 
+                    onChange={e => setForm({...form, provider: e.target.value})} 
+                    style={inputStyle}
+                >
+                    <option value="">-- Seleccionar --</option>
+                    {suppliers.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+                    <option value="OTRO">Otro / General</option>
+                </select>
                 
                 <label style={{display:"block", fontSize:12, color:"#aaa", marginBottom:5}}>Concepto</label>
-                <input placeholder="Ej. Factura F-1234 (10 Armazones)" value={form.concept} onChange={e => setForm({...form, concept: e.target.value})} style={inputStyle} />
+                <input placeholder="Ej. Factura F-1234" value={form.concept} onChange={e => setForm({...form, concept: e.target.value})} style={inputStyle} />
                 
                 <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:10}}>
                     <div>
-                        <label style={{display:"block", fontSize:12, color:"#aaa", marginBottom:5}}>Monto Deuda</label>
+                        <label style={{display:"block", fontSize:12, color:"#aaa", marginBottom:5}}>Monto ($)</label>
                         <input type="number" placeholder="0.00" value={form.amount} onChange={e => setForm({...form, amount: e.target.value})} style={inputStyle} />
                     </div>
                     <div>
@@ -83,41 +92,34 @@ export default function PayablesPage() {
                         <select value={form.category} onChange={e => setForm({...form, category: e.target.value})} style={inputStyle}>
                             <option value="INVENTARIO">Inventario</option>
                             <option value="INSUMOS">Insumos</option>
-                            <option value="EQUIPO">Equipo/Mobiliario</option>
-                            <option value="OTRO">Otro</option>
+                            <option value="EQUIPO">Equipo</option>
                         </select>
                     </div>
                 </div>
 
                 <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
                     <button type="button" onClick={onClose} style={{ background: "transparent", color: "#aaa", border: "none", cursor: "pointer" }}>Cancelar</button>
-                    <button type="submit" style={{ background: "#2563eb", color: "white", padding: "10px 20px", border: "none", borderRadius: 6, fontWeight: "bold", cursor: "pointer" }}>Guardar Deuda</button>
+                    <button type="submit" style={{ background: "#2563eb", color: "white", padding: "10px 20px", border: "none", borderRadius: 6, fontWeight: "bold", cursor: "pointer" }}>Guardar</button>
                 </div>
             </form>
         </div>
       );
   };
 
-  // --- MODAL DE PAGO (UNIFICADO) ---
   const PayModal = ({ debt, onClose }) => {
     const [method, setMethod] = useState("TRANSFERENCIA");
     
     const handlePay = () => {
-      // 1. Crear el gasto (Salida de dinero)
       createExpense({
         description: `Pago ${debt.source === 'WORK_ORDER' ? 'Lab' : 'Prov'}: ${debt.title} (${debt.subtitle})`,
         amount: debt.amount,
-        category: debt.category || "COSTO_VENTA", // Mantiene categoría original o usa Costo Venta
+        category: debt.category || "COSTO_VENTA",
         method: method,
         date: new Date().toISOString()
       });
 
-      // 2. Marcar como pagado según el origen
-      if (debt.source === 'WORK_ORDER') {
-          updateWorkOrder(debt.id, { isPaid: true });
-      } else {
-          markDebtAsPaid(debt.id);
-      }
+      if (debt.source === 'WORK_ORDER') updateWorkOrder(debt.id, { isPaid: true });
+      else markDebtAsPaid(debt.id);
 
       setTick(t => t + 1);
       onClose();
@@ -150,7 +152,7 @@ export default function PayablesPage() {
   };
 
   const handleDeleteSupplyDebt = (id) => {
-      if(confirm("¿Eliminar este registro de deuda?")) {
+      if(confirm("¿Eliminar registro?")) {
           deleteSupplierDebt(id);
           setTick(t => t + 1);
       }
@@ -190,12 +192,8 @@ export default function PayablesPage() {
                        {d.source === 'SUPPLIER' && <span style={{fontSize:"0.7em", background:"#1e3a8a", color:"#bfdbfe", padding:"2px 5px", borderRadius:3}}>PROVEEDOR</span>}
                        {d.source === 'WORK_ORDER' && <span style={{fontSize:"0.7em", background:"#374151", color:"#e5e7eb", padding:"2px 5px", borderRadius:3}}>LABORATORIO</span>}
                    </div>
-                   <div style={{ color: "#888", fontSize: "0.9em", marginTop: 2 }}>
-                      {d.subtitle}
-                   </div>
-                   <div style={{ fontSize: "0.8em", color: "#666", marginTop: 4 }}>
-                      Fecha: {new Date(d.date).toLocaleDateString()}
-                   </div>
+                   <div style={{ color: "#888", fontSize: "0.9em", marginTop: 2 }}>{d.subtitle}</div>
+                   <div style={{ fontSize: "0.8em", color: "#666", marginTop: 4 }}>Fecha: {new Date(d.date).toLocaleDateString()}</div>
                 </div>
                 <div style={{ textAlign: "right" }}>
                    <div style={{ fontSize: "1.2em", fontWeight: "bold", color: "#f87171" }}>${d.amount.toLocaleString()}</div>
@@ -203,9 +201,7 @@ export default function PayablesPage() {
                        <button onClick={() => handleDeleteSupplyDebt(d.id)} style={{ background: "none", border: "none", color: "#666", fontSize: "0.8em", textDecoration: "underline", cursor: "pointer", marginTop: 2 }}>Eliminar</button>
                    )}
                 </div>
-                <button onClick={() => setPayModal(d)} style={{ background: "#333", border: "1px solid #555", color: "white", padding: "8px 16px", borderRadius: 6, cursor: "pointer", fontWeight: "bold" }}>
-                   Pagar
-                </button>
+                <button onClick={() => setPayModal(d)} style={{ background: "#333", border: "1px solid #555", color: "white", padding: "8px 16px", borderRadius: 6, cursor: "pointer", fontWeight: "bold" }}>Pagar</button>
              </div>
            ))
         )}

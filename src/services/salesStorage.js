@@ -2,6 +2,8 @@ import { createWorkOrder, getAllWorkOrders, deleteWorkOrdersBySaleId } from "./w
 import { adjustStock } from "./inventoryStorage";
 import { getPatientById, adjustPatientPoints } from "./patientsStorage"; 
 import { getLoyaltySettings } from "./settingsStorage"; 
+import { createExpense } from "./expensesStorage";
+import { getCurrentShift } from "./shiftsStorage"; // 👈 IMPORTAR GESTOR DE TURNOS
 
 const KEY = "lusso_sales_v1";
 const LAB_KINDS = new Set(["LENSES", "CONTACT_LENS"]);
@@ -73,7 +75,8 @@ function normalizePayment(p, defaultDate) {
      cardType: p.cardType || null,
      terminal: p.terminal || null,
      installments: p.installments || null,
-     feeAmount: Number(p.feeAmount) || 0
+     feeAmount: Number(p.feeAmount) || 0,
+     shiftId: p.shiftId || null // 👈 NUEVO: El pago pertenece a un turno
   };
 }
 
@@ -100,6 +103,7 @@ function normalizeSale(raw) {
     createdAt: sale.createdAt || new Date().toISOString(),
     updatedAt: sale.updatedAt || sale.createdAt || new Date().toISOString(),
     pointsAwarded: sale.pointsAwarded || 0,
+    shiftId: sale.shiftId || null, // 👈 NUEVO: La venta pertenece a un turno
     logistics: {
         jobMadeBy: sale.logistics?.jobMadeBy || sale.labDetails?.jobMadeBy || "",
         labSentBy: sale.logistics?.labSentBy || sale.labDetails?.sentBy || "",
@@ -154,6 +158,13 @@ export function createSale(payload) {
   const list = read();
   const now = new Date().toISOString();
   const loyalty = getLoyaltySettings();
+  const currentShift = getCurrentShift(); // 👈 OBTENER TURNO ACTUAL
+
+  // Asignar shiftId a los pagos iniciales también
+  const paymentsWithShift = (payload.payments || []).map(p => ({
+      ...p,
+      shiftId: currentShift?.id || null
+  }));
 
   let pointsToAward = 0;
   if (loyalty.enabled) {
@@ -165,6 +176,8 @@ export function createSale(payload) {
   const normalizedSale = normalizeSale({
     id: crypto.randomUUID(),
     ...payload,
+    payments: paymentsWithShift, // Usar los pagos con shiftId
+    shiftId: currentShift?.id || null, // Guardar el turno en la venta
     createdAt: now,
     updatedAt: now,
     pointsAwarded: pointsToAward
@@ -202,6 +215,8 @@ export function updateSaleLogistics(id, data) {
 
 export function addPaymentToSale(saleId, payment) {
   const list = read();
+  const currentShift = getCurrentShift(); // 👈 OBTENER TURNO ACTUAL
+  
   let updated = null;
   const next = list.map(s => {
     if (s.id !== saleId) return s;
@@ -209,13 +224,72 @@ export function addPaymentToSale(saleId, payment) {
     const derived = withDerived(norm);
     const amount = Math.min(Number(payment?.amount) || 0, derived.balance);
     if (amount <= 0) return s;
-    const newPay = normalizePayment({ ...payment, id: crypto.randomUUID(), amount, paidAt: new Date().toISOString() }, new Date().toISOString());
+    
+    // Agregar shiftId al abono
+    const newPay = normalizePayment({ 
+        ...payment, 
+        id: crypto.randomUUID(), 
+        amount, 
+        paidAt: new Date().toISOString(),
+        shiftId: currentShift?.id || null 
+    }, new Date().toISOString());
+    
     const updatedSale = { ...norm, payments: [...norm.payments, newPay], updatedAt: new Date().toISOString() };
     updated = withDerived(updatedSale);
     return updatedSale;
   });
   if(updated) write(next);
   return updated;
+}
+
+export function processReturn(saleId, itemId, qtyToReturn, refundMethod = "EFECTIVO", notes = "") {
+    const list = read();
+    let sale = list.find(s => s.id === saleId);
+    if (!sale) throw new Error("Venta no encontrada");
+
+    const item = sale.items.find(i => i.id === itemId);
+    if (!item) throw new Error("Producto no encontrado en la venta");
+    
+    const refundAmount = item.unitPrice * qtyToReturn;
+
+    if (item.inventoryProductId) {
+        adjustStock(
+            item.inventoryProductId, 
+            qtyToReturn,
+            `Devolución Venta #${saleId.slice(0,6)}`
+        );
+    }
+
+    if (refundAmount > 0) {
+        const currentShift = getCurrentShift(); // 👈 Asociar devolución a turno actual
+        createExpense({
+            description: `Reembolso / Devolución: ${item.description} (Venta #${saleId.slice(0,6)})`,
+            amount: refundAmount,
+            category: "COSTO_VENTA",
+            method: refundMethod,
+            date: new Date().toISOString(),
+            shiftId: currentShift?.id || null
+        });
+    }
+
+    const updatedItems = sale.items.map(i => {
+        if (i.id === itemId) {
+            return { 
+                ...i, 
+                returnedQty: (i.returnedQty || 0) + qtyToReturn,
+                qty: i.qty - qtyToReturn
+            };
+        }
+        return i;
+    });
+
+    const newSubtotal = updatedItems.reduce((sum, i) => sum + (i.qty * i.unitPrice), 0);
+    const newTotal = Math.max(0, newSubtotal - (sale.discount || 0));
+    
+    const next = list.map(s => s.id === saleId ? { ...s, items: updatedItems, total: newTotal, updatedAt: new Date().toISOString() } : s);
+    write(next);
+
+    return true;
 }
 
 export function deleteSale(id) { 
@@ -241,13 +315,13 @@ export function deleteSale(id) {
     write(list.filter(s => s.id !== id)); 
 }
 
-// 👈 ACTUALIZADO: Soporta filtrado por fechas
+// Reporte Financiero con filtros de fecha
 export function getFinancialReport(startDate, endDate) {
     const sales = getAllSales();
     
-    let totalSales = 0;      // Ventas generadas en el periodo
-    let totalIncome = 0;     // Dinero cobrado en el periodo (pagos)
-    let totalReceivable = 0; // Deuda generada en el periodo (Saldo pendiente de estas ventas)
+    let totalSales = 0;      
+    let totalIncome = 0;     
+    let totalReceivable = 0; 
     
     const incomeByMethod = { EFECTIVO: 0, TARJETA: 0, TRANSFERENCIA: 0, OTRO: 0 };
     
@@ -260,8 +334,6 @@ export function getFinancialReport(startDate, endDate) {
             if (sale.balance > 0) totalReceivable += sale.balance;
         }
 
-        // Los pagos se evalúan independientemente de la fecha de venta
-        // (Ej: Venta ayer, pago hoy -> Ingreso de hoy)
         sale.payments.forEach(pay => {
             const payDate = getDay(pay.paidAt);
             const isPayInRange = (!startDate || payDate >= startDate) && (!endDate || payDate <= endDate);
@@ -277,12 +349,11 @@ export function getFinancialReport(startDate, endDate) {
     return { totalSales, totalIncome, totalReceivable, incomeByMethod };
 }
 
-// 👈 ACTUALIZADO: Soporta filtrado por fechas
+// Reporte de Rentabilidad con filtros de fecha
 export function getProfitabilityReport(startDate, endDate) {
     const sales = getAllSales();
     const workOrders = getAllWorkOrders();
     
-    // Mapa rápido de costos de laboratorio
     const labCostMap = {};
     workOrders.forEach(w => {
         if (w.saleId && w.saleItemId) {
@@ -332,4 +403,26 @@ export function getProfitabilityReport(startDate, endDate) {
     });
 
     return report;
+}
+
+// 👈 NUEVO: Obtener métricas para un turno específico
+export function getSalesMetricsByShift(shiftId) {
+    if (!shiftId) return { totalIncome: 0, incomeByMethod: {} };
+    
+    const sales = getAllSales();
+    let totalIncome = 0;
+    const incomeByMethod = { EFECTIVO: 0, TARJETA: 0, TRANSFERENCIA: 0, CHEQUE: 0, OTRO: 0 };
+
+    sales.forEach(sale => {
+        // Revisamos los pagos individuales, ya que una venta antigua podría abonarse en este turno
+        sale.payments.forEach(pay => {
+            if (pay.shiftId === shiftId) {
+                totalIncome += pay.amount;
+                const m = (pay.method || "OTRO").toUpperCase();
+                incomeByMethod[m] = (incomeByMethod[m] || 0) + pay.amount;
+            }
+        });
+    });
+
+    return { totalIncome, incomeByMethod };
 }

@@ -1,3 +1,5 @@
+import { getCurrentShift } from "./shiftsStorage"; // 👈 IMPORTAR GESTOR
+
 const KEY = "lusso_expenses_v1";
 
 const CATEGORIES = [
@@ -19,6 +21,8 @@ export function getAllExpenses() {
 
 export function createExpense(data) {
   const list = read();
+  const currentShift = getCurrentShift(); // 👈 OBTENER TURNO
+
   const newExpense = {
     id: crypto.randomUUID(),
     description: data.description,
@@ -26,7 +30,8 @@ export function createExpense(data) {
     category: data.category || "OTROS",
     method: data.method || "EFECTIVO", 
     date: data.date || new Date().toISOString(),
-    createdAt: new Date().toISOString()
+    createdAt: new Date().toISOString(),
+    shiftId: currentShift?.id || null // 👈 VINCULAR AL TURNO
   };
   write([newExpense, ...list]);
   return newExpense;
@@ -36,15 +41,13 @@ export function deleteExpense(id) {
   write(read().filter(e => e.id !== id));
 }
 
-// 👈 ACTUALIZADO: Reporte flexible
 export function getExpensesReport(startDate, endDate) {
   const expenses = getAllExpenses();
   
   let totalExpense = 0;
-  let cashOut = 0; // Salidas de efectivo reales
+  let cashOut = 0; 
   let byCategory = {};
 
-  // Inicializar categorías
   CATEGORIES.forEach(c => byCategory[c] = 0);
 
   expenses.forEach(e => {
@@ -64,4 +67,21 @@ export function getExpensesReport(startDate, endDate) {
   });
 
   return { totalExpense, cashOut, byCategory };
+}
+
+// 👈 NUEVO: Obtener gastos de un turno
+export function getExpensesByShift(shiftId) {
+    if (!shiftId) return { totalExpense: 0, byMethod: {} };
+    
+    const expenses = getAllExpenses().filter(e => e.shiftId === shiftId);
+    let totalExpense = 0;
+    const byMethod = { EFECTIVO: 0, TARJETA: 0, TRANSFERENCIA: 0, CHEQUE: 0, OTRO: 0 };
+
+    expenses.forEach(e => {
+        totalExpense += e.amount;
+        const m = (e.method || "OTRO").toUpperCase();
+        byMethod[m] = (byMethod[m] || 0) + e.amount;
+    });
+
+    return { totalExpense, byMethod };
 }

@@ -60,8 +60,16 @@ export default function AppLayout() {
             🧰 Inventario
           </NavLink>
 
+          <NavLink to="suppliers" className={linkClass}>
+            📦 Proveedores
+          </NavLink>
+
           <NavLink to="statistics" className={linkClass}>
             📊 Estadísticas
+          </NavLink>
+
+          <NavLink to="shifts" className={linkClass}>
+            🔐 Control Turnos
           </NavLink>
 
           <NavLink to="team" className={linkClass}>

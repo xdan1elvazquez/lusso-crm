@@ -24,6 +24,8 @@ import TeamPage from "@/pages/TeamPage.jsx";
 import PayablesPage from "@/pages/PayablesPage.jsx";
 import PayrollPage from "@/pages/PayrollPage.jsx";
 import SalesHistoryPage from "@/pages/SalesHistoryPage.jsx";
+import SuppliersPage from "@/pages/SuppliersPage.jsx";
+import ShiftPage from "@/pages/ShiftPage.jsx";
 
 function RequireAuth({ children }) {
   if (!isAuthed()) return <Navigate to="/login" replace />;
@@ -64,6 +66,8 @@ const router = createBrowserRouter([
       { path: "payables", element: <PayablesPage /> },
       { path: "payroll", element: <PayrollPage /> },
       { path: "sales-history", element: <SalesHistoryPage /> },
+      { path: "suppliers", element: <SuppliersPage /> },
+      { path: "shifts", element: <ShiftPage /> },
     ],
   },
 ]);
