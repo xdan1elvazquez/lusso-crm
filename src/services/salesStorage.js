@@ -1,4 +1,4 @@
-import { createWorkOrder, getAllWorkOrders, deleteWorkOrdersBySaleId } from "./workOrdersStorage"; // 👈 IMPORTADO
+import { createWorkOrder, getAllWorkOrders, deleteWorkOrdersBySaleId } from "./workOrdersStorage";
 import { adjustStock } from "./inventoryStorage";
 import { getPatientById, adjustPatientPoints } from "./patientsStorage"; 
 import { getLoyaltySettings } from "./settingsStorage"; 
@@ -213,10 +213,35 @@ export function addPaymentToSale(saleId, payment) {
   return updated;
 }
 
+// --- MODIFICADO: BORRADO INTELIGENTE (Reversa Puntos y Work Orders) ---
 export function deleteSale(id) { 
-    // Borrado en cascada
+    const list = read();
+    const sale = list.find(s => s.id === id);
+
+    if (sale) {
+        // 1. Revertir puntos del paciente (Comprador)
+        if (sale.pointsAwarded > 0) {
+            adjustPatientPoints(sale.patientId, -sale.pointsAwarded);
+        }
+
+        // 2. Revertir puntos del referido (Padrino)
+        const loyalty = getLoyaltySettings();
+        const patient = getPatientById(sale.patientId);
+        
+        if (loyalty.enabled && patient && patient.referredBy) {
+            // Recalculamos la bonificación que se dio
+            const referralPoints = Math.floor((sale.total * loyalty.referralBonusPercent) / 100);
+            if (referralPoints > 0) {
+                adjustPatientPoints(patient.referredBy, -referralPoints);
+            }
+        }
+    }
+
+    // 3. Borrado en cascada de Work Orders
     deleteWorkOrdersBySaleId(id);
-    write(read().filter(s => s.id !== id)); 
+    
+    // 4. Eliminar venta de la lista
+    write(list.filter(s => s.id !== id)); 
 }
 
 export function getFinancialReport() {
