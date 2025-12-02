@@ -13,13 +13,13 @@ function write(list) { localStorage.setItem(KEY, JSON.stringify(list)); }
 // Helper para estructuras vacías con soporte de archivos
 const emptyEyeData = { lids: "", conjunctiva: "", cornea: "", chamber: "", iris: "", lens: "", files: [] };
 const emptyFundusData = { vitreous: "", nerve: "", macula: "", vessels: "", retinaPeriphery: "", files: [] };
-const emptyPio = { od: "", os: "", time: "", meds: "" }; // 👈 Agregamos 'meds'
+const emptyPio = { od: "", os: "", time: "", meds: "" };
 
 function normalizeConsultation(raw) {
   const base = raw || {};
   const createdAt = base.createdAt || new Date().toISOString();
 
-  // Migración de datos antiguos
+  // Migración de datos antiguos (retro-compatibilidad)
   const oldExam = base.exam || {};
   const anteriorNotes = [ oldExam.adnexa, oldExam.conjunctiva, oldExam.cornea ].filter(Boolean).join(". ");
   const posteriorNotes = [ oldExam.vitreous, oldExam.retina ].filter(Boolean).join(". ");
@@ -33,6 +33,9 @@ function normalizeConsultation(raw) {
     reason: base.reason || "",
     history: base.history || "",
     
+    // 👈 NUEVO: Interrogatorio por Aparatos y Sistemas (IPAS)
+    systemsReview: base.systemsReview || {}, 
+
     vitalSigns: { 
         sys: base.vitalSigns?.sys || "", dia: base.vitalSigns?.dia || "", 
         heartRate: base.vitalSigns?.heartRate || "", temp: base.vitalSigns?.temp || "" 
