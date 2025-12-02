@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from "react";
-import { updateSaleLogistics, processReturn, updateSalePaymentMethod } from "@/services/salesStorage"; // 👈 IMPORTANTE
+import { updateSaleLogistics, processReturn, updateSalePaymentMethod } from "@/services/salesStorage"; // 👈 IMPORTAR updateSalePaymentMethod
 import { getAllWorkOrders } from "@/services/workOrdersStorage";
 
 const STATUS_LABELS = { 
@@ -15,10 +15,10 @@ const STATUS_COLORS = {
 };
 
 export default function SaleDetailModal({ sale, patient, onClose, onUpdate }) {
-  const [activeTab, setActiveTab] = useState("GENERAL"); 
+  const [activeTab, setActiveTab] = useState("GENERAL");
   const [soldBy, setSoldBy] = useState(sale.soldBy || "");
-
-  // --- ESTADO PARA EDICIÓN DE PAGOS ---
+  
+  // Estado para edición de pagos
   const [editingPaymentId, setEditingPaymentId] = useState(null); 
   const [tempMethod, setTempMethod] = useState("");
 
@@ -33,27 +33,7 @@ export default function SaleDetailModal({ sale, patient, onClose, onUpdate }) {
       if (onUpdate) onUpdate();
   };
 
-  const handleReturnItem = (item) => {
-      const qty = prompt(`¿Cuántos "${item.description}" deseas devolver? (Máx: ${item.qty})`, 1);
-      if (!qty) return;
-      const q = Number(qty);
-      if (isNaN(q) || q <= 0 || q > item.qty) return alert("Cantidad inválida");
-
-      const confirmMsg = `¿Confirmas la devolución de ${q} pieza(s)?\n\n⚠️ Acciones automáticas:\n1. Se regresará al inventario.\n2. Se registrará un egreso de caja (Devolución).\n3. Se actualizará la venta.`;
-      
-      if (confirm(confirmMsg)) {
-          try {
-              processReturn(sale.id, item.id, q);
-              alert("Devolución procesada correctamente.");
-              if (onUpdate) onUpdate();
-              onClose(); 
-          } catch (e) {
-              alert("Error: " + e.message);
-          }
-      }
-  };
-
-  // --- NUEVO: GUARDAR CORRECCIÓN DE PAGO ---
+  // NUEVO: Manejador para guardar corrección de pago
   const handleUpdatePayment = (paymentId) => {
       if (!tempMethod) return;
       
@@ -61,9 +41,32 @@ export default function SaleDetailModal({ sale, patient, onClose, onUpdate }) {
       if (success) {
           alert("Método de pago corregido.");
           setEditingPaymentId(null);
-          if (onUpdate) onUpdate(); // Refresca y recalcula corte de caja
+          if (onUpdate) onUpdate(); // Refresca la vista principal y recalcula totales del turno
       } else {
           alert("Error al actualizar.");
+      }
+  };
+  
+  const handleReturnItem = (item) => {
+      // 1. Preguntar cantidad
+      const qty = prompt(`¿Cuántos "${item.description}" deseas devolver? (Máx: ${item.qty})`, 1);
+      if (!qty) return;
+      
+      const q = Number(qty);
+      if (isNaN(q) || q <= 0 || q > item.qty) return alert("Cantidad inválida");
+
+      // 2. Confirmar acción financiera
+      const confirmMsg = `¿Confirmas la devolución de ${q} pieza(s)?\n\n⚠️ Acciones automáticas:\n1. Se regresará al inventario.\n2. Se registrará un egreso de caja (Devolución).\n3. Se actualizará la venta.`;
+      
+      if (confirm(confirmMsg)) {
+          try {
+              processReturn(sale.id, item.id, q);
+              alert("Devolución procesada correctamente.");
+              if (onUpdate) onUpdate();
+              onClose(); // Cerramos para refrescar datos
+          } catch (e) {
+              alert("Error: " + e.message);
+          }
       }
   };
 
@@ -91,7 +94,6 @@ export default function SaleDetailModal({ sale, patient, onClose, onUpdate }) {
     <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.85)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 200 }}>
         <div style={{ background: "#1a1a1a", width: "90%", maxWidth: 800, maxHeight: "90vh", borderRadius: 12, border: "1px solid #444", display: "flex", flexDirection: "column", overflow: "hidden" }}>
             
-            {/* HEADER */}
             <div style={{ padding: 20, borderBottom: "1px solid #333", display: "flex", justifyContent: "space-between", alignItems: "center", background: "#111" }}>
                 <div>
                     <h2 style={{ margin: 0, fontSize: "1.3em", color: "#e5e7eb" }}>Detalle de Venta #{sale.id.slice(0,6).toUpperCase()}</h2>
@@ -108,7 +110,6 @@ export default function SaleDetailModal({ sale, patient, onClose, onUpdate }) {
 
             <div style={{ padding: 20, overflowY: "auto", flex: 1 }}>
                 
-                {/* TAB 1: GENERAL */}
                 {activeTab === "GENERAL" && (
                     <div style={{ display: "grid", gap: 20 }}>
                         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 15, background: "#222", padding: 15, borderRadius: 8 }}>
@@ -170,7 +171,6 @@ export default function SaleDetailModal({ sale, patient, onClose, onUpdate }) {
                     </div>
                 )}
 
-                {/* TAB 2: TALLER Y LOGÍSTICA */}
                 {activeTab === "LAB" && (
                     <div style={{ display: "grid", gap: 15 }}>
                         <h4 style={{ margin: "0", color: "#60a5fa", borderBottom: "1px solid #60a5fa", paddingBottom: 5 }}>Rastreo de Trabajos (Work Orders)</h4>
@@ -207,7 +207,6 @@ export default function SaleDetailModal({ sale, patient, onClose, onUpdate }) {
                     </div>
                 )}
 
-                {/* TAB 3: PAGOS CON EDICIÓN */}
                 {activeTab === "PAYMENTS" && (
                     <div>
                         <h4 style={{ margin: "0 0 15px 0", color: "#c084fc", borderBottom: "1px solid #c084fc", paddingBottom: 5 }}>Estado de Cuenta</h4>
