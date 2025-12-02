@@ -1,3 +1,5 @@
+import { logAuditAction } from "./auditStorage"; 
+
 const KEY = "lusso_consultations_v1";
 
 function read() {
@@ -19,7 +21,7 @@ function normalizeConsultation(raw) {
   const base = raw || {};
   const createdAt = base.createdAt || new Date().toISOString();
 
-  // Migración de datos antiguos (retro-compatibilidad)
+  // Migración de datos antiguos
   const oldExam = base.exam || {};
   const anteriorNotes = [ oldExam.adnexa, oldExam.conjunctiva, oldExam.cornea ].filter(Boolean).join(". ");
   const posteriorNotes = [ oldExam.vitreous, oldExam.retina ].filter(Boolean).join(". ");
@@ -30,10 +32,14 @@ function normalizeConsultation(raw) {
     visitDate: base.visitDate || createdAt,
     type: base.type || "OPHTHALMO",
     
+    // CAMPOS DE AUDITORÍA Y CONTROL
+    status: base.status || "ACTIVE", // ACTIVE | VOIDED
+    version: Number(base.version) || 1,
+
     reason: base.reason || "",
     history: base.history || "",
     
-    // 👈 NUEVO: Interrogatorio por Aparatos y Sistemas (IPAS)
+    // Interrogatorio por Aparatos y Sistemas (IPAS)
     systemsReview: base.systemsReview || {}, 
 
     vitalSigns: { 
@@ -64,42 +70,114 @@ function normalizeConsultation(raw) {
     notes: base.notes || "",
     rx: base.rx || {},
     createdAt,
-    updatedAt: new Date().toISOString()
+    updatedAt: base.updatedAt || new Date().toISOString()
   };
 }
 
 export function getAllConsultations() {
-  return read().map(normalizeConsultation).sort((a, b) => new Date(b.visitDate) - new Date(a.visitDate));
+  return read()
+    .map(normalizeConsultation)
+    .filter(c => c.status !== "VOIDED") // 👈 FILTRO DE SEGURIDAD: Solo activos
+    .sort((a, b) => new Date(b.visitDate) - new Date(a.visitDate));
 }
 
 export function getConsultationsByPatient(patientId) {
   if (!patientId) return [];
+  // Reutiliza getAllConsultations, por lo que ya trae el filtro de VOIDED
   return getAllConsultations().filter(c => c.patientId === patientId);
 }
 
 export function getConsultationById(id) {
   if (!id) return null;
   const found = read().find(c => c.id === id);
+  // Permitimos leer anulados por ID directo (para auditoría), pero normalizamos
   return found ? normalizeConsultation(found) : null;
 }
 
 export function createConsultation(payload) {
   const list = read();
+  const newId = crypto.randomUUID();
+  
   const newC = normalizeConsultation({
-    id: crypto.randomUUID(),
+    id: newId,
     ...payload,
-    createdAt: new Date().toISOString()
+    createdAt: new Date().toISOString(),
+    version: 1,
+    status: "ACTIVE"
   });
+  
   write([newC, ...list]);
+
+  // LOG DE CREACIÓN
+  logAuditAction({
+      entityType: "CONSULTATION",
+      entityId: newId,
+      action: "CREATE",
+      version: 1,
+      previousState: null,
+      reason: "Consulta inicial",
+      user: "Sistema"
+  });
+
   return newC;
 }
 
-export function updateConsultation(id, payload) {
+export function updateConsultation(id, payload, reason = "", user = "Usuario") {
   const list = read();
-  const next = list.map(c => c.id === id ? normalizeConsultation({ ...c, ...payload }) : c);
-  write(next);
+  const index = list.findIndex(c => c.id === id);
+  if (index === -1) return null;
+
+  const current = list[index];
+  const nextVersion = (current.version || 1) + 1;
+
+  // 1. LOG PREVIO AL CAMBIO (SNAPSHOT)
+  logAuditAction({
+      entityType: "CONSULTATION",
+      entityId: id,
+      action: "UPDATE",
+      version: nextVersion,
+      previousState: current,
+      reason: reason || "Edición de expediente",
+      user
+  });
+
+  // 2. APLICAR CAMBIOS
+  const updated = normalizeConsultation({ 
+      ...current, 
+      ...payload, 
+      version: nextVersion,
+      updatedAt: new Date().toISOString() 
+  });
+
+  list[index] = updated;
+  write(list);
+  return updated;
 }
 
-export function deleteConsultation(id) {
-  write(read().filter(c => c.id !== id));
+export function deleteConsultation(id, reason = "", user = "Usuario") {
+  const list = read();
+  const index = list.findIndex(c => c.id === id);
+  if (index === -1) return;
+
+  const current = list[index];
+
+  // SOFT DELETE: MARCAR COMO VOIDED
+  list[index] = { 
+      ...current, 
+      status: "VOIDED", 
+      updatedAt: new Date().toISOString() 
+  };
+  
+  write(list);
+
+  // LOG DE ANULACIÓN
+  logAuditAction({
+      entityType: "CONSULTATION",
+      entityId: id,
+      action: "VOID",
+      version: current.version, // Se anula la versión actual
+      previousState: current,
+      reason: reason || "Anulación de registro",
+      user
+  });
 }

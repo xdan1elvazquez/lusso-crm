@@ -1,6 +1,7 @@
 import { useEffect, useState, useMemo } from "react";
 import { Link, useParams } from "react-router-dom";
 import { getConsultationById, updateConsultation } from "@/services/consultationsStorage";
+import { getAuditHistory } from "@/services/auditStorage"; // 👈 NUEVO IMPORT
 import { getExamsByConsultation, createEyeExam, deleteEyeExam } from "@/services/eyeExamStorage"; 
 import { getAllProducts } from "@/services/inventoryStorage"; 
 import { getPatientById } from "@/services/patientsStorage"; 
@@ -96,7 +97,6 @@ const QuickChip = ({ label, active, onClick }) => (
 const SystemAccordion = ({ config, data, onChange }) => {
     const [isOpen, setIsOpen] = useState(false);
     
-    // Auto-abrir si es crítico o anormal
     useEffect(() => {
         if (config.id === "endocrine" || config.id === "cardiovascular" || !data.isNormal) {
             setIsOpen(true);
@@ -262,6 +262,31 @@ function PrescriptionBuilder({ onAdd }) {
   );
 }
 
+// --- MODAL DE HISTORIAL ---
+const HistoryModal = ({ logs, onClose }) => (
+    <div style={{position:"fixed", top:0, left:0, right:0, bottom:0, background:"rgba(0,0,0,0.8)", zIndex:200, display:"flex", justifyContent:"center", alignItems:"center"}}>
+        <div style={{background:"#1a1a1a", width:600, maxHeight:"80vh", overflowY:"auto", padding:20, borderRadius:10, border:"1px solid #444"}}>
+            <h3 style={{marginTop:0, color:"#fbbf24"}}>📜 Auditoría de Cambios</h3>
+            <div style={{display:"grid", gap:10}}>
+                {logs.length === 0 && <p style={{color:"#666"}}>No hay cambios registrados.</p>}
+                {logs.map(log => (
+                    <div key={log.id} style={{padding:10, background:"#222", borderRadius:6, borderLeft: log.action==="VOID"?"3px solid red":"3px solid #4ade80"}}>
+                        <div style={{display:"flex", justifyContent:"space-between", fontSize:"0.9em", color:"#fff", fontWeight:"bold"}}>
+                            <span>{log.action} (v{log.version})</span>
+                            <span>{new Date(log.timestamp).toLocaleString()}</span>
+                        </div>
+                        <div style={{fontSize:"0.85em", color:"#aaa", marginTop:4}}>
+                            Usuario: {log.user}
+                        </div>
+                        {log.reason && <div style={{fontSize:"0.85em", color:"#fbbf24", marginTop:2}}>Motivo: "{log.reason}"</div>}
+                    </div>
+                ))}
+            </div>
+            <button onClick={onClose} style={{marginTop:20, padding:"8px 16px", background:"#333", color:"white", border:"none", borderRadius:6, cursor:"pointer", width:"100%"}}>Cerrar</button>
+        </div>
+    </div>
+);
+
 export default function ConsultationDetailPage() {
   const { patientId, consultationId } = useParams();
   const [consultation, setConsultation] = useState(null);
@@ -274,8 +299,10 @@ export default function ConsultationDetailPage() {
   const [rxForm, setRxForm] = useState(normalizeRxValue());
   const [rxErrors, setRxErrors] = useState({});
 
-  // ESTADO VISUAL ACORDEÓN IPAS
+  // ESTADOS NUEVOS
   const [showIPAS, setShowIPAS] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
+  const auditLogs = useMemo(() => showHistory ? getAuditHistory(consultationId) : [], [showHistory, consultationId]);
 
   useEffect(() => {
     const c = getConsultationById(consultationId);
@@ -289,10 +316,7 @@ export default function ConsultationDetailPage() {
         type: c.type, 
         reason: c.reason, 
         history: c.history, 
-        
-        // 👈 Cargar SystemsReview (Merge con default para asegurar estructura)
         systemsReview: { ...getEmptySystems(), ...(c.systemsReview || {}) },
-
         vitalSigns: { ...c.vitalSigns },
         exam: { 
             anterior: { od: {...c.exam.anterior.od}, os: {...c.exam.anterior.os}, notes: c.exam.anterior.notes },
@@ -303,13 +327,19 @@ export default function ConsultationDetailPage() {
         diagnosis: c.diagnosis, treatment: c.treatment, prescribedMeds: c.prescribedMeds, prognosis: c.prognosis, notes: c.notes
       });
     }
-  }, [patientId, consultationId]);
+  }, [patientId, consultationId, tick]); // Agregué tick para refrescar tras guardar
 
   useEffect(() => { if (consultationId) setExams(getExamsByConsultation(consultationId)); }, [consultationId, tick]);
 
   const onSaveConsultation = () => { 
-      updateConsultation(consultationId, { ...form, visitDate: form.visitDate || new Date().toISOString() }); 
-      alert("Nota guardada."); 
+      // PEDIR MOTIVO PARA EL LOG (Audit Trail)
+      const reason = prompt("¿Motivo de la actualización?", "Actualización de nota clínica");
+      if (reason === null) return; // Cancelar
+
+      updateConsultation(consultationId, { ...form, visitDate: form.visitDate || new Date().toISOString() }, reason); 
+      
+      alert("Nota guardada exitosamente.");
+      setTick(t => t + 1); // Refrescar para actualizar versión en memoria
   };
   
   const toggleSymptom = (symptom) => {
@@ -335,19 +365,14 @@ export default function ConsultationDetailPage() {
       }
   };
 
-  // --- GENERADOR DE RESUMEN CLÍNICO (IPAS + EXPLORACIÓN GENERAL) ---
   const generateClinicalSummary = () => {
-      // 1. Definir orden de prioridad (Endo y Cardio primero)
       const priorityKeys = ["endocrine", "cardiovascular"];
       const otherKeys = SYSTEMS_CONFIG.map(s => s.id).filter(k => !priorityKeys.includes(k));
       const sortedKeys = [...priorityKeys, ...otherKeys];
 
       let summaryLines = [];
-
-      // 2. Título Sección
       summaryLines.push("INTERROGATORIO POR APARATOS Y SISTEMAS:");
 
-      // 3. Iterar sistemas
       sortedKeys.forEach(key => {
           const config = SYSTEMS_CONFIG.find(c => c.id === key);
           const data = form.systemsReview[key] || { isNormal: true, selected: [], details: "" };
@@ -366,7 +391,6 @@ export default function ConsultationDetailPage() {
           }
       });
 
-      // 4. Espacio y Exploración General
       summaryLines.push(""); 
       summaryLines.push("EXPLORACIÓN FÍSICA GENERAL:");
       summaryLines.push("Cráneo: normocefálico. Cuello cilíndrico sin adenomegalias palpables."); 
@@ -374,15 +398,13 @@ export default function ConsultationDetailPage() {
       return summaryLines.join("\n");
   };
 
-  // Handler para copiar al portapapeles
   const handleCopySummary = () => {
       const text = generateClinicalSummary();
       navigator.clipboard.writeText(text).then(() => alert("Resumen copiado al portapapeles."));
   };
 
-  // --- FUNCIÓN DE IMPRESIÓN (NOTA CLÍNICA COMPLETA) ---
   const handlePrintClinicalNote = () => {
-      const summaryText = generateClinicalSummary().replace(/\n/g, "<br/>"); // Formato HTML
+      const summaryText = generateClinicalSummary().replace(/\n/g, "<br/>"); 
       const date = new Date().toLocaleDateString();
       
       const win = window.open('', '', 'width=900,height=700');
@@ -442,13 +464,11 @@ export default function ConsultationDetailPage() {
       win.document.close();
   };
 
-  // --- FUNCIÓN DE IMPRESIÓN (RECETA MEMBRETADA) ---
   const handlePrintPrescription = () => {
     const date = new Date().toLocaleDateString();
     const win = window.open('', '', 'width=800,height=600');
     const MARGIN_TOP_PX = 180; 
 
-    // Generar texto IPAS breve para receta (solo anormales)
     const ipasText = Object.entries(form.systemsReview || {})
         .filter(([_, val]) => !val.isNormal)
         .map(([key, val]) => {
@@ -514,7 +534,10 @@ export default function ConsultationDetailPage() {
     <div style={{ paddingBottom: 80, width: "100%" }}>
       <div style={{ marginBottom: 20 }}>
         <Link to={`/patients/${patientId}`} style={{ color: "#aaa", textDecoration: "none" }}>← Volver</Link>
-        <h1 style={{ marginTop: 10, marginBottom: 5 }}>Consulta Oftalmológica</h1>
+        <div style={{display:"flex", alignItems:"center", gap:10}}>
+            <h1 style={{ marginTop: 10, marginBottom: 5 }}>Consulta Oftalmológica (v{consultation.version})</h1>
+            <span style={{fontSize:"0.8em", background:"#333", padding:"2px 6px", borderRadius:4, color:"#aaa"}}>{consultation.status === "ACTIVE" ? "Activa" : "Anulada"}</span>
+        </div>
       </div>
 
       <div style={{ display: "grid", gap: 30 }}>
@@ -522,7 +545,7 @@ export default function ConsultationDetailPage() {
           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 20, background:"#111", padding:10, borderRadius:8, border:"1px solid #333" }}>
              <label style={{ fontSize: 13, color: "#888" }}>Fecha Atención <input type="date" value={form.visitDate} onChange={(e) => setForm(f => ({ ...f, visitDate: e.target.value }))} style={{ display:"block", marginTop:4, padding: "6px 10px", background: "#222", border: "1px solid #444", color: "white", borderRadius: 4 }} /></label>
              <div style={{display:"flex", gap:10, alignItems:"center"}}>
-                {/* BOTONES DE IMPRESIÓN */}
+                <button onClick={() => setShowHistory(true)} style={{ background: "transparent", border: "1px solid #666", color: "#888", padding: "8px 12px", borderRadius: 6, cursor: "pointer" }} title="Ver historial de cambios">📜 Historial</button>
                 <button onClick={handlePrintClinicalNote} style={{ background: "#1e3a8a", border: "1px solid #60a5fa", color: "#bfdbfe", padding: "8px 16px", borderRadius: 6, cursor: "pointer", fontWeight: "bold", height: "fit-content" }}>🖨️ Nota Clínica</button>
                 <button onClick={handlePrintPrescription} style={{ background: "#333", border: "1px solid #ccc", color: "#fff", padding: "8px 16px", borderRadius: 6, cursor: "pointer", fontWeight: "bold", height: "fit-content" }}>🖨️ Receta</button>
                 <button onClick={onSaveConsultation} style={{ background: "#2563eb", border: "none", color: "white", padding: "8px 25px", borderRadius: 6, cursor: "pointer", fontWeight: "bold", height: "fit-content" }}>💾 GUARDAR</button>
@@ -540,7 +563,6 @@ export default function ConsultationDetailPage() {
               </div>
             </div>
 
-            {/* 👈 NUEVA SECCIÓN: INTERROGATORIO POR APARATOS Y SISTEMAS */}
             <div style={{background:"#111", padding:15, borderRadius:8, border:"1px solid #444"}}>
                 <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10}}>
                     <h4 style={{color:"#fbbf24", margin:0, cursor:"pointer", display:"flex", alignItems:"center", gap:5}} onClick={() => setShowIPAS(!showIPAS)}>
@@ -589,7 +611,6 @@ export default function ConsultationDetailPage() {
               </div>
             </div>
 
-            {/* 3. SEGMENTO ANTERIOR */}
             <div>
               <h3 style={{ color:"#4ade80", borderBottom:"1px solid #4ade80", paddingBottom:5 }}>3. Biomicroscopía (Ant)</h3>
               <div style={{ display: "grid", gap: 20 }}>
@@ -618,7 +639,6 @@ export default function ConsultationDetailPage() {
                </div>
             </div>
 
-            {/* 5. SEGMENTO POSTERIOR */}
             <div>
               <h3 style={{ color:"#f472b6", borderBottom:"1px solid #f472b6", paddingBottom:5 }}>5. Fondo de Ojo (Post)</h3>
               <div style={{ display: "grid", gap: 20 }}>
@@ -659,6 +679,8 @@ export default function ConsultationDetailPage() {
           {showRxForm && <div style={{ background: "#1f1f1f", padding: 15, borderRadius: 8 }}><RxPicker value={rxForm} onChange={setRxForm} /><button onClick={onSaveExam} style={{ marginTop: 10, background: "#60a5fa", border: "none", padding: "8px" }}>Guardar Rx</button></div>}
         </section>
       </div>
+
+      {showHistory && <HistoryModal logs={auditLogs} onClose={() => setShowHistory(false)} />}
     </div>
   );
 }

@@ -1,3 +1,5 @@
+import { logAuditAction } from "./auditStorage";
+
 const KEY = "lusso_anamnesis_v1";
 
 function read() {
@@ -18,11 +20,16 @@ function normalizeAnamnesis(item) {
     patientId: base.patientId,
     createdAt: base.createdAt || new Date().toISOString(),
     
+    // CAMPOS DE CONTROL
+    status: base.status || "ACTIVE",
+    version: Number(base.version) || 1,
+
     // ESTRUCTURA DE PADECIMIENTOS
-    systemic: base.systemic || {},       // Personales Patológicos
-    nonPathological: base.nonPathological || {}, // 👈 NUEVO: Personales NO Patológicos
-    ocular: base.ocular || {},           // Antecedentes Oculares
-    family: base.family || {},           // Heredofamiliares
+    systemic: base.systemic || {},       
+    nonPathological: base.nonPathological || {}, 
+    systemsReview: base.systemsReview || {}, 
+    ocular: base.ocular || {},           
+    family: base.family || {},           
     
     // Campos libres
     allergies: base.allergies || "",
@@ -32,7 +39,10 @@ function normalizeAnamnesis(item) {
 }
 
 export function getAllAnamnesis() {
-  return read().map(normalizeAnamnesis).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  return read()
+    .map(normalizeAnamnesis)
+    .filter(a => a.status !== "VOIDED") // 👈 FILTRO ACTIVO
+    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 }
 
 export function getAnamnesisByPatientId(patientId) {
@@ -40,7 +50,6 @@ export function getAnamnesisByPatientId(patientId) {
   return getAllAnamnesis().filter((a) => a.patientId === patientId);
 }
 
-// Obtener la ÚLTIMA historia para clonarla
 export function getLastAnamnesis(patientId) {
   const list = getAnamnesisByPatientId(patientId);
   return list.length > 0 ? list[0] : null;
@@ -48,15 +57,47 @@ export function getLastAnamnesis(patientId) {
 
 export function createAnamnesis(payload) {
   const list = read();
+  const newId = crypto.randomUUID();
+  
   const newEntry = normalizeAnamnesis({
-    id: crypto.randomUUID(),
+    id: newId,
     ...payload,
     createdAt: new Date().toISOString(),
+    version: 1,
+    status: "ACTIVE"
   });
+  
   write([newEntry, ...list]);
+
+  logAuditAction({ 
+      entityType: "ANAMNESIS", 
+      entityId: newId, 
+      action: "CREATE", 
+      version: 1,
+      reason: "Registro inicial",
+      user: "Sistema"
+  });
+
   return newEntry;
 }
 
-export function deleteAnamnesis(id) {
-  write(read().filter((a) => a.id !== id));
+export function deleteAnamnesis(id, reason = "Borrado manual") {
+  const list = read();
+  const index = list.findIndex(a => a.id === id);
+  if (index === -1) return;
+
+  const current = list[index];
+  
+  // SOFT DELETE
+  list[index] = { ...current, status: "VOIDED" };
+  write(list);
+
+  logAuditAction({
+      entityType: "ANAMNESIS",
+      entityId: id,
+      action: "VOID",
+      version: current.version || 1,
+      previousState: current,
+      reason
+  });
 }
