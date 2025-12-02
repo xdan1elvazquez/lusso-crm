@@ -3,6 +3,8 @@ import { Link } from "react-router-dom";
 import { usePatients } from "@/hooks/usePatients";
 import { validatePatient } from "@/utils/validators";
 import { getReferralSources } from "@/services/settingsStorage";
+// 👇 IMPORTAR HANDLER
+import { handlePhoneInput } from "@/utils/inputHandlers";
 
 export default function PatientsPage() {
   const { patients, create, remove } = usePatients();
@@ -82,8 +84,20 @@ export default function PatientsPage() {
                 </div>
 
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 15 }}>
+                    {/* 👇 INPUT DE TELÉFONO ACTUALIZADO */}
                     <InputGroup label="Teléfono (10 dígitos)" error={errors.phone}>
-                        <input value={form.phone} onChange={(e) => setForm(f => ({ ...f, phone: e.target.value }))} style={{ width: "100%", padding: 10, borderRadius: 6, border: "1px solid #444", background: "#222", color: "white" }} />
+                        <input 
+                            type="tel"
+                            placeholder="55 1234 5678"
+                            maxLength={10}
+                            value={form.phone} 
+                            onChange={(e) => {
+                                // Sanitización inmediata
+                                const clean = handlePhoneInput(e.target.value);
+                                setForm(f => ({ ...f, phone: clean }));
+                            }} 
+                            style={{ width: "100%", padding: 10, borderRadius: 6, border: "1px solid #444", background: "#222", color: "white" }} 
+                        />
                     </InputGroup>
                     <InputGroup label="Email (Opcional)">
                         <input value={form.email} onChange={(e) => setForm(f => ({ ...f, email: e.target.value }))} style={{ width: "100%", padding: 10, borderRadius: 6, border: "1px solid #444", background: "#222", color: "white" }} />

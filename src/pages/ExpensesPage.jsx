@@ -1,5 +1,7 @@
 import { useState, useMemo } from "react";
 import { getAllExpenses, createExpense, deleteExpense } from "@/services/expensesStorage";
+// 👇 IMPORTAR HANDLERS
+import { preventNegativeKey, sanitizeMoney, formatMoneyBlur } from "@/utils/inputHandlers";
 
 const CATEGORIES = ["INVENTARIO", "OPERATIVO", "NOMINA", "MARKETING", "MANTENIMIENTO", "OTROS"];
 const METHODS = ["EFECTIVO", "TRANSFERENCIA", "TARJETA", "CHEQUE"];
@@ -52,9 +54,20 @@ export default function ExpensesPage() {
                  <span style={{fontSize:12, color:"#aaa"}}>Concepto</span>
                  <input value={form.description} onChange={e => setForm({...form, description: e.target.value})} placeholder="Ej. Pago de Luz" style={{ padding: 8, background: "#222", border: "1px solid #444", color: "white", borderRadius: 4 }} />
               </label>
+              
+              {/* 👇 MONTO ACTUALIZADO */}
               <label style={{ display: "grid", gap: 5 }}>
                  <span style={{fontSize:12, color:"#aaa"}}>Monto ($)</span>
-                 <input type="number" value={form.amount} onChange={e => setForm({...form, amount: e.target.value})} placeholder="0.00" style={{ padding: 8, background: "#222", border: "1px solid #444", color: "white", borderRadius: 4 }} />
+                 <input 
+                    type="number" 
+                    min="0"
+                    value={form.amount} 
+                    onKeyDown={preventNegativeKey}
+                    onChange={e => setForm({...form, amount: sanitizeMoney(e.target.value)})} 
+                    onBlur={e => setForm(f => ({...f, amount: formatMoneyBlur(f.amount)}))}
+                    placeholder="0.00" 
+                    style={{ padding: 8, background: "#222", border: "1px solid #444", color: "white", borderRadius: 4 }} 
+                 />
               </label>
            </div>
 

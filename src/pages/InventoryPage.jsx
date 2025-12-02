@@ -2,6 +2,8 @@ import { useMemo, useState, useEffect } from "react";
 import { getAllProducts, createProduct, updateProduct, deleteProduct, getInventoryStats } from "@/services/inventoryStorage";
 import { getAlertSettings, updateAlertSettings } from "@/services/settingsStorage";
 import { getLogsByProductId } from "@/services/inventoryLogStorage"; // 👈 IMPORTAR LOGGER
+// 👇 IMPORTAR HANDLERS
+import { preventNegativeKey, sanitizeMoney, formatMoneyBlur } from "@/utils/inputHandlers";
 
 const CATEGORIES = [
   { id: "FRAMES", label: "Armazones" },
@@ -213,14 +215,36 @@ export default function InventoryPage() {
             )}
 
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 15 }}>
+              
+              {/* 👇 PRECIO VENTA ACTUALIZADO */}
               <label style={{ display: "grid", gap: 4 }}>
                   <span style={{ fontSize: 12, color: "#4ade80", fontWeight:"bold" }}>Precio Venta (Público)</span>
-                  <input type="number" required placeholder="0.00" value={form.price} onChange={e => setForm({...form, price: e.target.value})} style={{ padding: 8, background: "#222", border: "1px solid #4ade80", color: "white", borderRadius: 4 }} />
+                  <input 
+                      type="number" 
+                      min="0"
+                      required 
+                      placeholder="0.00" 
+                      value={form.price} 
+                      onKeyDown={preventNegativeKey}
+                      onChange={e => setForm({...form, price: sanitizeMoney(e.target.value)})}
+                      onBlur={e => setForm(f => ({...f, price: formatMoneyBlur(f.price)}))}
+                      style={{ padding: 8, background: "#222", border: "1px solid #4ade80", color: "white", borderRadius: 4 }} 
+                  />
               </label>
               
+              {/* 👇 COSTO COMPRA ACTUALIZADO */}
               <label style={{ display: "grid", gap: 4 }}>
                   <span style={{ fontSize: 12, color: "#f87171", fontWeight:"bold" }}>Costo Compra (Privado)</span>
-                  <input type="number" placeholder="0.00" value={form.cost} onChange={e => setForm({...form, cost: e.target.value})} style={{ padding: 8, background: "#222", border: "1px solid #f87171", color: "white", borderRadius: 4 }} />
+                  <input 
+                      type="number" 
+                      min="0"
+                      placeholder="0.00" 
+                      value={form.cost} 
+                      onKeyDown={preventNegativeKey}
+                      onChange={e => setForm({...form, cost: sanitizeMoney(e.target.value)})} 
+                      onBlur={e => setForm(f => ({...f, cost: formatMoneyBlur(f.cost)}))}
+                      style={{ padding: 8, background: "#222", border: "1px solid #f87171", color: "white", borderRadius: 4 }} 
+                  />
               </label>
 
               <div style={{display:"flex", flexDirection:"column", gap:10}}>
@@ -229,8 +253,30 @@ export default function InventoryPage() {
               </div>
               {!form.isOnDemand && (
                 <>
-                  <label style={{ display: "grid", gap: 4 }}><span style={{ fontSize: 12, color: "#aaa" }}>Stock Físico</span><input type="number" required placeholder="0" value={form.stock} onChange={e => setForm({...form, stock: e.target.value})} style={{ padding: 8, background: "#222", border: "1px solid #444", color: "white", borderRadius: 4 }} /></label>
-                  <label style={{ display: "grid", gap: 4 }}><span style={{ fontSize: 12, color: "#aaa" }}>Alerta Mínimo</span><input type="number" placeholder="1" value={form.minStock} onChange={e => setForm({...form, minStock: e.target.value})} style={{ padding: 8, background: "#222", border: "1px solid #444", color: "white", borderRadius: 4 }} /></label>
+                  {/* 👇 STOCK FÍSICO ACTUALIZADO */}
+                  <label style={{ display: "grid", gap: 4 }}><span style={{ fontSize: 12, color: "#aaa" }}>Stock Físico</span>
+                    <input 
+                        type="number" 
+                        min="0"
+                        required 
+                        placeholder="0" 
+                        value={form.stock} 
+                        onKeyDown={preventNegativeKey}
+                        onChange={e => setForm({...form, stock: sanitizeMoney(e.target.value)})} 
+                        style={{ padding: 8, background: "#222", border: "1px solid #444", color: "white", borderRadius: 4 }} 
+                    />
+                  </label>
+                  <label style={{ display: "grid", gap: 4 }}><span style={{ fontSize: 12, color: "#aaa" }}>Alerta Mínimo</span>
+                    <input 
+                        type="number" 
+                        min="1"
+                        placeholder="1" 
+                        value={form.minStock} 
+                        onKeyDown={preventNegativeKey}
+                        onChange={e => setForm({...form, minStock: sanitizeMoney(e.target.value)})} 
+                        style={{ padding: 8, background: "#222", border: "1px solid #444", color: "white", borderRadius: 4 }} 
+                    />
+                  </label>
                 </>
               )}
             </div>

@@ -13,6 +13,8 @@ import { normalizeRxValue } from "@/utils/rxOptions";
 import { checkLensCompatibility, getSuggestions } from "@/utils/lensMatcher";
 import { parseDiopter } from "@/utils/rxUtils";
 import { useNotify, useConfirm } from "@/context/UIContext";
+// 👇 IMPORTAR HANDLERS
+import { preventNegativeKey, sanitizeMoney, formatMoneyBlur } from "@/utils/inputHandlers";
 
 const PAYMENT_METHODS = ["EFECTIVO", "TARJETA", "TRANSFERENCIA", "OTRO"];
 
@@ -449,7 +451,16 @@ export default function SalesPanel({ patientId, prefillData, onClearPrefill }) {
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 5 }}>
                       <span style={{fontSize:"0.9em", color:"#f87171"}}>Desc:</span>
                       <div style={{ display: "flex", gap: 5 }}>
-                          <input type="number" value={payment.discount} onChange={e => setPayment({...payment, discount: e.target.value})} placeholder="0" style={{ width: 60, padding: 4, background: "#0f172a", border: "1px solid #f87171", color: "#f87171", textAlign: "right", borderRadius: 4 }} />
+                          {/* 👇 INPUT DESCUENTO ACTUALIZADO */}
+                          <input 
+                              type="number" 
+                              min="0"
+                              onKeyDown={preventNegativeKey}
+                              value={payment.discount} 
+                              onChange={e => setPayment({...payment, discount: sanitizeMoney(e.target.value)})} 
+                              placeholder="0" 
+                              style={{ width: 60, padding: 4, background: "#0f172a", border: "1px solid #f87171", color: "#f87171", textAlign: "right", borderRadius: 4 }} 
+                          />
                           <select value={payment.discountType} onChange={e => setPayment({...payment, discountType: e.target.value})} style={{ padding: "0 4px", background: "#0f172a", border: "1px solid #f87171", color: "#f87171", fontSize: "0.8em" }}><option value="AMOUNT">$</option><option value="PERCENT">%</option></select>
                       </div>
                   </div>
@@ -458,7 +469,17 @@ export default function SalesPanel({ patientId, prefillData, onClearPrefill }) {
 
                <div style={{ display: "grid", gap: 12, marginBottom: 15 }}>
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                      <input type="number" value={payment.initial} onChange={e => setPayment({...payment, initial: e.target.value})} placeholder="Abono" style={{ width: "100%", padding: 8, borderRadius: 4, fontWeight: "bold" }} />
+                      {/* 👇 INPUT ABONO ACTUALIZADO */}
+                      <input 
+                          type="number" 
+                          min="0"
+                          onKeyDown={preventNegativeKey}
+                          value={payment.initial} 
+                          onChange={e => setPayment({...payment, initial: sanitizeMoney(e.target.value)})} 
+                          onBlur={e => setPayment(p => ({...p, initial: formatMoneyBlur(p.initial)}))}
+                          placeholder="Abono" 
+                          style={{ width: "100%", padding: 8, borderRadius: 4, fontWeight: "bold" }} 
+                      />
                       <select value={payment.method} onChange={e => setPayment({...payment, method: e.target.value})} style={{ width: "100%", padding: 8, borderRadius: 4 }}>{PAYMENT_METHODS.map(m => <option key={m} value={m}>{m}</option>)}</select>
                   </div>
                   {payment.method === "TARJETA" && (

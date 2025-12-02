@@ -12,14 +12,14 @@ export const validatePatient = (patient) => {
     errors.lastName = "El apellido es obligatorio";
   }
   
-  // Validación de teléfono (opcional pero recomendada)
-  // Checa que si escribieron algo, sean 10 números
+  // --- CAMBIO: Validación estricta 10 dígitos ---
   if (patient.phone) {
-    const cleanPhone = patient.phone.replace(/\D/g, ''); // Quita espacios y guiones
+    const cleanPhone = patient.phone.replace(/\D/g, ''); 
     if (cleanPhone.length > 0 && cleanPhone.length !== 10) {
-      errors.phone = "El teléfono debe tener 10 dígitos";
+      errors.phone = "El teléfono debe tener 10 dígitos exactos";
     }
   }
+  // ----------------------------------------------
 
   return {
     isValid: Object.keys(errors).length === 0,

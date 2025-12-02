@@ -12,6 +12,8 @@ import EyeExamsPanel from "@/components/EyeExamsPanel";
 import AnamnesisPanel from "@/components/AnamnesisPanel";
 import SalesPanel from "@/components/SalesPanel";
 import StudiesPanel from "@/components/StudiesPanel";
+// 👇 IMPORTAR HANDLER
+import { handlePhoneInput } from "@/utils/inputHandlers";
 
 function toDateInput(isoString) {
   if (!isoString) return "";
@@ -257,7 +259,19 @@ export default function PatientDetailPage() {
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 20 }}>
                 <Field label="Nombre"><input value={form.firstName} onChange={e => setForm({...form, firstName: e.target.value})} style={inputStyle} /></Field>
                 <Field label="Apellidos"><input value={form.lastName} onChange={e => setForm({...form, lastName: e.target.value})} style={inputStyle} /></Field>
-                <Field label="Teléfono"><input value={form.phone} onChange={e => setForm({...form, phone: e.target.value})} style={inputStyle} /></Field>
+                
+                {/* 👇 INPUT TELÉFONO ACTUALIZADO */}
+                <Field label="Teléfono">
+                    <input 
+                        type="tel"
+                        placeholder="10 dígitos"
+                        maxLength={10}
+                        value={form.phone} 
+                        onChange={e => setForm({...form, phone: handlePhoneInput(e.target.value)})} 
+                        style={inputStyle} 
+                    />
+                </Field>
+
                 <Field label="Email"><input value={form.email} onChange={e => setForm({...form, email: e.target.value})} style={inputStyle} /></Field>
                 
                 <Field label="Fecha Nacimiento"><input type="date" value={form.dob} onChange={e => setForm({...form, dob: e.target.value})} style={inputStyle} /></Field>
