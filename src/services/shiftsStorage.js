@@ -10,27 +10,36 @@ export function getAllShifts() {
 }
 
 export function getCurrentShift() {
-  // Retorna el turno que esté ABIERTO (status: "OPEN")
-  // En un sistema multi-usuario real, filtraríamos también por usuario.
+  // Solo retorna el turno si está totalmente ABIERTO.
+  // Si está en PRE_CLOSE, para efectos de ventas, cuenta como cerrado/bloqueado.
   return read().find(s => s.status === "OPEN");
+}
+
+// Helper para obtener turno en proceso de cierre (para la pantalla de auditoría)
+export function getShiftInProcess() {
+    return read().find(s => s.status === "PRE_CLOSE");
 }
 
 export function openShift(data) {
   const list = read();
-  // Validar si ya hay uno abierto
-  if (list.find(s => s.status === "OPEN")) throw new Error("Ya hay un turno abierto. Cierra el anterior primero.");
+  // Validar si ya hay uno abierto o en pre-cierre
+  if (list.find(s => s.status === "OPEN" || s.status === "PRE_CLOSE")) {
+      throw new Error("Ya hay un turno activo o en proceso de cierre.");
+  }
   
   const newShift = {
     id: crypto.randomUUID(),
     user: data.user || "General",
-    initialCash: Number(data.initialCash) || 0, // Fondo de caja
+    initialCash: Number(data.initialCash) || 0,
     status: "OPEN",
     openedAt: new Date().toISOString(),
     closedAt: null,
     
-    // Datos de cierre (se llenan al final)
+    // Etapa 1: Pre-Cierre (Declarado por Cajero)
+    declared: null, 
+    
+    // Etapa 2: Cierre Final (Calculado por Sistema)
     expected: null, 
-    declared: null,
     difference: null,
     notes: ""
   };
@@ -38,6 +47,25 @@ export function openShift(data) {
   return newShift;
 }
 
+// NUEVO: Paso intermedio (Corte Ciego)
+export function preCloseShift(id, declaredData) {
+    const list = read();
+    const next = list.map(s => {
+        if (s.id !== id) return s;
+        return {
+            ...s,
+            status: "PRE_CLOSE", // Cambia estado para bloquear ventas
+            declared: {
+                cash: Number(declaredData.cash) || 0,
+                card: Number(declaredData.card) || 0,
+                transfer: Number(declaredData.transfer) || 0
+            }
+        };
+    });
+    write(next);
+}
+
+// Modificado: Ahora recibe los cálculos finales del sistema para guardar
 export function closeShift(id, closeData) {
   const list = read();
   const next = list.map(s => {
@@ -46,9 +74,11 @@ export function closeShift(id, closeData) {
       ...s,
       status: "CLOSED",
       closedAt: new Date().toISOString(),
-      expected: closeData.expected, // { cash: 100, card: 200... }
-      declared: closeData.declared, // { cash: 100, card: 200... }
-      difference: closeData.difference, // { cash: 0, card: 0... }
+      
+      // Aseguramos que se guarden ambos lados de la moneda
+      expected: closeData.expected, 
+      declared: s.declared || closeData.declared, // Usa lo que ya estaba o lo nuevo si aplica
+      difference: closeData.difference,
       notes: closeData.notes || ""
     };
   });

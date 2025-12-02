@@ -1,13 +1,20 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { getPatients } from "@/services/patientsStorage";
+import { getCurrentShift } from "@/services/shiftsStorage"; // 👈 IMPORTAR
 import SalesPanel from "@/components/SalesPanel";
 
 export default function SalesPage() {
   const [query, setQuery] = useState("");
   const [selectedPatient, setSelectedPatient] = useState(null);
+  const [isShiftOpen, setIsShiftOpen] = useState(false);
+
+  // Validar estado del turno al montar
+  useEffect(() => {
+      const shift = getCurrentShift();
+      setIsShiftOpen(!!shift); // Solo true si hay turno OPEN
+  }, []);
   
-  // Buscador de pacientes en tiempo real
-  const patients = useMemo(() => getPatients(), []); // Carga inicial
+  const patients = useMemo(() => getPatients(), []);
   
   const filteredPatients = useMemo(() => {
     if (!query) return [];
@@ -16,8 +23,22 @@ export default function SalesPage() {
       p.firstName.toLowerCase().includes(q) || 
       p.lastName.toLowerCase().includes(q) || 
       p.phone.includes(q)
-    ).slice(0, 5); // Top 5
+    ).slice(0, 5);
   }, [patients, query]);
+
+  if (!isShiftOpen) {
+      return (
+          <div style={{ width: "100%", height: "80vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", color: "#666" }}>
+              <div style={{ fontSize: "4rem", marginBottom: 20 }}>⛔</div>
+              <h1>Caja Cerrada</h1>
+              <p style={{ fontSize: "1.2em", maxWidth: 400, textAlign: "center" }}>
+                  No hay un turno abierto o se está realizando el corte de caja (Arqueo).
+                  <br/><br/>
+                  Ve a la sección <strong>Control Turnos</strong> para abrir caja.
+              </p>
+          </div>
+      );
+  }
 
   return (
     <div style={{ width: "100%", paddingBottom: 40 }}>
@@ -30,10 +51,9 @@ export default function SalesPage() {
             <input 
               placeholder="Buscar por nombre o teléfono..." 
               value={query}
-              onChange={e => { setQuery(e.target.value); setSelectedPatient(null); }} // Al escribir, reseteamos selección
+              onChange={e => { setQuery(e.target.value); setSelectedPatient(null); }} 
               style={{ width: "100%", padding: 12, background: "#222", border: "1px solid #444", color: "white", borderRadius: 8, fontSize: "1.1em" }}
             />
-            {/* Resultados flotantes */}
             {query && !selectedPatient && filteredPatients.length > 0 && (
                 <div style={{ position: "absolute", top: "100%", left: 0, right: 0, background: "#222", border: "1px solid #444", zIndex: 50, borderRadius: 8, marginTop: 4, boxShadow: "0 4px 10px rgba(0,0,0,0.5)" }}>
                     {filteredPatients.map(p => (
@@ -53,13 +73,11 @@ export default function SalesPage() {
         </div>
       </div>
 
-      {/* ÁREA DE VENTA (Solo si hay paciente seleccionado) */}
       {selectedPatient ? (
         <div style={{ animation: "fadeIn 0.3s ease-in" }}>
             <div style={{ marginBottom: 10, color: "#aaa" }}>
                 Vendiendo a: <strong style={{color:"white"}}>{selectedPatient.firstName} {selectedPatient.lastName}</strong>
             </div>
-            {/* Reutilizamos el componente poderoso que ya hicimos */}
             <SalesPanel patientId={selectedPatient.id} />
         </div>
       ) : (

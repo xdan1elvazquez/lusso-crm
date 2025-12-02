@@ -76,7 +76,7 @@ function normalizePayment(p, defaultDate) {
      terminal: p.terminal || null,
      installments: p.installments || null,
      feeAmount: Number(p.feeAmount) || 0,
-     shiftId: p.shiftId || null // 👈 NUEVO: El pago pertenece a un turno
+     shiftId: p.shiftId || null 
   };
 }
 
@@ -103,7 +103,7 @@ function normalizeSale(raw) {
     createdAt: sale.createdAt || new Date().toISOString(),
     updatedAt: sale.updatedAt || sale.createdAt || new Date().toISOString(),
     pointsAwarded: sale.pointsAwarded || 0,
-    shiftId: sale.shiftId || null, // 👈 NUEVO: La venta pertenece a un turno
+    shiftId: sale.shiftId || null,
     logistics: {
         jobMadeBy: sale.logistics?.jobMadeBy || sale.labDetails?.jobMadeBy || "",
         labSentBy: sale.logistics?.labSentBy || sale.labDetails?.sentBy || "",
@@ -155,15 +155,20 @@ function ensureWorkOrdersForSale(sale) {
 
 export function createSale(payload) {
   if (!payload?.patientId) throw new Error("patientId requerido");
+  
+  // 👈 VALIDACIÓN DE TURNO ABIERTO (BLOQUEO DE CAJA)
+  const currentShift = getCurrentShift();
+  if (!currentShift) {
+      throw new Error("⛔ CAJA CERRADA: No hay un turno abierto para cobrar.");
+  }
+
   const list = read();
   const now = new Date().toISOString();
   const loyalty = getLoyaltySettings();
-  const currentShift = getCurrentShift(); // 👈 OBTENER TURNO ACTUAL
 
-  // Asignar shiftId a los pagos iniciales también
   const paymentsWithShift = (payload.payments || []).map(p => ({
       ...p,
-      shiftId: currentShift?.id || null
+      shiftId: currentShift.id // Vinculamos al turno
   }));
 
   let pointsToAward = 0;
@@ -176,8 +181,8 @@ export function createSale(payload) {
   const normalizedSale = normalizeSale({
     id: crypto.randomUUID(),
     ...payload,
-    payments: paymentsWithShift, // Usar los pagos con shiftId
-    shiftId: currentShift?.id || null, // Guardar el turno en la venta
+    payments: paymentsWithShift,
+    shiftId: currentShift.id,
     createdAt: now,
     updatedAt: now,
     pointsAwarded: pointsToAward
@@ -214,8 +219,10 @@ export function updateSaleLogistics(id, data) {
 }
 
 export function addPaymentToSale(saleId, payment) {
+  const currentShift = getCurrentShift();
+  if (!currentShift) throw new Error("⛔ CAJA CERRADA: Abre un turno para recibir abonos.");
+
   const list = read();
-  const currentShift = getCurrentShift(); // 👈 OBTENER TURNO ACTUAL
   
   let updated = null;
   const next = list.map(s => {
@@ -225,13 +232,12 @@ export function addPaymentToSale(saleId, payment) {
     const amount = Math.min(Number(payment?.amount) || 0, derived.balance);
     if (amount <= 0) return s;
     
-    // Agregar shiftId al abono
     const newPay = normalizePayment({ 
         ...payment, 
         id: crypto.randomUUID(), 
         amount, 
         paidAt: new Date().toISOString(),
-        shiftId: currentShift?.id || null 
+        shiftId: currentShift.id 
     }, new Date().toISOString());
     
     const updatedSale = { ...norm, payments: [...norm.payments, newPay], updatedAt: new Date().toISOString() };
@@ -243,6 +249,10 @@ export function addPaymentToSale(saleId, payment) {
 }
 
 export function processReturn(saleId, itemId, qtyToReturn, refundMethod = "EFECTIVO", notes = "") {
+    const currentShift = getCurrentShift();
+    // Permitir devolución sin turno abierto es debatible, pero mejor bloquearlo por consistencia financiera
+    if (!currentShift) throw new Error("⛔ CAJA CERRADA: No se pueden procesar devoluciones (salida de dinero) sin turno.");
+
     const list = read();
     let sale = list.find(s => s.id === saleId);
     if (!sale) throw new Error("Venta no encontrada");
@@ -261,14 +271,13 @@ export function processReturn(saleId, itemId, qtyToReturn, refundMethod = "EFECT
     }
 
     if (refundAmount > 0) {
-        const currentShift = getCurrentShift(); // 👈 Asociar devolución a turno actual
         createExpense({
             description: `Reembolso / Devolución: ${item.description} (Venta #${saleId.slice(0,6)})`,
             amount: refundAmount,
             category: "COSTO_VENTA",
             method: refundMethod,
             date: new Date().toISOString(),
-            shiftId: currentShift?.id || null
+            shiftId: currentShift.id
         });
     }
 
@@ -315,7 +324,6 @@ export function deleteSale(id) {
     write(list.filter(s => s.id !== id)); 
 }
 
-// Reporte Financiero con filtros de fecha
 export function getFinancialReport(startDate, endDate) {
     const sales = getAllSales();
     
@@ -349,7 +357,6 @@ export function getFinancialReport(startDate, endDate) {
     return { totalSales, totalIncome, totalReceivable, incomeByMethod };
 }
 
-// Reporte de Rentabilidad con filtros de fecha
 export function getProfitabilityReport(startDate, endDate) {
     const sales = getAllSales();
     const workOrders = getAllWorkOrders();
@@ -405,7 +412,6 @@ export function getProfitabilityReport(startDate, endDate) {
     return report;
 }
 
-// 👈 NUEVO: Obtener métricas para un turno específico
 export function getSalesMetricsByShift(shiftId) {
     if (!shiftId) return { totalIncome: 0, incomeByMethod: {} };
     
@@ -414,7 +420,6 @@ export function getSalesMetricsByShift(shiftId) {
     const incomeByMethod = { EFECTIVO: 0, TARJETA: 0, TRANSFERENCIA: 0, CHEQUE: 0, OTRO: 0 };
 
     sales.forEach(sale => {
-        // Revisamos los pagos individuales, ya que una venta antigua podría abonarse en este turno
         sale.payments.forEach(pay => {
             if (pay.shiftId === shiftId) {
                 totalIncome += pay.amount;
