@@ -3,22 +3,26 @@ import { getCurrentShift, getShiftInProcess, openShift, preCloseShift, closeShif
 import { getSalesMetricsByShift } from "@/services/salesStorage";
 import { getExpensesByShift } from "@/services/expensesStorage";
 import { getEmployees } from "@/services/employeesStorage";
+import { useNotify, useConfirm } from "@/context/UIContext"; // 👈 HOOKS UI
 
 export default function ShiftPage() {
+  const notify = useNotify();
+  const confirm = useConfirm();
+  
   const [tick, setTick] = useState(0);
-  const [activeShift, setActiveShift] = useState(null); // Turno OPEN
-  const [auditShift, setAuditShift] = useState(null);   // Turno PRE_CLOSE
+  const [activeShift, setActiveShift] = useState(null);
+  const [auditShift, setAuditShift] = useState(null);
   const [history, setHistory] = useState([]);
   
-  // MODALES NUEVOS
-  const [showHistoryModal, setShowHistoryModal] = useState(false); // Lista completa
-  const [viewShift, setViewShift] = useState(null); // Detalle de un corte específico
+  // Modales de vista
+  const [showHistoryModal, setShowHistoryModal] = useState(false);
+  const [viewShift, setViewShift] = useState(null);
 
   const employees = useMemo(() => getEmployees(), []);
 
   // Estados Formularios
   const [openForm, setOpenForm] = useState({ user: "", initialCash: "" });
-  const [blindCount, setBlindCount] = useState({ cash: "", card: "", transfer: "" }); // Conteo ciego
+  const [blindCount, setBlindCount] = useState({ cash: "", card: "", transfer: "" });
   const [auditNotes, setAuditNotes] = useState("");
 
   useEffect(() => {
@@ -27,27 +31,33 @@ export default function ShiftPage() {
       setHistory(getAllShifts());
   }, [tick]);
 
-  // --- LÓGICA DE APERTURA ---
   const handleOpen = () => {
-      if (!openForm.user) return alert("Selecciona tu usuario");
-      if (openForm.initialCash === "") return alert("Indica fondo de caja");
+      if (!openForm.user) return notify.error("Selecciona tu usuario");
+      if (openForm.initialCash === "") return notify.error("Indica fondo de caja");
       
       try {
           openShift({ user: openForm.user, initialCash: openForm.initialCash });
           setTick(t => t + 1);
-      } catch(e) { alert(e.message); }
+          notify.success("Turno abierto correctamente");
+      } catch(e) { notify.error(e.message); }
   };
 
-  // --- LÓGICA PRE-CIERRE (CAJERO) ---
-  const handlePreClose = () => {
-      if (!confirm("¿Estás seguro de iniciar el corte de caja?\n\n⚠️ Se bloquearán las ventas hasta que un gerente finalice la auditoría.")) return;
+  const handlePreClose = async () => {
+      const ok = await confirm({
+          title: "Iniciar Arqueo",
+          message: "¿Estás seguro de iniciar el corte de caja?\n\n⚠️ Se bloquearán las ventas hasta que un gerente finalice la auditoría.",
+          confirmText: "Sí, Cerrar Caja",
+          cancelText: "Cancelar"
+      });
+      
+      if (!ok) return;
       
       preCloseShift(activeShift.id, blindCount);
       setBlindCount({ cash: "", card: "", transfer: "" }); 
       setTick(t => t + 1);
+      notify.info("Caja cerrada. Esperando auditoría.");
   };
 
-  // --- LÓGICA CIERRE FINAL (GERENTE) ---
   const metrics = useMemo(() => {
       const targetShift = auditShift || activeShift;
       if (!targetShift) return null;
@@ -66,7 +76,7 @@ export default function ShiftPage() {
       };
   }, [activeShift, auditShift, tick]);
 
-  const handleFinalClose = () => {
+  const handleFinalClose = async () => {
       if (!metrics || !auditShift) return;
       
       const declared = auditShift.declared; 
@@ -76,7 +86,13 @@ export default function ShiftPage() {
           transfer: declared.transfer - metrics.expected.transfer
       };
 
-      if(!confirm("¿Confirmar cierre definitivo y diferencias?")) return;
+      const ok = await confirm({
+          title: "Cierre Definitivo",
+          message: "¿Confirmar cierre definitivo y registrar diferencias?",
+          confirmText: "Aprobar y Cerrar"
+      });
+
+      if(!ok) return;
 
       closeShift(auditShift.id, {
           expected: metrics.expected,
@@ -87,14 +103,12 @@ export default function ShiftPage() {
       
       setAuditNotes("");
       setTick(t => t + 1);
+      notify.success("Turno finalizado y guardado.");
   };
-
-  // --- RENDERIZADO PRINCIPAL ---
 
   return (
     <div style={{ paddingBottom: 40, width: "100%" }}>
         
-        {/* HEADER GLOBAL CON BOTÓN DE HISTORIAL */}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
             <h1 style={{ margin: 0 }}>Control de Turnos</h1>
             <button 
@@ -105,7 +119,6 @@ export default function ShiftPage() {
             </button>
         </div>
 
-        {/* MODAL HISTORIAL COMPLETO */}
         {showHistoryModal && (
             <div style={{ position: "fixed", top:0, left:0, right:0, bottom:0, background:"rgba(0,0,0,0.8)", zIndex:200, display:"flex", justifyContent:"center", alignItems:"center" }}>
                 <div style={{ background: "#1a1a1a", width: "90%", maxWidth: 600, maxHeight: "80vh", borderRadius: 12, border: "1px solid #444", display: "flex", flexDirection: "column" }}>
@@ -141,12 +154,10 @@ export default function ShiftPage() {
             </div>
         )}
 
-        {/* MODAL DETALLE DEL CORTE (EL DESGLOSE) */}
         {viewShift && (
             <ShiftDetailModal shift={viewShift} onClose={() => setViewShift(null)} />
         )}
 
-        {/* VISTA 1: ABRIR TURNO */}
         {!activeShift && !auditShift && (
             <div style={{ padding: 40, maxWidth: 500, margin: "0 auto", textAlign: "center" }}>
                 <div style={{ background: "#1a1a1a", padding: 30, borderRadius: 12, border: "1px solid #333", display:"grid", gap:20, textAlign:"left" }}>
@@ -166,7 +177,6 @@ export default function ShiftPage() {
                         Iniciar Turno
                     </button>
                 </div>
-                {/* LISTA RÁPIDA DE ÚLTIMOS CIERRES */}
                 <div style={{marginTop:40, textAlign:"left"}}>
                     <h4 style={{color:"#666", borderBottom:"1px solid #333", paddingBottom:10}}>Últimos Cierres (Click para ver)</h4>
                     {history.slice(0,3).map(h => (
@@ -179,10 +189,8 @@ export default function ShiftPage() {
             </div>
         )}
 
-        {/* VISTA 2: TURNO ACTIVO */}
         {activeShift && (
             <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:30, marginTop:10}}>
-                {/* IZQUIERDA: ESTADO */}
                 <div style={{background:"#1a1a1a", padding:20, borderRadius:12, border:"1px solid #333"}}>
                     <h3 style={{marginTop:0, color:"#4ade80"}}>🟢 Turno Activo</h3>
                     <p style={{color:"#ccc"}}>Caja abierta para ventas.</p>
@@ -196,7 +204,6 @@ export default function ShiftPage() {
                     </div>
                 </div>
 
-                {/* DERECHA: CONTEO CIEGO */}
                 <div style={{background:"#1a1a1a", padding:25, borderRadius:12, border:"1px solid #f87171"}}>
                     <h2 style={{marginTop:0, color:"#f87171"}}>Realizar Arqueo</h2>
                     <p style={{fontSize:"0.9em", color:"#888", marginBottom:20}}>
@@ -212,7 +219,6 @@ export default function ShiftPage() {
             </div>
         )}
 
-        {/* VISTA 3: AUDITORÍA */}
         {auditShift && metrics && (
             <div>
                 <div style={{marginBottom:30, background:"#291c0a", padding:20, borderRadius:8, border:"1px solid #facc15"}}>
@@ -221,7 +227,6 @@ export default function ShiftPage() {
                 </div>
 
                 <div style={{display:"grid", gridTemplateColumns:"2fr 1fr", gap:30}}>
-                    {/* TABLA COMPARATIVA */}
                     <div style={{background:"#1a1a1a", borderRadius:12, border:"1px solid #333", overflow:"hidden"}}>
                         <table style={{width:"100%", borderCollapse:"collapse", fontSize:"0.95em"}}>
                             <thead>
@@ -246,7 +251,6 @@ export default function ShiftPage() {
                         </table>
                     </div>
 
-                    {/* CIERRE FINAL */}
                     <div style={{background:"#1a1a1a", padding:25, borderRadius:12, border:"1px solid #333"}}>
                         <h3 style={{marginTop:0, color:"#fff"}}>Finalizar Turno</h3>
                         <textarea placeholder="Notas de auditoría..." value={auditNotes} onChange={e => setAuditNotes(e.target.value)} style={{width:"100%", padding:10, background:"#222", border:"1px solid #444", color:"white", borderRadius:6, marginBottom:20}} rows={3} />
@@ -258,8 +262,6 @@ export default function ShiftPage() {
     </div>
   );
 }
-
-// --- SUBCOMPONENTES Y ESTILOS ---
 
 const inputBlindStyle = { width: "100%", padding: 10, background: "#222", border: "1px solid #555", color: "white", borderRadius: 6, fontSize: "1.1em", fontWeight: "bold" };
 
@@ -281,10 +283,7 @@ const AuditRow = ({ label, expected, declared }) => {
     );
 };
 
-// --- MODAL DE DETALLE DE CORTE (HISTÓRICO) ---
 const ShiftDetailModal = ({ shift, onClose }) => {
-    // Si el turno no está cerrado, puede que no tenga "expected" guardado aun, 
-    // pero si es histórico (CLOSED), sí lo tiene.
     const expected = shift.expected || { cash:0, card:0, transfer:0 };
     const declared = shift.declared || { cash:0, card:0, transfer:0 };
     const diff = shift.difference || { cash:0, card:0, transfer:0 };

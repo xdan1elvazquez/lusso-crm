@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { createSale, getSalesByPatientId, deleteSale } from "@/services/salesStorage"; // 👈 Asegúrate de importar deleteSale
+import { createSale, getSalesByPatientId, deleteSale } from "@/services/salesStorage"; 
 import { getExamsByPatient } from "@/services/eyeExamStorage"; 
 import { getAllProducts } from "@/services/inventoryStorage"; 
 import { getConsultationsByPatient } from "@/services/consultationsStorage"; 
@@ -12,12 +12,15 @@ import RxPicker from "./RxPicker";
 import { normalizeRxValue } from "@/utils/rxOptions";
 import { checkLensCompatibility, getSuggestions } from "@/utils/lensMatcher";
 import { parseDiopter } from "@/utils/rxUtils";
+import { useNotify, useConfirm } from "@/context/UIContext";
 
 const PAYMENT_METHODS = ["EFECTIVO", "TARJETA", "TRANSFERENCIA", "OTRO"];
 
 export default function SalesPanel({ patientId, prefillData, onClearPrefill }) {
-  // ... (Todos los estados y hooks se mantienen igual)
+  const notify = useNotify();
+  const confirm = useConfirm();
   const navigate = useNavigate();
+  
   const [tick, setTick] = useState(0);
   const [cart, setCart] = useState([]);
   
@@ -42,8 +45,6 @@ export default function SalesPanel({ patientId, prefillData, onClearPrefill }) {
 
   const patient = useMemo(() => getPatientById(patientId), [patientId]); 
   const sales = useMemo(() => getSalesByPatientId(patientId), [patientId, tick]);
-  // ... (Resto de los useMemos y useEffects igual)
-  
   const exams = useMemo(() => getExamsByPatient(patientId), [patientId, tick]);
   const products = useMemo(() => getAllProducts(), []);
   const consultations = useMemo(() => getConsultationsByPatient(patientId), [patientId, tick]);
@@ -77,8 +78,6 @@ export default function SalesPanel({ patientId, prefillData, onClearPrefill }) {
     }
   }, [payment.method]);
 
-  // ... (Funciones filterOptions, validLenses, findLensCost, updateFee, handleTerminalChange, handleInstallmentsChange se mantienen igual)
-  
   const filterOptions = useMemo(() => {
     const designs = new Set();
     const materials = new Set();
@@ -143,8 +142,6 @@ export default function SalesPanel({ patientId, prefillData, onClearPrefill }) {
   const handleTerminalChange = (e) => { const tId = e.target.value; const newFee = updateFee(tId, payment.installments); setPayment(p => ({ ...p, terminalId: tId, feePercent: newFee })); };
   const handleInstallmentsChange = (e) => { const months = e.target.value; const newFee = updateFee(payment.terminalId, months); setPayment(p => ({ ...p, installments: months, feePercent: newFee })); };
 
-  // ... (addToCart, removeFromCart, handleImportExam, selectSmartLens, selectCatalogLens, handleImportConsultation, useEffect prefill, subtotalGross, handleCheckout, calculatedFee se mantienen igual)
-
   const addToCart = (item) => { 
       const specsToSave = showOpticalSpecs || item.specs ? { ...itemDetails, ...(item.specs || {}) } : {};
       setCart(prev => [...prev, { ...item, specs: specsToSave, _tempId: Date.now() + Math.random() }]); 
@@ -167,7 +164,7 @@ export default function SalesPanel({ patientId, prefillData, onClearPrefill }) {
     };
     setFilters({ design: exam.recommendations?.design || "", material: exam.recommendations?.material || "", treatment: exam.recommendations?.coating || "" });
     setShowOpticalSpecs(true); setItemDetails(autoSpecs);
-    alert("Rx cargada. Revisa las opciones compatibles.");
+    notify.success("Rx cargada. Revisa las opciones compatibles.");
   };
 
   const selectSmartLens = (lens) => {
@@ -198,8 +195,8 @@ export default function SalesPanel({ patientId, prefillData, onClearPrefill }) {
          const invProd = products.find(p => p.id === med.productId);
          addToCart({ kind: "MEDICATION", description: med.productName, qty: med.qty || 1, unitPrice: med.price || 0, cost: invProd?.cost || 0, inventoryProductId: med.productId, requiresLab: false, taxable: invProd ? invProd.taxable : true });
       });
-      alert(`Se agregaron ${consultation.prescribedMeds.length} medicamentos.`);
-    } else alert("Sin medicamentos vinculados.");
+      notify.success(`Se agregaron ${consultation.prescribedMeds.length} medicamentos.`);
+    } else notify.info("Sin medicamentos vinculados.");
   };
 
   useEffect(() => {
@@ -235,29 +232,47 @@ export default function SalesPanel({ patientId, prefillData, onClearPrefill }) {
             paymentObj = { ...paymentObj, terminal: term ? term.name : "Desconocida", cardType: payment.cardType, installments: payment.installments, feeAmount };
         }
     }
-    createSale({
-      patientId, boxNumber, soldBy, discount: discountAmount, total: finalTotal, payments: paymentObj ? [paymentObj] : [],
-      items: cart.map(item => ({
-        kind: item.kind, description: item.description, qty: item.qty, unitPrice: item.unitPrice, cost: item.cost,
-        requiresLab: item.requiresLab, eyeExamId: item.eyeExamId, inventoryProductId: item.inventoryProductId,
-        rxSnapshot: item.rxSnapshot, labName: item.labName, dueDate: item.dueDate, taxable: item.taxable, specs: item.specs 
-      }))
-    });
-    setCart([]); setBoxNumber(""); setSoldBy(""); 
-    setItemDetails({ material: "", design: "", treatment: "", frameModel: "", frameStatus: "NUEVO", notes: "", requiresBisel: true, requiresTallado: false }); 
-    setShowOpticalSpecs(false);
-    setPayment({ initial: 0, discount: "", discountType: "AMOUNT", method: "EFECTIVO", terminalId: "", cardType: "TDD", installments: "1", feePercent: 0 });
-    if (cart.some(i => i.requiresLab)) navigate("/work-orders"); else { setTick(t => t + 1); alert("Venta procesada"); }
+    try {
+        createSale({
+            patientId, boxNumber, soldBy, discount: discountAmount, total: finalTotal, payments: paymentObj ? [paymentObj] : [],
+            items: cart.map(item => ({
+                kind: item.kind, description: item.description, qty: item.qty, unitPrice: item.unitPrice, cost: item.cost,
+                requiresLab: item.requiresLab, eyeExamId: item.eyeExamId, inventoryProductId: item.inventoryProductId,
+                rxSnapshot: item.rxSnapshot, labName: item.labName, dueDate: item.dueDate, taxable: item.taxable, specs: item.specs 
+            }))
+        });
+        setCart([]); setBoxNumber(""); setSoldBy(""); 
+        setItemDetails({ material: "", design: "", treatment: "", frameModel: "", frameStatus: "NUEVO", notes: "", requiresBisel: true, requiresTallado: false }); 
+        setShowOpticalSpecs(false);
+        setPayment({ initial: 0, discount: "", discountType: "AMOUNT", method: "EFECTIVO", terminalId: "", cardType: "TDD", installments: "1", feePercent: 0 });
+        
+        if (cart.some(i => i.requiresLab)) {
+            navigate("/work-orders");
+            notify.success("Venta procesada. Work Orders generadas.");
+        } else { 
+            setTick(t => t + 1); 
+            notify.success("Venta procesada exitosamente");
+        }
+    } catch(e) {
+        notify.error(e.message);
+    }
   };
   
   const calculatedFee = payment.method === "TARJETA" ? (Number(payment.initial) * Number(payment.feePercent) / 100) : 0;
 
-  // NUEVO: Función para eliminar venta
-  const handleDeleteSale = (e, saleId) => {
-      e.stopPropagation(); // Evitar que se abra el modal
-      if(confirm("¿Estás seguro de eliminar esta venta? Se borrarán todos los abonos y no se podrá recuperar.")) {
+  const handleDeleteSale = async (e, saleId) => {
+      e.stopPropagation(); 
+      const ok = await confirm({
+          title: "Eliminar Venta",
+          message: "¿Estás seguro de eliminar esta venta? Se borrarán todos los abonos y no se podrá recuperar.",
+          confirmText: "Eliminar",
+          cancelText: "Cancelar"
+      });
+      
+      if(ok) {
           deleteSale(saleId);
           setTick(t => t + 1);
+          notify.success("Venta eliminada");
       }
   };
 
@@ -299,7 +314,6 @@ export default function SalesPanel({ patientId, prefillData, onClearPrefill }) {
                 <div style={{ background: "#1f1f1f", padding: 10, borderRadius: 8, marginBottom: 15, border:"1px solid #60a5fa" }}>
                     <div style={{fontSize:11, color:"#60a5fa", fontWeight:"bold", marginBottom:10}}>SELECTOR DE MICA (Rx Inteligente)</div>
                     
-                    {/* CHECKBOXES DE SERVICIOS (Movidos Arriba en la iteración anterior) */}
                     <div style={{display:"flex", gap:15, marginBottom:15, fontSize:12, color:"#ddd", background:"#333", padding:8, borderRadius:4}}>
                         <div style={{fontWeight:"bold", color:"#fbbf24"}}>SERVICIOS A INCLUIR:</div>
                         <label style={{display:"flex", alignItems:"center", gap:5, cursor:"pointer"}}>
@@ -462,7 +476,7 @@ export default function SalesPanel({ patientId, prefillData, onClearPrefill }) {
                <button onClick={handleCheckout} disabled={cart.length === 0} style={{ width: "100%", padding: 12, background: cart.length > 0 ? "#16a34a" : "#333", color: "white", border: "none", borderRadius: 6, fontWeight: "bold" }}>Cobrar Venta</button>
              </div>
 
-             {/* HISTORIAL + BOTÓN ELIMINAR (Modificado aquí) */}
+             {/* HISTORIAL + BOTÓN ELIMINAR */}
              <div style={{ marginTop: 20, borderTop: "1px solid #333", paddingTop: 10 }}>
                <h4 style={{margin:"0 0 10px 0", color:"#aaa"}}>Historial</h4>
                <div style={{display:"grid", gap:8}}>
