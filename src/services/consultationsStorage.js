@@ -12,7 +12,7 @@ function read() {
 
 function write(list) { localStorage.setItem(KEY, JSON.stringify(list)); }
 
-// Helper para estructuras vacías con soporte de archivos
+// Helpers
 const emptyEyeData = { lids: "", conjunctiva: "", cornea: "", chamber: "", iris: "", lens: "", files: [] };
 const emptyFundusData = { vitreous: "", nerve: "", macula: "", vessels: "", retinaPeriphery: "", files: [] };
 const emptyPio = { od: "", os: "", time: "", meds: "" };
@@ -26,20 +26,23 @@ function normalizeConsultation(raw) {
   const anteriorNotes = [ oldExam.adnexa, oldExam.conjunctiva, oldExam.cornea ].filter(Boolean).join(". ");
   const posteriorNotes = [ oldExam.vitreous, oldExam.retina ].filter(Boolean).join(". ");
 
+  // 👈 Compatibilidad con diagnósticos múltiples
+  let diagnoses = Array.isArray(base.diagnoses) ? base.diagnoses : [];
+
   return {
     id: base.id,
     patientId: base.patientId,
     visitDate: base.visitDate || createdAt,
     type: base.type || "OPHTHALMO",
     
-    // CAMPOS DE AUDITORÍA Y CONTROL
-    status: base.status || "ACTIVE", // ACTIVE | VOIDED
+    // --- AUDITORÍA (MANTENIDO) ---
+    status: base.status || "ACTIVE",
     version: Number(base.version) || 1,
 
     reason: base.reason || "",
     history: base.history || "",
     
-    // Interrogatorio por Aparatos y Sistemas (IPAS)
+    // --- IPAS (MANTENIDO) ---
     systemsReview: base.systemsReview || {}, 
 
     vitalSigns: { 
@@ -63,7 +66,19 @@ function normalizeConsultation(raw) {
         gonioscopy: base.exam?.gonioscopy || ""
     },
 
-    diagnosis: base.diagnosis || "",
+    // 👈 NUEVOS CAMPOS (CIE-10 e INTERCONSULTA)
+    diagnoses: diagnoses, // Array [{ code, name, type }]
+    diagnosis: base.diagnosis || "", // Texto libre (legacy backup)
+    
+    interconsultation: {
+        required: base.interconsultation?.required || false,
+        to: base.interconsultation?.to || "", 
+        reason: base.interconsultation?.reason || "",
+        urgency: base.interconsultation?.urgency || "NORMAL", 
+        status: base.interconsultation?.status || "PENDING", 
+        createdAt: base.interconsultation?.createdAt || null
+    },
+
     treatment: base.treatment || "",
     prescribedMeds: Array.isArray(base.prescribedMeds) ? base.prescribedMeds : [],
     prognosis: base.prognosis || "",
@@ -77,27 +92,24 @@ function normalizeConsultation(raw) {
 export function getAllConsultations() {
   return read()
     .map(normalizeConsultation)
-    .filter(c => c.status !== "VOIDED") // 👈 FILTRO DE SEGURIDAD: Solo activos
+    .filter(c => c.status !== "VOIDED") // Filtro auditoría activo
     .sort((a, b) => new Date(b.visitDate) - new Date(a.visitDate));
 }
 
 export function getConsultationsByPatient(patientId) {
   if (!patientId) return [];
-  // Reutiliza getAllConsultations, por lo que ya trae el filtro de VOIDED
   return getAllConsultations().filter(c => c.patientId === patientId);
 }
 
 export function getConsultationById(id) {
   if (!id) return null;
   const found = read().find(c => c.id === id);
-  // Permitimos leer anulados por ID directo (para auditoría), pero normalizamos
   return found ? normalizeConsultation(found) : null;
 }
 
 export function createConsultation(payload) {
   const list = read();
   const newId = crypto.randomUUID();
-  
   const newC = normalizeConsultation({
     id: newId,
     ...payload,
@@ -105,20 +117,8 @@ export function createConsultation(payload) {
     version: 1,
     status: "ACTIVE"
   });
-  
   write([newC, ...list]);
-
-  // LOG DE CREACIÓN
-  logAuditAction({
-      entityType: "CONSULTATION",
-      entityId: newId,
-      action: "CREATE",
-      version: 1,
-      previousState: null,
-      reason: "Consulta inicial",
-      user: "Sistema"
-  });
-
+  logAuditAction({ entityType: "CONSULTATION", entityId: newId, action: "CREATE", version: 1, previousState: null, reason: "Consulta inicial", user: "Sistema" });
   return newC;
 }
 
@@ -126,29 +126,12 @@ export function updateConsultation(id, payload, reason = "", user = "Usuario") {
   const list = read();
   const index = list.findIndex(c => c.id === id);
   if (index === -1) return null;
-
   const current = list[index];
   const nextVersion = (current.version || 1) + 1;
-
-  // 1. LOG PREVIO AL CAMBIO (SNAPSHOT)
-  logAuditAction({
-      entityType: "CONSULTATION",
-      entityId: id,
-      action: "UPDATE",
-      version: nextVersion,
-      previousState: current,
-      reason: reason || "Edición de expediente",
-      user
-  });
-
-  // 2. APLICAR CAMBIOS
-  const updated = normalizeConsultation({ 
-      ...current, 
-      ...payload, 
-      version: nextVersion,
-      updatedAt: new Date().toISOString() 
-  });
-
+  
+  logAuditAction({ entityType: "CONSULTATION", entityId: id, action: "UPDATE", version: nextVersion, previousState: current, reason: reason || "Edición", user });
+  
+  const updated = normalizeConsultation({ ...current, ...payload, version: nextVersion, updatedAt: new Date().toISOString() });
   list[index] = updated;
   write(list);
   return updated;
@@ -158,26 +141,10 @@ export function deleteConsultation(id, reason = "", user = "Usuario") {
   const list = read();
   const index = list.findIndex(c => c.id === id);
   if (index === -1) return;
-
   const current = list[index];
-
-  // SOFT DELETE: MARCAR COMO VOIDED
-  list[index] = { 
-      ...current, 
-      status: "VOIDED", 
-      updatedAt: new Date().toISOString() 
-  };
   
+  list[index] = { ...current, status: "VOIDED", updatedAt: new Date().toISOString() };
   write(list);
-
-  // LOG DE ANULACIÓN
-  logAuditAction({
-      entityType: "CONSULTATION",
-      entityId: id,
-      action: "VOID",
-      version: current.version, // Se anula la versión actual
-      previousState: current,
-      reason: reason || "Anulación de registro",
-      user
-  });
+  
+  logAuditAction({ entityType: "CONSULTATION", entityId: id, action: "VOID", version: current.version, previousState: current, reason: reason || "Anulación", user });
 }

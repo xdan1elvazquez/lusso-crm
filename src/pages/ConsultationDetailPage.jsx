@@ -1,15 +1,16 @@
 import { useEffect, useState, useMemo } from "react";
 import { Link, useParams } from "react-router-dom";
 import { getConsultationById, updateConsultation } from "@/services/consultationsStorage";
-import { getAuditHistory } from "@/services/auditStorage"; // 👈 NUEVO IMPORT
+import { getAuditHistory } from "@/services/auditStorage"; // 👈 AUDITORÍA (MANTENIDO)
 import { getExamsByConsultation, createEyeExam, deleteEyeExam } from "@/services/eyeExamStorage"; 
 import { getAllProducts } from "@/services/inventoryStorage"; 
 import { getPatientById } from "@/services/patientsStorage"; 
 import RxPicker from "@/components/RxPicker";
 import { normalizeRxValue } from "@/utils/rxOptions";
 import { validateRx } from "@/utils/validators";
+import { searchDiagnosis } from "@/utils/cie10Catalog"; // 👈 CIE-10 (NUEVO)
 
-// --- CONFIGURACIÓN DE SISTEMAS (IPAS) ---
+// --- CONFIGURACIÓN DE SISTEMAS (IPAS - MANTENIDO) ---
 const SYSTEMS_CONFIG = [
   { id: "endocrine", label: "Endocrino (Diabetes)", options: ["Poliuria", "Polidipsia", "Pérdida de Peso", "Intolerancia al calor/frío"] },
   { id: "cardiovascular", label: "Cardiovascular (HTA)", options: ["Dolor Torácico", "Disnea", "Ortopnea", "Edema", "Palpitaciones"] },
@@ -112,66 +113,27 @@ const SystemAccordion = ({ config, data, onChange }) => {
         onChange({ ...data, isNormal: false, selected: newSelected });
     };
 
-    const handleDetails = (text) => {
-        onChange({ ...data, isNormal: false, details: text });
-    };
-
-    const setNormal = (e) => {
-        e.stopPropagation();
-        onChange({ isNormal: true, selected: [], details: "" });
-    };
+    const handleDetails = (text) => { onChange({ ...data, isNormal: false, details: text }); };
+    const setNormal = (e) => { e.stopPropagation(); onChange({ isNormal: true, selected: [], details: "" }); };
 
     return (
         <div style={{ marginBottom: 8, border: "1px solid #444", borderRadius: 6, overflow: "hidden" }}>
-            <div 
-                onClick={() => setIsOpen(!isOpen)}
-                style={{ 
-                    padding: "8px 12px", background: "#222", cursor: "pointer", 
-                    display: "flex", justifyContent: "space-between", alignItems: "center" 
-                }}
-            >
-                <div style={{ fontWeight: "bold", color: data.isNormal ? "#aaa" : "#fbbf24", fontSize: "0.95em" }}>
-                    {config.label}
-                </div>
+            <div onClick={() => setIsOpen(!isOpen)} style={{ padding: "8px 12px", background: "#222", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div style={{ fontWeight: "bold", color: data.isNormal ? "#aaa" : "#fbbf24", fontSize: "0.95em" }}>{config.label}</div>
                 <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                    <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 4, background: data.isNormal ? "#064e3b" : "#450a0a", color: data.isNormal ? "#4ade80" : "#f87171", fontWeight: "bold" }}>
-                        {data.isNormal ? "NEGADO" : "ANORMAL"}
-                    </span>
+                    <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 4, background: data.isNormal ? "#064e3b" : "#450a0a", color: data.isNormal ? "#4ade80" : "#f87171", fontWeight: "bold" }}>{data.isNormal ? "NEGADO" : "ANORMAL"}</span>
                     <span style={{ fontSize: 10, color: "#666" }}>{isOpen ? "▲" : "▼"}</span>
                 </div>
             </div>
-
             {isOpen && (
                 <div style={{ padding: 12, background: "#1a1a1a", borderTop: "1px solid #333" }}>
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 10 }}>
                         {config.options.map(opt => (
-                            <button 
-                                key={opt} 
-                                type="button" 
-                                onClick={() => toggleOption(opt)}
-                                style={{
-                                    fontSize: 11, padding: "4px 8px", borderRadius: 12, border: "1px solid", cursor: "pointer",
-                                    background: data.selected?.includes(opt) ? "rgba(251, 191, 36, 0.1)" : "transparent",
-                                    borderColor: data.selected?.includes(opt) ? "#fbbf24" : "#444",
-                                    color: data.selected?.includes(opt) ? "#fbbf24" : "#888"
-                                }}
-                            >
-                                {opt}
-                            </button>
+                            <button key={opt} type="button" onClick={() => toggleOption(opt)} style={{fontSize: 11, padding: "4px 8px", borderRadius: 12, border: "1px solid", cursor: "pointer", background: data.selected?.includes(opt) ? "rgba(251, 191, 36, 0.1)" : "transparent", borderColor: data.selected?.includes(opt) ? "#fbbf24" : "#444", color: data.selected?.includes(opt) ? "#fbbf24" : "#888"}}>{opt}</button>
                         ))}
                     </div>
-                    <textarea 
-                        rows={2} 
-                        placeholder={`Detalles para ${config.label}...`} 
-                        value={data.details} 
-                        onChange={e => handleDetails(e.target.value)}
-                        style={{ ...textareaStyle, fontSize: "0.9em" }}
-                    />
-                    {!data.isNormal && (
-                        <button type="button" onClick={setNormal} style={{ marginTop: 8, fontSize: 11, color: "#4ade80", background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}>
-                            Marcar como Negado / Normal
-                        </button>
-                    )}
+                    <textarea rows={2} placeholder={`Detalles para ${config.label}...`} value={data.details} onChange={e => handleDetails(e.target.value)} style={{ ...textareaStyle, fontSize: "0.9em" }} />
+                    {!data.isNormal && <button type="button" onClick={setNormal} style={{ marginTop: 8, fontSize: 11, color: "#4ade80", background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}>Marcar como Negado / Normal</button>}
                 </div>
             )}
         </div>
@@ -185,46 +147,19 @@ const EyeColumn = ({ eyeLabel, value, onChange, onChipClick, onFileClick, option
             <button type="button" onClick={onFileClick} style={{fontSize:16, cursor:"pointer", background:"none", border:"none"}} title="Adjuntar Foto/PDF">📎</button>
         </div>
         <textarea rows={2} value={value} onChange={e => onChange(e.target.value)} style={textareaStyle} placeholder={`Detalles ${eyeLabel}...`} />
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6 }}>
-            {options && options.map(opt => (
-                <button key={opt} type="button" onClick={() => onChipClick(opt)} style={{fontSize:"0.75em", padding:"2px 8px", background:"#333", border:"1px solid #444", color:"#ccc", borderRadius:10, cursor:"pointer"}}>
-                    + {opt}
-                </button>
-            ))}
-         </div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6 }}>{options && options.map(opt => (<button key={opt} type="button" onClick={() => onChipClick(opt)} style={{fontSize:"0.75em", padding:"2px 8px", background:"#333", border:"1px solid #444", color:"#ccc", borderRadius:10, cursor:"pointer"}}>+ {opt}</button>))}</div>
     </div>
 );
 
 const ODOSEditor = ({ title, dataOD, dataOS, options, onUpdate, onAddFile }) => {
-    const appendText = (eye, text) => {
-        const current = eye === 'od' ? dataOD : dataOS;
-        const newValue = current ? `${current}, ${text}` : text;
-        onUpdate(eye, newValue);
-    };
-
-    const handleFile = (eye) => {
-        const fakeUrl = prompt("Simulación: Ingresa nombre del archivo o URL:", "foto.jpg");
-        if(fakeUrl) onAddFile(eye, fakeUrl);
-    };
-
+    const appendText = (eye, text) => { const current = eye === 'od' ? dataOD : dataOS; onUpdate(eye, current ? `${current}, ${text}` : text); };
+    const handleFile = (eye) => { const fakeUrl = prompt("Simulación: Ingresa nombre del archivo o URL:", "foto.jpg"); if(fakeUrl) onAddFile(eye, fakeUrl); };
     return (
         <div style={{ background: "#222", padding: 12, borderRadius: 8, border: "1px solid #333" }}>
             <div style={{fontSize:14, fontWeight:"bold", color:"#ddd", marginBottom:10}}>{title}</div>
             <div style={{display:"flex", gap:15}}>
-                <EyeColumn 
-                    eyeLabel="OD" value={dataOD} 
-                    onChange={v => onUpdate('od', v)} 
-                    onChipClick={t => appendText('od', t)} 
-                    onFileClick={() => handleFile('od')}
-                    options={options} 
-                />
-                <EyeColumn 
-                    eyeLabel="OS" value={dataOS} 
-                    onChange={v => onUpdate('os', v)} 
-                    onChipClick={t => appendText('os', t)} 
-                    onFileClick={() => handleFile('os')} 
-                    options={options} 
-                />
+                <EyeColumn eyeLabel="OD" value={dataOD} onChange={v => onUpdate('od', v)} onChipClick={t => appendText('od', t)} onFileClick={() => handleFile('od')} options={options} />
+                <EyeColumn eyeLabel="OS" value={dataOS} onChange={v => onUpdate('os', v)} onChipClick={t => appendText('os', t)} onFileClick={() => handleFile('os')} options={options} />
             </div>
         </div>
     );
@@ -262,7 +197,106 @@ function PrescriptionBuilder({ onAdd }) {
   );
 }
 
-// --- MODAL DE HISTORIAL ---
+// --- NUEVO: PICKER DE DIAGNÓSTICOS CIE-10 ---
+const DiagnosisManager = ({ diagnoses, onChange }) => {
+    const [query, setQuery] = useState("");
+    const [results, setResults] = useState([]);
+
+    const handleSearch = (e) => {
+        const val = e.target.value;
+        setQuery(val);
+        if (val.length > 1) setResults(searchDiagnosis(val));
+        else setResults([]);
+    };
+
+    const addDiagnosis = (item) => {
+        const exists = diagnoses.find(d => d.code === item.code);
+        if (exists) return setQuery("");
+        
+        const type = diagnoses.length === 0 ? "PRINCIPAL" : "SECONDARY";
+        const newDx = { code: item.code, name: item.name, type, notes: "" };
+        onChange([...diagnoses, newDx]);
+        setQuery("");
+        setResults([]);
+    };
+
+    const removeDiagnosis = (idx) => {
+        const next = diagnoses.filter((_, i) => i !== idx);
+        if (next.length > 0 && !next.find(d => d.type === "PRINCIPAL")) {
+            next[0].type = "PRINCIPAL";
+        }
+        onChange(next);
+    };
+
+    const setPrincipal = (idx) => {
+        const next = diagnoses.map((d, i) => ({
+            ...d,
+            type: i === idx ? "PRINCIPAL" : "SECONDARY"
+        }));
+        onChange(next);
+    };
+
+    return (
+        <div style={{ display: "grid", gap: 10 }}>
+            <div style={{ position: "relative" }}>
+                <input placeholder="🔍 Buscar CIE-10 (ej. Glaucoma, H40...)" value={query} onChange={handleSearch} style={{ width: "100%", padding: 10, background: "#222", border: "1px solid #444", color: "white", borderRadius: 6 }} />
+                {results.length > 0 && (
+                    <div style={{ position: "absolute", top: "100%", left: 0, right: 0, background: "#333", border: "1px solid #555", zIndex: 50, maxHeight: 200, overflowY: "auto", borderRadius: 6 }}>
+                        {results.map(r => (
+                            <div key={r.code} onClick={() => addDiagnosis(r)} style={{ padding: "8px 12px", borderBottom: "1px solid #444", cursor: "pointer", fontSize: "0.9em" }}>
+                                <strong style={{ color: "#60a5fa" }}>{r.code}</strong> {r.name}
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </div>
+            <div style={{ display: "grid", gap: 8 }}>
+                {diagnoses.map((dx, i) => (
+                    <div key={dx.code} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: dx.type==="PRINCIPAL"?"rgba(16, 185, 129, 0.1)":"#222", border: dx.type==="PRINCIPAL"?"1px solid #10b981":"1px solid #444", borderRadius: 6, padding: 10 }}>
+                        <div>
+                            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                                <span style={{ fontWeight: "bold", color: "#fff" }}>{dx.code}</span>
+                                <span style={{ fontSize: "0.9em", color: "#ddd" }}>{dx.name}</span>
+                                {dx.type === "PRINCIPAL" && <span style={{ fontSize: 9, background: "#10b981", color: "black", padding: "2px 4px", borderRadius: 4, fontWeight: "bold" }}>PRINCIPAL</span>}
+                            </div>
+                        </div>
+                        <div style={{ display: "flex", gap: 8 }}>
+                            {dx.type !== "PRINCIPAL" && <button onClick={() => setPrincipal(i)} style={{ fontSize: 10, background: "transparent", border: "1px solid #aaa", color: "#aaa", cursor: "pointer", padding: "2px 6px", borderRadius: 4 }}>Hacer Principal</button>}
+                            <button onClick={() => removeDiagnosis(i)} style={{ color: "#f87171", background: "none", border: "none", cursor: "pointer", fontWeight: "bold" }}>✕</button>
+                        </div>
+                    </div>
+                ))}
+                {diagnoses.length === 0 && <div style={{ fontSize: 13, color: "#666", fontStyle: "italic", textAlign: "center", padding: 10 }}>Sin diagnósticos CIE-10 seleccionados.</div>}
+            </div>
+        </div>
+    );
+};
+
+// --- NUEVO: COMPONENTE INTERCONSULTA ---
+const InterconsultationForm = ({ data, onChange }) => {
+    if (!data.required) {
+        return (
+            <button onClick={() => onChange({ ...data, required: true, createdAt: new Date().toISOString() })} style={{ background: "transparent", border: "1px dashed #60a5fa", color: "#60a5fa", padding: "8px", width: "100%", borderRadius: 6, cursor: "pointer" }}>+ Solicitar Interconsulta / Derivación</button>
+        );
+    }
+    return (
+        <div style={{ background: "rgba(30, 58, 138, 0.2)", border: "1px solid #1e40af", borderRadius: 8, padding: 15 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10 }}>
+                <h4 style={{ margin: 0, color: "#93c5fd" }}>Solicitud de Interconsulta</h4>
+                <button onClick={() => onChange({ ...data, required: false })} style={{ background: "none", border: "none", color: "#f87171", cursor: "pointer", fontSize: 12 }}>Cancelar</button>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+                <label style={{ fontSize: 12, color: "#aaa" }}>Especialidad / Profesional Destino <input value={data.to} onChange={e => onChange({ ...data, to: e.target.value })} style={{ width: "100%", padding: 8, background: "#111", border: "1px solid #1e40af", color: "white", borderRadius: 4 }} placeholder="Ej. Retina, Medicina Interna..." /></label>
+                <label style={{ fontSize: 12, color: "#aaa" }}>Urgencia <select value={data.urgency} onChange={e => onChange({ ...data, urgency: e.target.value })} style={{ width: "100%", padding: 8, background: "#111", border: "1px solid #1e40af", color: "white", borderRadius: 4 }}><option value="NORMAL">Normal / Ordinaria</option><option value="URGENTE">Urgente</option></select></label>
+            </div>
+            <label style={{ fontSize: 12, color: "#aaa", display: "block", marginBottom: 4 }}>Motivo de Envío</label>
+            <textarea rows={3} value={data.reason} onChange={e => onChange({ ...data, reason: e.target.value })} style={{ width: "100%", padding: 8, background: "#111", border: "1px solid #1e40af", color: "white", borderRadius: 4 }} placeholder="Describir hallazgo y motivo..." />
+            <div style={{ marginTop: 10, fontSize: 11, color: "#666" }}>Estado: <span style={{ color: "white" }}>{data.status}</span> · Solicitada: {new Date(data.createdAt).toLocaleDateString()}</div>
+        </div>
+    );
+};
+
+// --- MODAL DE HISTORIAL (MANTENIDO) ---
 const HistoryModal = ({ logs, onClose }) => (
     <div style={{position:"fixed", top:0, left:0, right:0, bottom:0, background:"rgba(0,0,0,0.8)", zIndex:200, display:"flex", justifyContent:"center", alignItems:"center"}}>
         <div style={{background:"#1a1a1a", width:600, maxHeight:"80vh", overflowY:"auto", padding:20, borderRadius:10, border:"1px solid #444"}}>
@@ -271,13 +305,8 @@ const HistoryModal = ({ logs, onClose }) => (
                 {logs.length === 0 && <p style={{color:"#666"}}>No hay cambios registrados.</p>}
                 {logs.map(log => (
                     <div key={log.id} style={{padding:10, background:"#222", borderRadius:6, borderLeft: log.action==="VOID"?"3px solid red":"3px solid #4ade80"}}>
-                        <div style={{display:"flex", justifyContent:"space-between", fontSize:"0.9em", color:"#fff", fontWeight:"bold"}}>
-                            <span>{log.action} (v{log.version})</span>
-                            <span>{new Date(log.timestamp).toLocaleString()}</span>
-                        </div>
-                        <div style={{fontSize:"0.85em", color:"#aaa", marginTop:4}}>
-                            Usuario: {log.user}
-                        </div>
+                        <div style={{display:"flex", justifyContent:"space-between", fontSize:"0.9em", color:"#fff", fontWeight:"bold"}}><span>{log.action} (v{log.version})</span><span>{new Date(log.timestamp).toLocaleString()}</span></div>
+                        <div style={{fontSize:"0.85em", color:"#aaa", marginTop:4}}>Usuario: {log.user}</div>
                         {log.reason && <div style={{fontSize:"0.85em", color:"#fbbf24", marginTop:2}}>Motivo: "{log.reason}"</div>}
                     </div>
                 ))}
@@ -299,7 +328,7 @@ export default function ConsultationDetailPage() {
   const [rxForm, setRxForm] = useState(normalizeRxValue());
   const [rxErrors, setRxErrors] = useState({});
 
-  // ESTADOS NUEVOS
+  // ESTADOS NUEVOS Y MANTENIDOS
   const [showIPAS, setShowIPAS] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const auditLogs = useMemo(() => showHistory ? getAuditHistory(consultationId) : [], [showHistory, consultationId]);
@@ -324,22 +353,26 @@ export default function ConsultationDetailPage() {
             posterior: { od: {...c.exam.posterior.od}, os: {...c.exam.posterior.os}, notes: c.exam.posterior.notes },
             motility: c.exam.motility, gonioscopy: c.exam.gonioscopy
         },
-        diagnosis: c.diagnosis, treatment: c.treatment, prescribedMeds: c.prescribedMeds, prognosis: c.prognosis, notes: c.notes
+        diagnoses: c.diagnoses || [],
+        diagnosis: c.diagnosis, 
+        interconsultation: c.interconsultation || { required: false, to: "", reason: "", urgency: "NORMAL", status: "PENDING" },
+        treatment: c.treatment, prescribedMeds: c.prescribedMeds, prognosis: c.prognosis, notes: c.notes
       });
     }
-  }, [patientId, consultationId, tick]); // Agregué tick para refrescar tras guardar
+  }, [patientId, consultationId, tick]);
 
   useEffect(() => { if (consultationId) setExams(getExamsByConsultation(consultationId)); }, [consultationId, tick]);
 
   const onSaveConsultation = () => { 
-      // PEDIR MOTIVO PARA EL LOG (Audit Trail)
       const reason = prompt("¿Motivo de la actualización?", "Actualización de nota clínica");
-      if (reason === null) return; // Cancelar
-
-      updateConsultation(consultationId, { ...form, visitDate: form.visitDate || new Date().toISOString() }, reason); 
+      if (reason === null) return;
       
+      const dxText = form.diagnoses.map(d => `${d.code} ${d.name}`).join(", ");
+      const finalForm = { ...form, diagnosis: dxText || form.diagnosis };
+      
+      updateConsultation(consultationId, { ...finalForm, visitDate: form.visitDate || new Date().toISOString() }, reason); 
       alert("Nota guardada exitosamente.");
-      setTick(t => t + 1); // Refrescar para actualizar versión en memoria
+      setTick(t => t + 1); 
   };
   
   const toggleSymptom = (symptom) => {
@@ -354,109 +387,54 @@ export default function ConsultationDetailPage() {
   const onSaveExam = (e) => { e.preventDefault(); if (!validateRx(rxForm).isValid) { setRxErrors(validateRx(rxForm).errors); return; } createEyeExam({ patientId, consultationId, examDate: form.visitDate, rx: rxForm, notes: rxForm.notes }); setRxForm(normalizeRxValue()); setShowRxForm(false); setTick(t => t + 1); };
   const onDeleteExam = (id) => { if (confirm("¿Borrar?")) { deleteEyeExam(id); setTick(t => t + 1); } };
   
-  const handleAddFile = (section, eye, fileUrl) => {
-      setForm(f => ({ ...f, exam: { ...f.exam, [section]: { ...f.exam[section], [eye]: { ...f.exam[section][eye], files: [...(f.exam[section][eye].files || []), fileUrl] } } } }));
-      alert("Archivo adjuntado: " + fileUrl);
-  };
-
-  const handleAllSystemsNormal = () => {
-      if(confirm("¿Marcar todos los sistemas como NORMALES y limpiar detalles?")) {
-          setForm(f => ({ ...f, systemsReview: getEmptySystems() }));
-      }
-  };
+  const handleAddFile = (section, eye, fileUrl) => { setForm(f => ({ ...f, exam: { ...f.exam, [section]: { ...f.exam[section], [eye]: { ...f.exam[section][eye], files: [...(f.exam[section][eye].files || []), fileUrl] } } } })); alert("Archivo adjuntado: " + fileUrl); };
+  const handleAllSystemsNormal = () => { if(confirm("¿Marcar todos los sistemas como NORMALES y limpiar detalles?")) { setForm(f => ({ ...f, systemsReview: getEmptySystems() })); } };
 
   const generateClinicalSummary = () => {
       const priorityKeys = ["endocrine", "cardiovascular"];
       const otherKeys = SYSTEMS_CONFIG.map(s => s.id).filter(k => !priorityKeys.includes(k));
       const sortedKeys = [...priorityKeys, ...otherKeys];
-
       let summaryLines = [];
       summaryLines.push("INTERROGATORIO POR APARATOS Y SISTEMAS:");
-
       sortedKeys.forEach(key => {
           const config = SYSTEMS_CONFIG.find(c => c.id === key);
           const data = form.systemsReview[key] || { isNormal: true, selected: [], details: "" };
           const label = config ? config.label : key; 
-
-          if (data.isNormal) {
-              summaryLines.push(`- Sistema ${label}: Interrogado y negado.`);
-          } else {
+          if (data.isNormal) { summaryLines.push(`- Sistema ${label}: Interrogado y negado.`); } 
+          else {
               const selectionText = (data.selected || []).join(", ");
               const detailsText = data.details || "";
               let fullDetails = "";
               if (selectionText && detailsText) fullDetails = `${selectionText}. ${detailsText}`;
               else fullDetails = selectionText || detailsText;
-
               summaryLines.push(`- Sistema ${label}: Se refiere ${fullDetails || "patología sin especificar"}.`);
           }
       });
-
-      summaryLines.push(""); 
-      summaryLines.push("EXPLORACIÓN FÍSICA GENERAL:");
-      summaryLines.push("Cráneo: normocefálico. Cuello cilíndrico sin adenomegalias palpables."); 
-
+      summaryLines.push(""); summaryLines.push("EXPLORACIÓN FÍSICA GENERAL:"); summaryLines.push("Cráneo: normocefálico. Cuello cilíndrico sin adenomegalias palpables."); 
       return summaryLines.join("\n");
   };
 
-  const handleCopySummary = () => {
-      const text = generateClinicalSummary();
-      navigator.clipboard.writeText(text).then(() => alert("Resumen copiado al portapapeles."));
-  };
+  const handleCopySummary = () => { const text = generateClinicalSummary(); navigator.clipboard.writeText(text).then(() => alert("Resumen copiado al portapapeles.")); };
 
   const handlePrintClinicalNote = () => {
       const summaryText = generateClinicalSummary().replace(/\n/g, "<br/>"); 
       const date = new Date().toLocaleDateString();
-      
+      const dxHtml = form.diagnoses.length > 0 ? form.diagnoses.map(d => `<div><strong>${d.type === "PRINCIPAL" ? "Dx Principal:" : "Dx:"}</strong> [${d.code}] ${d.name}</div>`).join("") : `<div>${form.diagnosis || "Sin diagnóstico."}</div>`;
+      const icHtml = form.interconsultation.required ? `<div style="margin-top:10px; border:1px solid #000; padding:10px;"><strong>SOLICITUD DE INTERCONSULTA</strong><br/><strong>Para:</strong> ${form.interconsultation.to}<br/><strong>Prioridad:</strong> ${form.interconsultation.urgency}<br/><strong>Motivo:</strong> ${form.interconsultation.reason}</div>` : "";
+
       const win = window.open('', '', 'width=900,height=700');
       win.document.write(`
         <html>
-          <head>
-            <title>Nota Clínica - ${patient?.firstName}</title>
-            <style>
-              body { font-family: Arial, sans-serif; font-size: 11pt; padding: 40px; }
-              h1 { font-size: 16pt; border-bottom: 2px solid #333; margin-bottom: 20px; }
-              .header { margin-bottom: 30px; }
-              .section { margin-bottom: 20px; }
-              .label { font-weight: bold; display: block; margin-bottom: 5px; background: #eee; padding: 5px; }
-              .content { white-space: pre-wrap; line-height: 1.5; }
-            </style>
-          </head>
+          <head><title>Nota Clínica - ${patient?.firstName}</title><style>body { font-family: Arial, sans-serif; font-size: 11pt; padding: 40px; } h1 { font-size: 16pt; border-bottom: 2px solid #333; margin-bottom: 20px; } .header { margin-bottom: 30px; } .section { margin-bottom: 20px; } .label { font-weight: bold; display: block; margin-bottom: 5px; background: #eee; padding: 5px; } .content { white-space: pre-wrap; line-height: 1.5; }</style></head>
           <body>
             <h1>Nota de Evolución / Historia Clínica</h1>
-            <div class="header">
-               <strong>Paciente:</strong> ${patient?.firstName} ${patient?.lastName}<br/>
-               <strong>Fecha:</strong> ${date}<br/>
-               <strong>Motivo:</strong> ${form.reason}
-            </div>
-
-            <div class="section">
-               <div class="content">${summaryText}</div> 
-            </div>
-
-            <div class="section">
-               <div class="label">Exploración Oftalmológica</div>
-               <div class="content">
-                  <strong>AV (SC):</strong> OD ${form.exam.anterior.od.lids || "-"} | OS ${form.exam.anterior.os.lids || "-"}
-                  <br/>
-                  <strong>Biomicroscopía:</strong> ${form.exam.anterior.notes || "Sin hallazgos relevantes."}
-                  <br/>
-                  <strong>Fondo de Ojo:</strong> ${form.exam.posterior.notes || "Sin hallazgos relevantes."}
-                  <br/>
-                  <strong>PIO:</strong> OD ${form.exam.tonometry.od} / OS ${form.exam.tonometry.os} mmHg
-                  <br/>
-                  <strong>Diagnóstico:</strong> ${form.diagnosis}
-               </div>
-            </div>
-
-            <div class="section">
-               <div class="label">Plan / Tratamiento</div>
-               <div class="content">${form.treatment}</div>
-            </div>
-            
-            <br/><br/>
-            <div style="text-align:center; margin-top:50px; border-top:1px solid #000; width:300px; margin-left:auto; margin-right:auto;">
-                Firma del Médico
-            </div>
+            <div class="header"><strong>Paciente:</strong> ${patient?.firstName} ${patient?.lastName}<br/><strong>Fecha:</strong> ${date}<br/><strong>Motivo:</strong> ${form.reason}</div>
+            <div class="section"><div class="content">${summaryText}</div></div>
+            <div class="section"><div class="label">Exploración Oftalmológica</div><div class="content"><strong>Biomicroscopía:</strong> ${form.exam.anterior.notes || "Sin hallazgos relevantes."}<br/><strong>Fondo de Ojo:</strong> ${form.exam.posterior.notes || "Sin hallazgos relevantes."}<br/><strong>PIO:</strong> OD ${form.exam.tonometry.od} / OS ${form.exam.tonometry.os} mmHg</div></div>
+            <div class="section"><div class="label">Diagnóstico (CIE-10)</div><div class="content">${dxHtml}</div></div>
+            <div class="section"><div class="label">Plan / Tratamiento</div><div class="content">${form.treatment}</div></div>
+            ${icHtml}
+            <br/><br/><div style="text-align:center; margin-top:50px; border-top:1px solid #000; width:300px; margin-left:auto; margin-right:auto;">Firma del Médico</div>
             <script>window.print();</script>
           </body>
         </html>
@@ -468,58 +446,18 @@ export default function ConsultationDetailPage() {
     const date = new Date().toLocaleDateString();
     const win = window.open('', '', 'width=800,height=600');
     const MARGIN_TOP_PX = 180; 
-
-    const ipasText = Object.entries(form.systemsReview || {})
-        .filter(([_, val]) => !val.isNormal)
-        .map(([key, val]) => {
-            const label = SYSTEMS_CONFIG.find(c => c.id === key)?.label || key;
-            const content = [...(val.selected || []), val.details].filter(Boolean).join(", ");
-            return `${label}: ${content}`;
-        }).join(". ");
+    const ipasText = Object.entries(form.systemsReview || {}).filter(([_, val]) => !val.isNormal).map(([key, val]) => { const label = SYSTEMS_CONFIG.find(c => c.id === key)?.label || key; const content = [...(val.selected || []), val.details].filter(Boolean).join(", "); return `${label}: ${content}`; }).join(". ");
 
     win.document.write(`
       <html>
-        <head>
-          <title>Receta ${patient?.firstName || ""}</title>
-          <style>
-            body { font-family: Arial, sans-serif; font-size: 12pt; margin: 0; padding: 0; }
-            .page-content { margin-top: ${MARGIN_TOP_PX}px; margin-left: 60px; margin-right: 60px; }
-            .header-row { display: flex; justify-content: space-between; margin-bottom: 30px; font-size: 1.1em; }
-            .section { margin-bottom: 25px; }
-            .label { font-weight: bold; font-size: 0.9em; color: #444; text-transform: uppercase; margin-bottom: 5px; }
-            .text-content { white-space: pre-wrap; line-height: 1.6; }
-            .signature-box { margin-top: 100px; text-align: center; page-break-inside: avoid; }
-            .line { width: 250px; border-top: 1px solid #000; margin: 0 auto 10px auto; }
-          </style>
-        </head>
+        <head><title>Receta ${patient?.firstName || ""}</title><style>body { font-family: Arial, sans-serif; font-size: 12pt; margin: 0; padding: 0; } .page-content { margin-top: ${MARGIN_TOP_PX}px; margin-left: 60px; margin-right: 60px; } .header-row { display: flex; justify-content: space-between; margin-bottom: 30px; font-size: 1.1em; } .section { margin-bottom: 25px; } .label { font-weight: bold; font-size: 0.9em; color: #444; text-transform: uppercase; margin-bottom: 5px; } .text-content { white-space: pre-wrap; line-height: 1.6; } .signature-box { margin-top: 100px; text-align: center; page-break-inside: avoid; } .line { width: 250px; border-top: 1px solid #000; margin: 0 auto 10px auto; }</style></head>
         <body>
           <div class="page-content">
-            <div class="header-row">
-               <div><strong>Paciente:</strong> ${patient?.firstName} ${patient?.lastName}</div>
-               <div><strong>Fecha:</strong> ${date}</div>
-            </div>
-
-            ${form.diagnosis ? `
-            <div class="section">
-              <div class="label">Diagnóstico Rx:</div>
-              <div class="text-content">${form.diagnosis}</div>
-            </div>` : ''}
-
-            <div class="section">
-              <div class="label">Tratamiento / Indicaciones:</div>
-              <div class="text-content">${form.treatment || "Sin tratamiento específico."}</div>
-            </div>
-            
-            ${ipasText ? `
-            <div class="section" style="font-size: 0.9em; color: #666;">
-               <div class="label">Observaciones (IPAS):</div>
-               <div class="text-content">${ipasText}</div>
-            </div>` : ''}
-
-            <div class="signature-box">
-               <div class="line"></div>
-               <div>Firma del Médico</div>
-            </div>
+            <div class="header-row"><div><strong>Paciente:</strong> ${patient?.firstName} ${patient?.lastName}</div><div><strong>Fecha:</strong> ${date}</div></div>
+            ${form.diagnosis ? `<div class="section"><div class="label">Diagnóstico Rx:</div><div class="text-content">${form.diagnosis}</div></div>` : ''}
+            <div class="section"><div class="label">Tratamiento / Indicaciones:</div><div class="text-content">${form.treatment || "Sin tratamiento específico."}</div></div>
+            ${ipasText ? `<div class="section" style="font-size: 0.9em; color: #666;"><div class="label">Observaciones (IPAS):</div><div class="text-content">${ipasText}</div></div>` : ''}
+            <div class="signature-box"><div class="line"></div><div>Firma del Médico</div></div>
           </div>
           <script>window.print();</script>
         </body>
@@ -545,7 +483,7 @@ export default function ConsultationDetailPage() {
           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 20, background:"#111", padding:10, borderRadius:8, border:"1px solid #333" }}>
              <label style={{ fontSize: 13, color: "#888" }}>Fecha Atención <input type="date" value={form.visitDate} onChange={(e) => setForm(f => ({ ...f, visitDate: e.target.value }))} style={{ display:"block", marginTop:4, padding: "6px 10px", background: "#222", border: "1px solid #444", color: "white", borderRadius: 4 }} /></label>
              <div style={{display:"flex", gap:10, alignItems:"center"}}>
-                <button onClick={() => setShowHistory(true)} style={{ background: "transparent", border: "1px solid #666", color: "#888", padding: "8px 12px", borderRadius: 6, cursor: "pointer" }} title="Ver historial de cambios">📜 Historial</button>
+                <button onClick={() => setShowHistory(true)} style={{ background: "transparent", border: "1px solid #666", color: "#888", padding: "8px 12px", borderRadius: 6, cursor: "pointer" }} title="Ver historial">📜</button>
                 <button onClick={handlePrintClinicalNote} style={{ background: "#1e3a8a", border: "1px solid #60a5fa", color: "#bfdbfe", padding: "8px 16px", borderRadius: 6, cursor: "pointer", fontWeight: "bold", height: "fit-content" }}>🖨️ Nota Clínica</button>
                 <button onClick={handlePrintPrescription} style={{ background: "#333", border: "1px solid #ccc", color: "#fff", padding: "8px 16px", borderRadius: 6, cursor: "pointer", fontWeight: "bold", height: "fit-content" }}>🖨️ Receta</button>
                 <button onClick={onSaveConsultation} style={{ background: "#2563eb", border: "none", color: "white", padding: "8px 25px", borderRadius: 6, cursor: "pointer", fontWeight: "bold", height: "fit-content" }}>💾 GUARDAR</button>
@@ -570,9 +508,7 @@ export default function ConsultationDetailPage() {
                     </h4>
                     
                     <div style={{display:"flex", gap:10}}>
-                        <button type="button" onClick={handleCopySummary} style={{fontSize:11, background:"#333", color:"#bfdbfe", border:"1px solid #60a5fa", padding:"3px 8px", borderRadius:4, cursor:"pointer"}} title="Copiar resumen para pegar">
-                            📋 Copiar Texto
-                        </button>
+                        <button type="button" onClick={handleCopySummary} style={{fontSize:11, background:"#333", color:"#bfdbfe", border:"1px solid #60a5fa", padding:"3px 8px", borderRadius:4, cursor:"pointer"}}>📋 Copiar</button>
                         <button type="button" onClick={handleAllSystemsNormal} style={{fontSize:11, background:"#064e3b", color:"#4ade80", border:"1px solid #4ade80", padding:"3px 8px", borderRadius:4, cursor:"pointer"}}>
                             ✓ Todo Negado
                         </button>
@@ -657,13 +593,19 @@ export default function ConsultationDetailPage() {
               </div>
             </div>
 
+            {/* SECCIÓN 6: DIAGNÓSTICO (MODIFICADA) */}
             <div>
               <h3 style={{ color:"#a78bfa", borderBottom:"1px solid #a78bfa", paddingBottom:5 }}>6. Diagnóstico y Plan</h3>
               <div style={{ display: "grid", gap: 15 }}>
-                <label><span style={labelStyle}>Dx</span><textarea rows={2} value={form.diagnosis} onChange={(e) => setForm(f => ({ ...f, diagnosis: e.target.value }))} style={textareaStyle} /></label>
+                <DiagnosisManager diagnoses={form.diagnoses} onChange={(newDx) => setForm(f => ({ ...f, diagnoses: newDx }))} />
+                <label style={{ fontSize: 12, color: "#666" }}>Notas Dx (Texto libre adicional)</label>
+                <textarea rows={1} value={form.diagnosis} onChange={(e) => setForm(f => ({ ...f, diagnosis: e.target.value }))} style={{...textareaStyle, background:"#111"}} />
+                <InterconsultationForm data={form.interconsultation} onChange={(newVal) => setForm(f => ({ ...f, interconsultation: newVal }))} />
+                <label style={{...labelStyle, marginTop:10}}>Tratamiento / Receta</label>
                 <PrescriptionBuilder onAdd={handleAddMed} />
                 {form.prescribedMeds.length > 0 && <div style={{ padding: 10, background: "#222", borderRadius: 6, border: "1px solid #444" }}>{form.prescribedMeds.map((m, i) => <div key={i} style={{ display: "flex", gap: 6, fontSize: 12, padding: 4 }}><span>💊 {m.productName}</span><button onClick={() => removeMedFromList(i)} style={{ color: "#f87171", border: "none", background: "none", cursor: "pointer" }}>✕</button></div>)}</div>}
-                <label><span style={labelStyle}>Plan</span><textarea rows={6} value={form.treatment} onChange={(e) => setForm(f => ({ ...f, treatment: e.target.value }))} style={{ ...textareaStyle, fontFamily: "monospace" }} /></label>
+                <label style={labelStyle}>Plan / Indicaciones</label>
+                <textarea rows={6} value={form.treatment} onChange={(e) => setForm(f => ({ ...f, treatment: e.target.value }))} style={{ ...textareaStyle, fontFamily: "monospace" }} />
               </div>
             </div>
 
