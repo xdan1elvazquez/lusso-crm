@@ -18,17 +18,15 @@ function normalizeAnamnesis(item) {
     patientId: base.patientId,
     createdAt: base.createdAt || new Date().toISOString(),
     
-    // ESTRUCTURA ROBUSTA BASADA EN TU FORMATO
-    // Cada sección es un objeto donde la clave es el padecimiento
-    // Ej: systemic: { "Diabetes": { active: true, notes: "10 años, metformina" } }
+    // ESTRUCTURA DE PADECIMIENTOS
+    systemic: base.systemic || {},       // Personales Patológicos
+    nonPathological: base.nonPathological || {}, // 👈 NUEVO: Personales NO Patológicos
+    ocular: base.ocular || {},           // Antecedentes Oculares
+    family: base.family || {},           // Heredofamiliares
     
-    systemic: base.systemic || {}, // Personales Patológicos
-    ocular: base.ocular || {},     // Antecedentes Oculares
-    family: base.family || {},     // Heredofamiliares
-    
-    // Campos libres para lo que no encaje
+    // Campos libres
     allergies: base.allergies || "",
-    medications: base.medications || "", // Tratamiento médico actual
+    medications: base.medications || "", 
     observations: base.observations || ""
   };
 }
