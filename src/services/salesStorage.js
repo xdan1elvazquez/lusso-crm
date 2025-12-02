@@ -3,7 +3,7 @@ import { adjustStock } from "./inventoryStorage";
 import { getPatientById, adjustPatientPoints } from "./patientsStorage"; 
 import { getLoyaltySettings } from "./settingsStorage"; 
 import { createExpense } from "./expensesStorage";
-import { getCurrentShift } from "./shiftsStorage"; // 👈 IMPORTAR GESTOR DE TURNOS
+import { getCurrentShift } from "./shiftsStorage"; // 👈 IMPORTANTE: GESTIÓN DE TURNOS
 
 const KEY = "lusso_sales_v1";
 const LAB_KINDS = new Set(["LENSES", "CONTACT_LENS"]);
@@ -21,6 +21,38 @@ function read() {
 }
 
 function write(list) { localStorage.setItem(KEY, JSON.stringify(list)); }
+
+// --- NUEVA FUNCIÓN PARA CORREGIR PAGOS (GERENTE) ---
+export function updateSalePaymentMethod(saleId, paymentId, newMethod) {
+  const list = read();
+  let updated = false;
+  
+  const next = list.map(s => {
+    if (s.id !== saleId) return s;
+
+    // Buscamos si el pago existe en esta venta
+    const paymentIndex = s.payments.findIndex(p => p.id === paymentId);
+    if (paymentIndex === -1) return s;
+
+    // Creamos copia de los pagos
+    const newPayments = [...s.payments];
+    
+    // Actualizamos solo el método (Mantenemos monto y fecha originales)
+    newPayments[paymentIndex] = {
+        ...newPayments[paymentIndex],
+        method: newMethod
+    };
+
+    updated = true;
+    return { ...s, payments: newPayments, updatedAt: new Date().toISOString() };
+  });
+
+  if (updated) {
+      write(next);
+      return true;
+  }
+  return false;
+}
 
 function mapLegacyCategoryToKind(category) {
   switch ((category || "").toUpperCase()) {
@@ -156,7 +188,7 @@ function ensureWorkOrdersForSale(sale) {
 export function createSale(payload) {
   if (!payload?.patientId) throw new Error("patientId requerido");
   
-  // 👈 VALIDACIÓN DE TURNO ABIERTO (BLOQUEO DE CAJA)
+  // 👈 VALIDACIÓN DE TURNO (CORTE CIEGO)
   const currentShift = getCurrentShift();
   if (!currentShift) {
       throw new Error("⛔ CAJA CERRADA: No hay un turno abierto para cobrar.");
@@ -168,7 +200,7 @@ export function createSale(payload) {
 
   const paymentsWithShift = (payload.payments || []).map(p => ({
       ...p,
-      shiftId: currentShift.id // Vinculamos al turno
+      shiftId: currentShift.id
   }));
 
   let pointsToAward = 0;
@@ -219,6 +251,7 @@ export function updateSaleLogistics(id, data) {
 }
 
 export function addPaymentToSale(saleId, payment) {
+  // 👈 VALIDACIÓN DE TURNO PARA ABONOS
   const currentShift = getCurrentShift();
   if (!currentShift) throw new Error("⛔ CAJA CERRADA: Abre un turno para recibir abonos.");
 
@@ -249,8 +282,8 @@ export function addPaymentToSale(saleId, payment) {
 }
 
 export function processReturn(saleId, itemId, qtyToReturn, refundMethod = "EFECTIVO", notes = "") {
+    // 👈 VALIDACIÓN DE TURNO PARA DEVOLUCIONES
     const currentShift = getCurrentShift();
-    // Permitir devolución sin turno abierto es debatible, pero mejor bloquearlo por consistencia financiera
     if (!currentShift) throw new Error("⛔ CAJA CERRADA: No se pueden procesar devoluciones (salida de dinero) sin turno.");
 
     const list = read();

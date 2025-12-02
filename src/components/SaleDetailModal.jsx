@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from "react";
-import { updateSaleLogistics, processReturn } from "@/services/salesStorage"; // 👈 Importamos processReturn
+import { updateSaleLogistics, processReturn, updateSalePaymentMethod } from "@/services/salesStorage"; // 👈 IMPORTANTE
 import { getAllWorkOrders } from "@/services/workOrdersStorage";
 
 const STATUS_LABELS = { 
@@ -15,10 +15,13 @@ const STATUS_COLORS = {
 };
 
 export default function SaleDetailModal({ sale, patient, onClose, onUpdate }) {
-  const [activeTab, setActiveTab] = useState("GENERAL"); // GENERAL, LAB, PAYMENTS
+  const [activeTab, setActiveTab] = useState("GENERAL"); 
   const [soldBy, setSoldBy] = useState(sale.soldBy || "");
 
-  // Buscamos las órdenes de trabajo vinculadas a esta venta
+  // --- ESTADO PARA EDICIÓN DE PAGOS ---
+  const [editingPaymentId, setEditingPaymentId] = useState(null); 
+  const [tempMethod, setTempMethod] = useState("");
+
   const relatedWorkOrders = useMemo(() => {
       const allWos = getAllWorkOrders();
       return allWos.filter(w => w.saleId === sale.id);
@@ -30,16 +33,12 @@ export default function SaleDetailModal({ sale, patient, onClose, onUpdate }) {
       if (onUpdate) onUpdate();
   };
 
-  // 👈 NUEVA FUNCIÓN: MANEJO DE DEVOLUCIÓN
   const handleReturnItem = (item) => {
-      // 1. Preguntar cantidad
       const qty = prompt(`¿Cuántos "${item.description}" deseas devolver? (Máx: ${item.qty})`, 1);
       if (!qty) return;
-      
       const q = Number(qty);
       if (isNaN(q) || q <= 0 || q > item.qty) return alert("Cantidad inválida");
 
-      // 2. Confirmar acción financiera
       const confirmMsg = `¿Confirmas la devolución de ${q} pieza(s)?\n\n⚠️ Acciones automáticas:\n1. Se regresará al inventario.\n2. Se registrará un egreso de caja (Devolución).\n3. Se actualizará la venta.`;
       
       if (confirm(confirmMsg)) {
@@ -47,10 +46,24 @@ export default function SaleDetailModal({ sale, patient, onClose, onUpdate }) {
               processReturn(sale.id, item.id, q);
               alert("Devolución procesada correctamente.");
               if (onUpdate) onUpdate();
-              onClose(); // Cerramos para refrescar datos
+              onClose(); 
           } catch (e) {
               alert("Error: " + e.message);
           }
+      }
+  };
+
+  // --- NUEVO: GUARDAR CORRECCIÓN DE PAGO ---
+  const handleUpdatePayment = (paymentId) => {
+      if (!tempMethod) return;
+      
+      const success = updateSalePaymentMethod(sale.id, paymentId, tempMethod);
+      if (success) {
+          alert("Método de pago corregido.");
+          setEditingPaymentId(null);
+          if (onUpdate) onUpdate(); // Refresca y recalcula corte de caja
+      } else {
+          alert("Error al actualizar.");
       }
   };
 
@@ -122,7 +135,6 @@ export default function SaleDetailModal({ sale, patient, onClose, onUpdate }) {
                                     <span style={{ color: "#4ade80", fontWeight: "bold" }}>${item.unitPrice.toLocaleString()}</span>
                                 </div>
                                 
-                                {/* 👈 BOTÓN DEVOLVER (Solo si hay cantidad disponible) */}
                                 {item.qty > 0 && (
                                     <button 
                                         onClick={() => handleReturnItem(item)} 
@@ -195,7 +207,7 @@ export default function SaleDetailModal({ sale, patient, onClose, onUpdate }) {
                     </div>
                 )}
 
-                {/* TAB 3: PAGOS */}
+                {/* TAB 3: PAGOS CON EDICIÓN */}
                 {activeTab === "PAYMENTS" && (
                     <div>
                         <h4 style={{ margin: "0 0 15px 0", color: "#c084fc", borderBottom: "1px solid #c084fc", paddingBottom: 5 }}>Estado de Cuenta</h4>
@@ -205,17 +217,61 @@ export default function SaleDetailModal({ sale, patient, onClose, onUpdate }) {
                              <div><div style={labelStyle}>RESTA</div><div style={{fontSize:"1.4em", fontWeight:"bold", color:"#f87171"}}>${sale.balance.toLocaleString()}</div></div>
                         </div>
                         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.9em" }}>
-                            <thead><tr style={{ background: "#333", color: "#aaa" }}><th style={{ padding: 8, textAlign: "left" }}>Fecha</th><th style={{ padding: 8, textAlign: "left" }}>Método</th><th style={{ padding: 8, textAlign: "right" }}>Monto</th></tr></thead>
+                            <thead><tr style={{ background: "#333", color: "#aaa" }}><th style={{ padding: 8, textAlign: "left" }}>Fecha</th><th style={{ padding: 8, textAlign: "left" }}>Método</th><th style={{ padding: 8, textAlign: "right" }}>Monto</th><th style={{ padding: 8 }}></th></tr></thead>
                             <tbody>
                                 {sale.payments.map((p, i) => (
                                     <tr key={i} style={{ borderBottom: "1px solid #333" }}>
                                         <td style={{ padding: 8 }}>{new Date(p.paidAt).toLocaleDateString()}</td>
-                                        <td style={{ padding: 8 }}>{p.method} {p.terminal && <span style={{fontSize:"0.8em", color:"#888"}}>({p.terminal})</span>}</td>
+                                        
+                                        {/* CELDA EDITABLE */}
+                                        <td style={{ padding: 8 }}>
+                                            {editingPaymentId === p.id ? (
+                                                <select 
+                                                    autoFocus
+                                                    value={tempMethod} 
+                                                    onChange={e => setTempMethod(e.target.value)}
+                                                    style={{padding:4, borderRadius:4, background:"#444", color:"white", border:"1px solid #60a5fa"}}
+                                                >
+                                                    <option value="EFECTIVO">EFECTIVO</option>
+                                                    <option value="TARJETA">TARJETA</option>
+                                                    <option value="TRANSFERENCIA">TRANSFERENCIA</option>
+                                                    <option value="CHEQUE">CHEQUE</option>
+                                                    <option value="OTRO">OTRO</option>
+                                                </select>
+                                            ) : (
+                                                <span>
+                                                    {p.method} 
+                                                    {p.terminal && <span style={{fontSize:"0.8em", color:"#888"}}> ({p.terminal})</span>}
+                                                </span>
+                                            )}
+                                        </td>
+                                        
                                         <td style={{ padding: 8, textAlign: "right", color: "#4ade80", fontWeight: "bold" }}>${p.amount.toLocaleString()}</td>
+                                        
+                                        {/* BOTONES DE ACCIÓN */}
+                                        <td style={{ padding: 8, textAlign: "right" }}>
+                                            {editingPaymentId === p.id ? (
+                                                <div style={{display:"flex", gap:5, justifyContent:"flex-end"}}>
+                                                    <button onClick={() => handleUpdatePayment(p.id)} style={{cursor:"pointer", border:"none", background:"none"}} title="Guardar">💾</button>
+                                                    <button onClick={() => setEditingPaymentId(null)} style={{cursor:"pointer", border:"none", background:"none"}} title="Cancelar">✕</button>
+                                                </div>
+                                            ) : (
+                                                <button 
+                                                    onClick={() => { setEditingPaymentId(p.id); setTempMethod(p.method); }} 
+                                                    style={{cursor:"pointer", border:"none", background:"none", opacity:0.5}} 
+                                                    title="Corregir método de pago"
+                                                >
+                                                    ✏️
+                                                </button>
+                                            )}
+                                        </td>
                                     </tr>
                                 ))}
                             </tbody>
                         </table>
+                        <div style={{marginTop:15, fontSize:"0.8em", color:"#666", fontStyle:"italic"}}>
+                            * Usa el botón de lápiz para corregir si cobraste con el método incorrecto. Esto ajustará el arqueo de caja automáticamente.
+                        </div>
                     </div>
                 )}
             </div>
