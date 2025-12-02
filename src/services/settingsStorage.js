@@ -9,7 +9,7 @@ const DEFAULT_SETTINGS = {
     doctorName: "Dr. Responsable",
     cedula: "0000000",
     university: "UNAM",
-    logoUrl: "" // Futuro: Logo en base64
+    logoUrl: "" 
   },
   alerts: {
     minTotalFrames: 50, minMen: 10, minWomen: 10, minUnisex: 10, minKids: 5,
@@ -24,34 +24,29 @@ const DEFAULT_SETTINGS = {
     enabled: true, pointsName: "Puntos Lusso", conversionRate: 1.0,
     earningRates: { GLOBAL: 5, EFECTIVO: 5, TARJETA: 2, TRANSFERENCIA: 5, OTRO: 0 },
     referralBonusPercent: 2
-  }
+  },
+  // NUEVO: Catálogos Separados por Enfermedad
+  diabetesMeds: [
+      "Metformina", "Glibenclamida", "Insulina Glargina", "Insulina NPH", 
+      "Sitagliptina", "Dapagliflozina", "Empagliflozina", "Linagliptina"
+  ],
+  hypertensionMeds: [
+      "Losartán", "Captopril", "Enalapril", "Amlodipino", "Telmisartán", 
+      "Hidroclorotiazida", "Nifedipino", "Candesartán"
+  ]
 };
 
 function read() {
   try {
     const raw = localStorage.getItem(KEY);
-    const data = raw ? JSON.parse(raw) : DEFAULT_SETTINGS;
-    // Auto-corrección de estructura
-    if (!data.organization) data.organization = DEFAULT_SETTINGS.organization;
-    if (data.terminals) {
-      data.terminals = data.terminals.map(t => ({ ...t, rates: t.rates || { 3: 0, 6: 0, 9: 0, 12: 0 } }));
-    }
-    return data;
+    const parsed = raw ? JSON.parse(raw) : DEFAULT_SETTINGS;
+    return { ...DEFAULT_SETTINGS, ...parsed }; 
   } catch { return DEFAULT_SETTINGS; }
 }
 
 function write(data) { localStorage.setItem(KEY, JSON.stringify(data)); }
 
-export function getSettings() {
-  const data = read();
-  return { 
-    ...DEFAULT_SETTINGS, 
-    ...data,
-    organization: { ...DEFAULT_SETTINGS.organization, ...data.organization },
-    alerts: { ...DEFAULT_SETTINGS.alerts, ...data.alerts },
-    loyalty: { ...DEFAULT_SETTINGS.loyalty, ...data.loyalty }
-  };
-}
+export function getSettings() { return read(); }
 
 export function updateSettings(newSettings) {
   const current = read();
@@ -60,7 +55,7 @@ export function updateSettings(newSettings) {
   return next;
 }
 
-// Helpers
+// Helpers generales
 export function getOrgSettings() { return getSettings().organization; }
 export function updateOrgSettings(organization) { return updateSettings({ organization }); }
 
@@ -71,3 +66,10 @@ export function updateTerminals(terminals) { return updateSettings({ terminals }
 export function getReferralSources() { return getSettings().referralSources; }
 export function getLoyaltySettings() { return getSettings().loyalty; }
 export function updateLoyaltySettings(loyalty) { return updateSettings({ loyalty }); }
+
+// NUEVO: Helpers Específicos por Enfermedad
+export function getDiabetesMeds() { return getSettings().diabetesMeds; }
+export function updateDiabetesMeds(list) { return updateSettings({ diabetesMeds: list }); }
+
+export function getHypertensionMeds() { return getSettings().hypertensionMeds; }
+export function updateHypertensionMeds(list) { return updateSettings({ hypertensionMeds: list }); }

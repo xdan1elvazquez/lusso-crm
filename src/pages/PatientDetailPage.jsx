@@ -12,7 +12,6 @@ import EyeExamsPanel from "@/components/EyeExamsPanel";
 import AnamnesisPanel from "@/components/AnamnesisPanel";
 import SalesPanel from "@/components/SalesPanel";
 import StudiesPanel from "@/components/StudiesPanel";
-// WorkOrdersPanel removed as requested
 
 function toDateInput(isoString) {
   if (!isoString) return "";
@@ -27,6 +26,54 @@ function formatDateTime(isoString) {
   });
 }
 
+// --- NUEVA UTILIDAD DE FECHA RELATIVA ---
+function getPatientAge(dateString) {
+  if (!dateString) return "Sin alta original";
+  
+  // Normalizar a medio día para evitar saltos de zona horaria
+  const target = dateString.includes("T") 
+    ? new Date(dateString) 
+    : new Date(dateString + "T12:00:00");
+
+  const now = new Date();
+  
+  // Resetear horas para comparación de días puros
+  const targetDay = new Date(target).setHours(0,0,0,0);
+  const nowDay = new Date().setHours(0,0,0,0);
+  
+  const diffTime = nowDay - targetDay;
+  const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+
+  if (diffDays < 0) return "Fecha futura";
+  if (diffDays === 0) return "Hoy";
+  if (diffDays === 1) return "Ayer";
+  
+  // Menos de 4 semanas (28 días) -> Días o Semanas
+  if (diffDays < 28) {
+      if (diffDays < 7) return `Hace ${diffDays} días`;
+      const weeks = Math.floor(diffDays / 7);
+      return `${weeks} semana${weeks > 1 ? 's' : ''}`;
+  }
+
+  // Más de 4 semanas -> Meses y Años
+  let months = (now.getFullYear() - target.getFullYear()) * 12 + (now.getMonth() - target.getMonth());
+  if (now.getDate() < target.getDate()) {
+      months--;
+  }
+
+  if (months < 1) return "Hace 1 mes"; 
+
+  const years = Math.floor(months / 12);
+  const remainingMonths = months % 12;
+
+  if (years > 0) {
+      const monthText = remainingMonths > 0 ? ` ${remainingMonths} mes${remainingMonths > 1 ? 'es' : ''}` : "";
+      return `${years} año${years > 1 ? 's' : ''}${monthText}`;
+  }
+  
+  return `${months} mes${months > 1 ? 'es' : ''}`;
+}
+
 export default function PatientDetailPage() {
   const { id } = useParams();
   
@@ -36,7 +83,7 @@ export default function PatientDetailPage() {
   const [recommendedList, setRecommendedList] = useState([]);
   const [salePrefill, setSalePrefill] = useState(null);
   
-  // ESTADO PARA COLAPSAR LA FICHA (False = Cerrado por defecto para no estorbar)
+  // ESTADO PARA COLAPSAR LA FICHA
   const [isIdentityOpen, setIsIdentityOpen] = useState(false);
   
   const [form, setForm] = useState({ 
@@ -91,6 +138,7 @@ export default function PatientDetailPage() {
   const onSave = () => {
     let finalCreatedAt = patient.createdAt;
     if (form.createdAt !== toDateInput(patient.createdAt)) {
+       // Preservar hora fija para evitar saltos
        finalCreatedAt = new Date(form.createdAt + "T12:00:00").toISOString();
     }
     
@@ -110,7 +158,7 @@ export default function PatientDetailPage() {
 
     const updated = updatePatient(id, payload);
     setPatient(updated);
-    setIsIdentityOpen(false); // Opcional: Cerrar al guardar
+    setIsIdentityOpen(false); 
     alert("Ficha actualizada");
   };
 
@@ -131,7 +179,7 @@ export default function PatientDetailPage() {
 
   const Field = ({ label, width="100%", children }) => (
     <label style={{ display: "block", width }}>
-       <span style={{ fontSize: 11, color: "#666", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: 4, display: "block" }}>{label}</span>
+       <div style={{ fontSize: 11, color: "#666", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: 4, display: "block" }}>{label}</div>
        {children}
     </label>
   );
@@ -169,7 +217,14 @@ export default function PatientDetailPage() {
          <div style={{ borderTop: "1px solid rgba(255,255,255,0.1)", paddingTop: 10, marginTop: 5, display: "flex", gap: 20, fontSize: "0.8em", color: "#9ca3af" }}>
             <span>🕒 <strong>Último acceso:</strong> {formatDateTime(patient.lastViewed)}</span>
             <span>📝 <strong>Última edición:</strong> {formatDateTime(patient.updatedAt)}</span>
-            <span>📅 <strong>Alta original:</strong> {new Date(patient.createdAt).toLocaleDateString()}</span>
+            
+            {/* --- FECHA EN HEADER CON CÁLCULO RELATIVO --- */}
+            <span>
+              📅 <strong>Alta:</strong> {new Date(patient.createdAt).toLocaleDateString()} 
+              <span style={{ opacity: 0.7, marginLeft: 6, fontSize: "0.9em" }}>
+                ({getPatientAge(patient.createdAt)})
+              </span>
+            </span>
          </div>
       </div>
 
@@ -215,8 +270,22 @@ export default function PatientDetailPage() {
                 </Field>
                 <Field label="Ocupación"><input value={form.occupation} onChange={e => setForm({...form, occupation: e.target.value})} style={inputStyle} /></Field>
                 
-                <Field label="Fecha de Alta (Registro)">
-                    <input type="date" value={form.createdAt} onChange={e => setForm({...form, createdAt: e.target.value})} style={{ ...inputStyle, border: "1px dashed #666", color: "#aaa" }} title="Modificar si es un registro histórico" />
+                {/* --- INPUT FECHA CON CÁLCULO EN VIVO --- */}
+                <Field label={
+                    <span style={{display:"flex", justifyContent:"space-between"}}>
+                        Fecha de Alta (Registro)
+                        <span style={{color: "#4ade80", fontWeight: "bold", textTransform: "none"}}>
+                            {getPatientAge(form.createdAt)}
+                        </span>
+                    </span>
+                }>
+                    <input 
+                        type="date" 
+                        value={form.createdAt} 
+                        onChange={e => setForm({...form, createdAt: e.target.value})} 
+                        style={{ ...inputStyle, border: "1px dashed #666", color: "#aaa" }} 
+                        title="Modificar si es un registro histórico" 
+                    />
                 </Field>
 
                 <div style={{ gridColumn: "span 1", background: "#111", padding: 10, borderRadius: 8, border: "1px dashed #444" }}>
