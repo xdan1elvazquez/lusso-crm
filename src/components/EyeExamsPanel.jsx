@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useEffect } from "react";
 import { 
   getExamsByPatient, 
   createEyeExam, 
@@ -11,36 +11,27 @@ import { validateRx } from "@/utils/validators";
 
 const TABS = { PRELIM: "prelim", REFRACTION: "refraction", CONTACT: "contact" };
 
-// --- HELPER: CONVERTIR AV A PORCENTAJE ---
+// --- HELPER: PORCENTAJES AV ---
 function getVaPercentage(value) {
   if (!value || typeof value !== 'string') return null;
   const clean = value.trim().toLowerCase();
-  
-  // Caso 1: Formato Snellen (20/20, 20/400)
   if (clean.includes('/')) {
     const [num, den] = clean.split('/');
     const n = parseFloat(num);
     const d = parseFloat(den);
     if (!isNaN(n) && !isNaN(d) && d !== 0) {
-      // Fórmula: (20/x) * 100. Ej: 20/40 = 0.5 * 100 = 50%
-      // Ajustamos el numerador si no es 20 (ej. 6/6)
       const ratio = n / d;
-      return Math.min(Math.round(ratio * 100), 100); // Tope 100% (20/15 sería >100 pero lo dejamos en 100 o 120 según criterio, aquí tope 100)
+      return Math.min(Math.round(ratio * 100), 100);
     }
   }
-  
-  // Caso 2: Decimal (0.1, 1.0)
   const decimal = parseFloat(clean);
   if (!isNaN(decimal)) {
-    if (decimal <= 2.0) return Math.round(decimal * 100); // 0.5 -> 50%
-    // Si es un número grande (ej. 400), asumimos que es el denominador de 20/xxx
+    if (decimal <= 2.0) return Math.round(decimal * 100);
     if (decimal >= 10) return Math.round((20 / decimal) * 100);
   }
-
   return null;
 }
 
-// --- COMPONENTES FUERA (ESTILO Y UI) ---
 const inputStyle = { width: "100%", padding: "8px", background: "#222", border: "1px solid #444", color: "white", borderRadius: 4 };
 
 const TabButton = ({ id, label, activeTab, setActiveTab }) => (
@@ -57,35 +48,19 @@ const TabButton = ({ id, label, activeTab, setActiveTab }) => (
 );
 
 const AvInput = ({ label, valOD, valOS, valAO, onChange, prevData }) => {
-  
-  // Sub-componente para mostrar la comparación
   const RenderDiff = ({ current, prev }) => {
     if (!prev) return null;
     const prevPct = getVaPercentage(prev);
-    
-    // Si no hay dato actual, solo mostramos el previo como referencia
-    if (!current) {
-        return <span style={{color: "#666", fontSize: "0.8em", marginLeft: 4}}> (Prev: {prev}{prevPct ? ` ≈ ${prevPct}%` : ''})</span>;
-    }
-
+    if (!current) return <span style={{color: "#666", fontSize: "0.8em", marginLeft: 4}}> (Prev: {prev}{prevPct ? ` ≈ ${prevPct}%` : ''})</span>;
     const currPct = getVaPercentage(current);
-
-    // Si tenemos ambos porcentajes, comparamos
     if (prevPct !== null && currPct !== null) {
         const diff = currPct - prevPct;
         let color = "#888";
         let icon = "=";
-        if (diff > 0) { color = "#4ade80"; icon = "▲"; } // Mejoró (Verde)
-        if (diff < 0) { color = "#f87171"; icon = "▼"; } // Empeoró (Rojo)
-        
-        return (
-            <span style={{color, fontSize: "0.8em", marginLeft: 6, fontWeight: "bold"}}>
-               {prevPct}% ➜ {currPct}% {icon}
-            </span>
-        );
+        if (diff > 0) { color = "#4ade80"; icon = "▲"; }
+        if (diff < 0) { color = "#f87171"; icon = "▼"; }
+        return <span style={{color, fontSize: "0.8em", marginLeft: 6, fontWeight: "bold"}}>{prevPct}% ➜ {currPct}% {icon}</span>;
     }
-    
-    // Si no pudimos calcular %, solo mostramos texto
     return <span style={{color: "#666", fontSize: "0.8em"}}> (Prev: {prev})</span>;
   };
 
@@ -93,38 +68,17 @@ const AvInput = ({ label, valOD, valOS, valAO, onChange, prevData }) => {
     <div style={{ marginBottom: 10, paddingBottom: 10, borderBottom: "1px solid #333" }}>
       <div style={{ fontSize: 12, color: "#aaa", marginBottom: 4 }}>{label}</div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
-        <label>
-          <div style={{fontSize:10, color:"#60a5fa", marginBottom:2}}>
-             OD <RenderDiff current={valOD} prev={prevData?.od} />
-          </div>
-          <input value={valOD} onChange={e => onChange('od', e.target.value)} style={inputStyle} placeholder="20/..." />
-        </label>
-        <label>
-          <div style={{fontSize:10, color:"#60a5fa", marginBottom:2}}>
-             OS <RenderDiff current={valOS} prev={prevData?.os} />
-          </div>
-          <input value={valOS} onChange={e => onChange('os', e.target.value)} style={inputStyle} placeholder="20/..." />
-        </label>
-        <label>
-          <div style={{fontSize:10, color:"#fff", marginBottom:2}}>
-             AO <RenderDiff current={valAO} prev={prevData?.ao} />
-          </div>
-          <input value={valAO} onChange={e => onChange('ao', e.target.value)} style={inputStyle} placeholder="20/..." />
-        </label>
+        <label><div style={{fontSize:10, color:"#60a5fa", marginBottom:2}}>OD <RenderDiff current={valOD} prev={prevData?.od} /></div><input value={valOD} onChange={e => onChange('od', e.target.value)} style={inputStyle} placeholder="20/..." /></label>
+        <label><div style={{fontSize:10, color:"#60a5fa", marginBottom:2}}>OS <RenderDiff current={valOS} prev={prevData?.os} /></div><input value={valOS} onChange={e => onChange('os', e.target.value)} style={inputStyle} placeholder="20/..." /></label>
+        <label><div style={{fontSize:10, color:"#fff", marginBottom:2}}>AO <RenderDiff current={valAO} prev={prevData?.ao} /></div><input value={valAO} onChange={e => onChange('ao', e.target.value)} style={inputStyle} placeholder="20/..." /></label>
       </div>
     </div>
   );
 };
 
-const SmallInput = ({ label, value, onChange, placeholder, width = "60px" }) => (
-    <label style={{ display: "block", fontSize: 12 }}>
-      <div style={{color:"#888", marginBottom: 2}}>{label}</div>
-      <input value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} style={{ ...inputStyle, width }} />
-    </label>
-);
-
 export default function EyeExamsPanel({ patientId, onSell }) {
-  const [tick, setTick] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [allExams, setAllExams] = useState([]);
   const [isCreating, setIsCreating] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [activeTab, setActiveTab] = useState(TABS.PRELIM);
@@ -135,37 +89,25 @@ export default function EyeExamsPanel({ patientId, onSell }) {
   const [formDate, setFormDate] = useState(new Date().toISOString().slice(0, 10));
   const [notes, setNotes] = useState("");
   
-  // 1. Preliminares (Ahora incluye CV)
-  const [prelim, setPrelim] = useState({
-    avsc: { far: { od: "", os: "", ao: "" }, near: { od: "", os: "", ao: "" } },
-    avcc: { far: { od: "", os: "", ao: "" }, near: { od: "", os: "", ao: "" } },
-    cv: { far: { od: "", os: "", ao: "" }, near: { od: "", os: "", ao: "" } },
-    ishihara: "", motility: "", lensometry: normalizeRxValue()
-  });
-
-  // 2. Refracción
-  const [refraction, setRefraction] = useState({
-    autorefrac: { od: "", os: "" },
-    finalRx: normalizeRxValue(),
-    finalAv: { far: { od: "", os: "", ao: "" }, near: { od: "", os: "", ao: "" } }
-  });
-
-  // 3. Lentes de Contacto
-  const [cl, setCl] = useState({
-    keratometry: { od: { k1:"", k2:"", axis:"" }, os: { k1:"", k2:"", axis:"" } },
-    trial: { 
-      od: { baseCurve:"", diameter:"", power:"", av:"", overRefraction:"" },
-      os: { baseCurve:"", diameter:"", power:"", av:"", overRefraction:"" },
-      notes: ""
-    },
-    final: { design: "", brand: "", od: { baseCurve:"", diameter:"", power:"" }, os: { baseCurve:"", diameter:"", power:"" } }
-  });
-  
+  const [prelim, setPrelim] = useState({ avsc: { far: { od: "", os: "", ao: "" }, near: { od: "", os: "", ao: "" } }, avcc: { far: { od: "", os: "", ao: "" }, near: { od: "", os: "", ao: "" } }, cv: { far: { od: "", os: "", ao: "" }, near: { od: "", os: "", ao: "" } }, ishihara: "", motility: "", lensometry: normalizeRxValue() });
+  const [refraction, setRefraction] = useState({ autorefrac: { od: "", os: "" }, finalRx: normalizeRxValue(), finalAv: { far: { od: "", os: "", ao: "" }, near: { od: "", os: "", ao: "" } } });
+  const [cl, setCl] = useState({ keratometry: { od: { k1:"", k2:"", axis:"" }, os: { k1:"", k2:"", axis:"" } }, trial: { od: { baseCurve:"", diameter:"", power:"", av:"", overRefraction:"" }, os: { baseCurve:"", diameter:"", power:"", av:"", overRefraction:"" }, notes: "" }, final: { design: "", brand: "", od: { baseCurve:"", diameter:"", power:"" }, os: { baseCurve:"", diameter:"", power:"" } } });
   const [recs, setRecs] = useState({ design: "", material: "", coating: "", usage: "" });
-  const [errors, setErrors] = useState({});
 
-  const allExams = useMemo(() => getExamsByPatient(patientId), [patientId, tick]);
-  // Buscar el anterior para comparar (ignorando el actual si estamos editando)
+  const refreshData = async () => {
+      setLoading(true);
+      try {
+          const data = await getExamsByPatient(patientId);
+          setAllExams(data);
+      } catch (e) {
+          console.error(e);
+      } finally {
+          setLoading(false);
+      }
+  };
+
+  useEffect(() => { refreshData(); }, [patientId]);
+
   const prevExam = useMemo(() => {
       const history = allExams.filter(e => e.id !== editingId);
       return history.length > 0 ? history[0] : null;
@@ -186,11 +128,10 @@ export default function EyeExamsPanel({ patientId, onSell }) {
     setRefraction({ autorefrac: { od: "", os: "" }, finalRx: normalizeRxValue(), finalAv: { far: { od: "", os: "", ao: "" }, near: { od: "", os: "", ao: "" } } });
     setCl({ keratometry: { od: { k1:"", k2:"", axis:"" }, os: { k1:"", k2:"", axis:"" } }, trial: { od: { baseCurve:"", diameter:"", power:"", av:"", overRefraction:"" }, os: { baseCurve:"", diameter:"", power:"", av:"", overRefraction:"" }, notes: "" }, final: { design: "", brand: "", od: { baseCurve:"", diameter:"", power:"" }, os: { baseCurve:"", diameter:"", power:"" } } });
     setRecs({ design: "", material: "", coating: "", usage: "" });
-    setErrors({});
     setEditingId(null);
   };
 
-  const handleSave = (e) => {
+  const handleSave = async (e) => {
     e.preventDefault();
     const validation = validateRx(refraction.finalRx);
     if (!validation.isValid && (!cl.final.brand && !prelim.avsc.far.od)) {
@@ -200,8 +141,13 @@ export default function EyeExamsPanel({ patientId, onSell }) {
       patientId, consultationId: null, examDate: formDate,
       preliminary: prelim, refraction: refraction, contactLens: cl, recommendations: recs, notes: notes
     };
-    if (editingId) updateEyeExam(editingId, payload); else createEyeExam(payload);
-    resetForm(); setIsCreating(false); setTick(t => t + 1);
+    
+    if (editingId) await updateEyeExam(editingId, payload); 
+    else await createEyeExam(payload);
+    
+    resetForm(); 
+    setIsCreating(false);
+    refreshData();
   };
 
   const handleEdit = (exam) => {
@@ -221,7 +167,12 @@ export default function EyeExamsPanel({ patientId, onSell }) {
     setTimeout(() => document.getElementById("exam-form")?.scrollIntoView({ behavior: "smooth" }), 100);
   };
 
-  const handleDelete = (id) => { if(confirm("¿Eliminar?")) { deleteEyeExam(id); setTick(t => t + 1); } };
+  const handleDelete = async (id) => { 
+      if(confirm("¿Eliminar?")) { 
+          await deleteEyeExam(id); 
+          refreshData(); 
+      } 
+  };
 
   return (
     <section style={{ marginTop: 28, display: "grid", gap: 14, background: "#1a1a1a", padding: 20, borderRadius: 12, border: "1px solid #333" }}>
@@ -344,30 +295,31 @@ export default function EyeExamsPanel({ patientId, onSell }) {
         </div>
       )}
 
-      {/* LISTA DE EXÁMENES */}
-      <div style={{ display: "grid", gap: 10 }}>
-        {paginated.length === 0 ? <p style={{ opacity: 0.6, fontSize: 13 }}>No hay registros.</p> : 
-          paginated.map(exam => (
-            <div key={exam.id} style={{ border: "1px solid #333", borderRadius: 10, padding: 12, background: "#111" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
-                <div>
-                  <strong style={{ color: "#fff" }}>{new Date(exam.examDate).toLocaleDateString()}</strong>
-                  <span style={{ marginLeft: 10, fontSize: 11, padding: "2px 6px", borderRadius: 4, background: exam.consultationId ? "#1e3a8a" : "#064e3b", color: "#ddd" }}>{exam.consultationId ? "Vinculado" : "Independiente"}</span>
+      {loading ? <div style={{padding:20, color:"#666"}}>Cargando exámenes...</div> : (
+          <div style={{ display: "grid", gap: 10 }}>
+            {paginated.length === 0 ? <p style={{ opacity: 0.6, fontSize: 13 }}>No hay registros.</p> : 
+            paginated.map(exam => (
+                <div key={exam.id} style={{ border: "1px solid #333", borderRadius: 10, padding: 12, background: "#111" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
+                    <div>
+                    <strong style={{ color: "#fff" }}>{new Date(exam.examDate).toLocaleDateString()}</strong>
+                    <span style={{ marginLeft: 10, fontSize: 11, padding: "2px 6px", borderRadius: 4, background: exam.consultationId ? "#1e3a8a" : "#064e3b", color: "#ddd" }}>{exam.consultationId ? "Vinculado" : "Independiente"}</span>
+                    </div>
+                    <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                    <button onClick={() => onSell && onSell(exam)} style={{ background: "#16a34a", color: "white", border: "none", padding: "4px 8px", borderRadius: 4, cursor: "pointer", fontSize: "0.8em", fontWeight: "bold" }}>🛒 Vender</button>
+                    <button onClick={() => handleEdit(exam)} style={{ fontSize: 11, background: "transparent", border: "1px solid #666", color: "#aaa", cursor: "pointer", padding: "2px 6px", borderRadius: 4 }}>Editar</button>
+                    <button onClick={() => handleDelete(exam.id)} style={{ fontSize: 11, background: "transparent", border: "none", color: "#666", cursor: "pointer" }}>x</button>
+                    </div>
                 </div>
-                <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                  <button onClick={() => onSell && onSell(exam)} style={{ background: "#16a34a", color: "white", border: "none", padding: "4px 8px", borderRadius: 4, cursor: "pointer", fontSize: "0.8em", fontWeight: "bold" }}>🛒 Vender</button>
-                  <button onClick={() => handleEdit(exam)} style={{ fontSize: 11, background: "transparent", border: "1px solid #666", color: "#aaa", cursor: "pointer", padding: "2px 6px", borderRadius: 4 }}>Editar</button>
-                  <button onClick={() => handleDelete(exam.id)} style={{ fontSize: 11, background: "transparent", border: "none", color: "#666", cursor: "pointer" }}>x</button>
+                <div style={{ fontSize: "0.9em", color: "#ccc", display: "grid", gap: 4 }}>
+                    <div style={{display:"flex", gap:15}}><span><strong>Rx:</strong> OD {exam.refraction?.finalRx?.od?.sph} / {exam.refraction?.finalRx?.od?.cyl} x {exam.refraction?.finalRx?.od?.axis}°</span><span>OI {exam.refraction?.finalRx?.os?.sph} / {exam.refraction?.finalRx?.os?.cyl} x {exam.refraction?.finalRx?.os?.axis}°</span></div>
+                    {exam.preliminary?.avsc?.far?.od && <div style={{fontSize:"0.8em", color:"#aaa"}}>AV Entrada: {exam.preliminary.avsc.far.od} (OD) / {exam.preliminary.avsc.far.os} (OS)</div>}
                 </div>
-              </div>
-              <div style={{ fontSize: "0.9em", color: "#ccc", display: "grid", gap: 4 }}>
-                 <div style={{display:"flex", gap:15}}><span><strong>Rx:</strong> OD {exam.refraction?.finalRx?.od?.sph} / {exam.refraction?.finalRx?.od?.cyl} x {exam.refraction?.finalRx?.od?.axis}°</span><span>OI {exam.refraction?.finalRx?.os?.sph} / {exam.refraction?.finalRx?.os?.cyl} x {exam.refraction?.finalRx?.os?.axis}°</span></div>
-                 {exam.preliminary?.avsc?.far?.od && <div style={{fontSize:"0.8em", color:"#aaa"}}>AV Entrada: {exam.preliminary.avsc.far.od} (OD) / {exam.preliminary.avsc.far.os} (OS)</div>}
-              </div>
-            </div>
-          ))
-        }
-      </div>
+                </div>
+            ))
+            }
+          </div>
+      )}
       {totalPages > 1 && <div style={{ display: "flex", justifyContent: "center", gap: 10, marginTop: 10 }}><button disabled={page === 1} onClick={() => setPage(p => p - 1)} style={{ background: "#333", color: "white", border: "none", padding: "4px 10px", borderRadius: 4, opacity: page===1?0.5:1 }}>◀</button><span style={{ fontSize: 12, color: "#888", alignSelf:"center" }}>{page} / {totalPages}</span><button disabled={page === totalPages} onClick={() => setPage(p => p + 1)} style={{ background: "#333", color: "white", border: "none", padding: "4px 10px", borderRadius: 4, opacity: page===totalPages?0.5:1 }}>▶</button></div>}
     </section>
   );

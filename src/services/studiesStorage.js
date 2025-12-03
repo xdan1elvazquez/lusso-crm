@@ -1,43 +1,44 @@
-const KEY = "lusso_studies_v1";
+import { db } from "@/firebase/config";
+import { 
+  collection, addDoc, getDocs, doc, deleteDoc, query, where, orderBy 
+} from "firebase/firestore";
 
-function read() {
-  try {
-    const raw = localStorage.getItem(KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch { return []; }
-}
+const COLLECTION_NAME = "studies";
 
-function write(list) { localStorage.setItem(KEY, JSON.stringify(list)); }
-
-export function getStudiesByPatient(patientId) {
+// --- LECTURA ---
+export async function getStudiesByPatient(patientId) {
   if (!patientId) return [];
-  // Ordenamos por fecha, los más nuevos primero
-  return read()
-    .filter(s => s.patientId === patientId)
+  const q = query(collection(db, COLLECTION_NAME), where("patientId", "==", patientId));
+  const snapshot = await getDocs(q);
+  // Ordenar en cliente
+  return snapshot.docs
+    .map(doc => ({ id: doc.id, ...doc.data() }))
     .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 }
 
-export function getStudiesByConsultation(consultationId) {
+export async function getStudiesByConsultation(consultationId) {
   if (!consultationId) return [];
-  return read().filter(s => s.consultationId === consultationId);
+  const q = query(collection(db, COLLECTION_NAME), where("consultationId", "==", consultationId));
+  const snapshot = await getDocs(q);
+  return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 }
 
-export function createStudy(data) {
-  const list = read();
+// --- ESCRITURA ---
+export async function createStudy(data) {
   const newStudy = {
-    id: crypto.randomUUID(),
     patientId: data.patientId,
-    consultationId: data.consultationId || null, // Opcional (si se sube desde perfil general)
-    name: data.name, // Nombre del archivo o estudio
+    consultationId: data.consultationId || null,
+    name: data.name, 
     type: data.type, // IMAGE, PDF, VIDEO, AUDIO
-    url: data.url || "", // En un sistema real aquí iría la URL de AWS/Firebase
+    url: data.url || "", 
     notes: data.notes || "",
     createdAt: new Date().toISOString()
   };
-  write([newStudy, ...list]);
-  return newStudy;
+
+  const docRef = await addDoc(collection(db, COLLECTION_NAME), newStudy);
+  return { id: docRef.id, ...newStudy };
 }
 
-export function deleteStudy(id) {
-  write(read().filter(s => s.id !== id));
+export async function deleteStudy(id) {
+  await deleteDoc(doc(db, COLLECTION_NAME, id));
 }

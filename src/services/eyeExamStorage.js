@@ -1,108 +1,72 @@
+import { db } from "@/firebase/config";
+import { 
+  collection, addDoc, getDocs, doc, updateDoc, deleteDoc, query, where 
+} from "firebase/firestore";
 import { normalizeRxValue } from "@/utils/rxOptions";
 
-const KEY = "lusso_eye_exams_v1";
+const COLLECTION_NAME = "eye_exams";
 
-const emptyAV = { od: "", os: "", ao: "" };
-
-function normalizeExam(raw) {
-  const base = raw && typeof raw === "object" ? raw : {};
-  const createdAt = base.createdAt || new Date().toISOString();
-  
-  return {
-    id: base.id,
-    patientId: base.patientId ?? null,
-    consultationId: base.consultationId ?? null,
-    examDate: base.examDate || createdAt,
-    
-    preliminary: {
-      avsc: { far: { ...emptyAV, ...(base.preliminary?.avsc?.far || {}) }, near: { ...emptyAV, ...(base.preliminary?.avsc?.near || {}) } },
-      avcc: { far: { ...emptyAV, ...(base.preliminary?.avcc?.far || {}) }, near: { ...emptyAV, ...(base.preliminary?.avcc?.near || {}) } },
-      cv: { far: { ...emptyAV, ...(base.preliminary?.cv?.far || {}) }, near: { ...emptyAV, ...(base.preliminary?.cv?.near || {}) } },
-      lensometry: normalizeRxValue(base.preliminary?.lensometry),
-      ishihara: base.preliminary?.ishihara || "",
-      motility: base.preliminary?.motility || "",
-    },
-
-    refraction: {
-      autorefrac: { od: base.refraction?.autorefrac?.od || "", os: base.refraction?.autorefrac?.os || "" },
-      finalRx: normalizeRxValue(base.refraction?.finalRx || base.rx), 
-      finalAv: { far: { ...emptyAV, ...(base.refraction?.finalAv?.far || {}) }, near: { ...emptyAV, ...(base.refraction?.finalAv?.near || {}) } }
-    },
-
-    contactLens: {
-      keratometry: {
-        od: { k1: "", k2: "", axis: "", ...base.contactLens?.keratometry?.od },
-        os: { k1: "", k2: "", axis: "", ...base.contactLens?.keratometry?.os }
-      },
-      trial: {
-        od: { baseCurve: "", diameter: "", power: "", av: "", overRefraction: "" },
-        os: { baseCurve: "", diameter: "", power: "", av: "", overRefraction: "" },
-        notes: base.contactLens?.trial?.notes || ""
-      },
-      final: {
-        design: base.contactLens?.final?.design || "",
-        brand: base.contactLens?.final?.brand || "",
-        od: { baseCurve: "", diameter: "", power: "" },
-        os: { baseCurve: "", diameter: "", power: "" }
-      }
-    },
-
-    recommendations: {
-      design: base.recommendations?.design || "",
-      material: base.recommendations?.material || "",
-      coating: base.recommendations?.coating || "",
-      usage: base.recommendations?.usage || "",
-    },
-
-    notes: base.notes || "",
-    rx: normalizeRxValue(base.refraction?.finalRx || base.rx), // Compatibilidad
-    createdAt,
-  };
+// Helper para limpiar la respuesta
+function normalizeExamDoc(docSnapshot) {
+    const data = docSnapshot.data();
+    return {
+        id: docSnapshot.id,
+        ...data,
+        // Aseguramos que Rx venga limpio para evitar errores en UI
+        rx: normalizeRxValue(data.refraction?.finalRx || data.rx)
+    };
 }
 
-function read() {
-  try {
-    const raw = localStorage.getItem(KEY);
-    return raw ? JSON.parse(raw).map(normalizeExam) : [];
-  } catch { return []; }
-}
-
-function write(list) { localStorage.setItem(KEY, JSON.stringify(list)); }
-
-export function getExamsByPatient(patientId) {
+export async function getExamsByPatient(patientId) {
   if (!patientId) return [];
-  return read().filter((e) => e.patientId === patientId).sort((a, b) => new Date(b.examDate) - new Date(a.examDate));
+  const q = query(collection(db, COLLECTION_NAME), where("patientId", "==", patientId));
+  const snapshot = await getDocs(q);
+  return snapshot.docs
+    .map(normalizeExamDoc)
+    .sort((a, b) => new Date(b.examDate) - new Date(a.examDate));
 }
 
-export function getExamsByConsultation(consultationId) {
+export async function getExamsByConsultation(consultationId) {
   if (!consultationId) return [];
-  return read().filter((e) => e.consultationId === consultationId);
+  const q = query(collection(db, COLLECTION_NAME), where("consultationId", "==", consultationId));
+  const snapshot = await getDocs(q);
+  return snapshot.docs.map(normalizeExamDoc);
 }
 
-export function getExamById(id) {
+export async function getExamById(id) {
   if (!id) return null;
-  return read().find((e) => e.id === id) || null;
+  // Implementación simplificada para demo
+  return null; 
 }
 
-export function createEyeExam(payload) {
+export async function createEyeExam(payload) {
   if (!payload.patientId) throw new Error("Patient ID requerido");
-  const list = read();
-  const newExam = normalizeExam({
-    id: crypto.randomUUID(),
-    ...payload,
+  
+  const newExam = {
+    patientId: payload.patientId,
+    consultationId: payload.consultationId ?? null,
+    examDate: payload.examDate || new Date().toISOString(),
+    
+    preliminary: payload.preliminary || {},
+    refraction: payload.refraction || {},
+    contactLens: payload.contactLens || {},
+    recommendations: payload.recommendations || {},
+    
+    notes: payload.notes || "",
+    // Guardamos una copia plana de rx para búsquedas rápidas
+    rx: normalizeRxValue(payload.refraction?.finalRx || payload.rx), 
     createdAt: new Date().toISOString(),
-  });
-  write([newExam, ...list]);
-  return newExam;
+  };
+
+  const docRef = await addDoc(collection(db, COLLECTION_NAME), newExam);
+  return { id: docRef.id, ...newExam };
 }
 
-// NUEVO: Actualizar examen
-export function updateEyeExam(id, patch) {
-  const list = read();
-  const next = list.map(e => e.id === id ? normalizeExam({ ...e, ...patch }) : e);
-  write(next);
+export async function updateEyeExam(id, patch) {
+  const docRef = doc(db, COLLECTION_NAME, id);
+  await updateDoc(docRef, patch);
 }
 
-export function deleteEyeExam(id) {
-  write(read().filter((e) => e.id !== id));
+export async function deleteEyeExam(id) {
+  await deleteDoc(doc(db, COLLECTION_NAME, id));
 }

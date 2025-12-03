@@ -1,4 +1,9 @@
-const KEY = "lusso_employees_v1";
+import { db } from "@/firebase/config";
+import { 
+  collection, getDocs, addDoc, updateDoc, deleteDoc, doc, query, orderBy 
+} from "firebase/firestore";
+
+const COLLECTION_NAME = "employees";
 
 export const ROLES = {
   DOCTOR: "Optometrista / Dr.",
@@ -8,37 +13,32 @@ export const ROLES = {
   OTHER: "Limpieza / General"
 };
 
-function read() {
-  try { return JSON.parse(localStorage.getItem(KEY) || "[]"); } catch { return []; }
-}
-function write(list) { localStorage.setItem(KEY, JSON.stringify(list)); }
-
-export function getEmployees() {
-  return read().sort((a, b) => a.name.localeCompare(b.name));
+// --- LECTURA ---
+export async function getEmployees() {
+  const q = query(collection(db, COLLECTION_NAME), orderBy("name", "asc"));
+  const snapshot = await getDocs(q);
+  return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 }
 
-export function createEmployee(data) {
-  const list = read();
+// --- ESCRITURA ---
+export async function createEmployee(data) {
   const newEmp = {
-    id: crypto.randomUUID(),
     name: data.name,
     role: data.role || "OTHER",
     commissionPercent: Number(data.commissionPercent) || 0,
-    baseSalary: Number(data.baseSalary) || 0, // 👈 NUEVO CAMPO
+    baseSalary: Number(data.baseSalary) || 0,
     active: true,
     createdAt: new Date().toISOString()
   };
-  write([...list, newEmp]);
-  return newEmp;
+  const docRef = await addDoc(collection(db, COLLECTION_NAME), newEmp);
+  return { id: docRef.id, ...newEmp };
 }
 
-export function updateEmployee(id, patch) {
-  const list = read();
-  const next = list.map(e => e.id === id ? { ...e, ...patch } : e);
-  write(next);
-  return next.find(e => e.id === id);
+export async function updateEmployee(id, patch) {
+  const docRef = doc(db, COLLECTION_NAME, id);
+  await updateDoc(docRef, patch);
 }
 
-export function deleteEmployee(id) {
-  write(read().filter(e => e.id !== id));
+export async function deleteEmployee(id) {
+  await deleteDoc(doc(db, COLLECTION_NAME, id));
 }

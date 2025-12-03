@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { 
   getPatientById, 
@@ -12,8 +12,8 @@ import EyeExamsPanel from "@/components/EyeExamsPanel";
 import AnamnesisPanel from "@/components/AnamnesisPanel";
 import SalesPanel from "@/components/SalesPanel";
 import StudiesPanel from "@/components/StudiesPanel";
-// 👇 IMPORTAR HANDLER
 import { handlePhoneInput } from "@/utils/inputHandlers";
+import LoadingState from "@/components/LoadingState";
 
 function toDateInput(isoString) {
   if (!isoString) return "";
@@ -23,124 +23,83 @@ function toDateInput(isoString) {
 
 function formatDateTime(isoString) {
   if (!isoString) return "N/D";
-  return new Date(isoString).toLocaleString("es-MX", { 
-    day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' 
-  });
+  return new Date(isoString).toLocaleString("es-MX", { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
-// --- NUEVA UTILIDAD DE FECHA RELATIVA ---
+// Helper para edad
 function getPatientAge(dateString) {
-  if (!dateString) return "Sin alta original";
-  
-  // Normalizar a medio día para evitar saltos de zona horaria
-  const target = dateString.includes("T") 
-    ? new Date(dateString) 
-    : new Date(dateString + "T12:00:00");
-
+  if (!dateString) return "Sin alta";
+  const target = dateString.includes("T") ? new Date(dateString) : new Date(dateString + "T12:00:00");
   const now = new Date();
-  
-  // Resetear horas para comparación de días puros
-  const targetDay = new Date(target).setHours(0,0,0,0);
-  const nowDay = new Date().setHours(0,0,0,0);
-  
-  const diffTime = nowDay - targetDay;
+  const diffTime = now.setHours(0,0,0,0) - target.setHours(0,0,0,0);
   const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-
-  if (diffDays < 0) return "Fecha futura";
-  if (diffDays === 0) return "Hoy";
-  if (diffDays === 1) return "Ayer";
-  
-  // Menos de 4 semanas (28 días) -> Días o Semanas
-  if (diffDays < 28) {
-      if (diffDays < 7) return `Hace ${diffDays} días`;
-      const weeks = Math.floor(diffDays / 7);
-      return `${weeks} semana${weeks > 1 ? 's' : ''}`;
-  }
-
-  // Más de 4 semanas -> Meses y Años
-  let months = (now.getFullYear() - target.getFullYear()) * 12 + (now.getMonth() - target.getMonth());
-  if (now.getDate() < target.getDate()) {
-      months--;
-  }
-
-  if (months < 1) return "Hace 1 mes"; 
-
-  const years = Math.floor(months / 12);
-  const remainingMonths = months % 12;
-
-  if (years > 0) {
-      const monthText = remainingMonths > 0 ? ` ${remainingMonths} mes${remainingMonths > 1 ? 'es' : ''}` : "";
-      return `${years} año${years > 1 ? 's' : ''}${monthText}`;
-  }
-  
-  return `${months} mes${months > 1 ? 'es' : ''}`;
+  if (diffDays < 28) return `${diffDays} días`;
+  return `${Math.floor(diffDays/365)} años`;
 }
 
 export default function PatientDetailPage() {
   const { id } = useParams();
   
-  // Hooks de estado
+  const [loading, setLoading] = useState(true);
   const [patient, setPatient] = useState(null);
   const [referrerName, setReferrerName] = useState("");
   const [recommendedList, setRecommendedList] = useState([]);
   const [salePrefill, setSalePrefill] = useState(null);
   
-  // ESTADO PARA COLAPSAR LA FICHA
   const [isIdentityOpen, setIsIdentityOpen] = useState(false);
-  
-  const [form, setForm] = useState({ 
-    firstName: "", lastName: "", phone: "", email: "", 
-    dob: "", sex: "", occupation: "", referralSource: "", createdAt: "",
-    // FISCAL
-    rfc: "", razonSocial: "", regimen: "", cp: "", emailFactura: "",
-    // DIRECCIÓN
-    street: "", externalNumber: "", internalNumber: "", suburb: "", city: "", state: "", zip: ""
-  });
+  const [form, setForm] = useState({});
   const [sources, setSources] = useState([]);
 
   useEffect(() => {
-    setSources(getReferralSources());
-    const p = getPatientById(id);
-    setPatient(p);
-    
-    if (p) {
-        touchPatientView(id);
+    async function loadData() {
+        setLoading(true);
+        try {
+            const p = await getPatientById(id);
+            setPatient(p);
+            
+            if (p) {
+                touchPatientView(id);
 
-        setForm({ 
-            firstName: p.firstName, lastName: p.lastName, phone: p.phone, email: p.email,
-            dob: p.dob || "", sex: p.sex || "NO_ESPECIFICADO", occupation: p.occupation || "",
-            referralSource: p.referralSource || "",
-            createdAt: toDateInput(p.createdAt),
-            // Mapeo fiscal
-            rfc: p.taxData?.rfc || "",
-            razonSocial: p.taxData?.razonSocial || "",
-            regimen: p.taxData?.regimen || "",
-            cp: p.taxData?.cp || "",
-            emailFactura: p.taxData?.emailFactura || p.email || "",
-            // Mapeo de dirección
-            street: p.address?.street || "", 
-            externalNumber: p.address?.externalNumber || "", 
-            internalNumber: p.address?.internalNumber || "", 
-            suburb: p.address?.suburb || "", 
-            city: p.address?.city || "", 
-            state: p.address?.state || "", 
-            zip: p.address?.zip || ""
-        });
-        
-        if (p.referredBy) {
-            const ref = getPatientById(p.referredBy);
-            if (ref) setReferrerName(`${ref.firstName} ${ref.lastName}`);
+                setForm({ 
+                    firstName: p.firstName, lastName: p.lastName, phone: p.phone, email: p.email,
+                    dob: p.dob || "", sex: p.sex || "NO_ESPECIFICADO", occupation: p.occupation || "",
+                    referralSource: p.referralSource || "",
+                    createdAt: toDateInput(p.createdAt),
+                    rfc: p.taxData?.rfc || "",
+                    razonSocial: p.taxData?.razonSocial || "",
+                    regimen: p.taxData?.regimen || "",
+                    cp: p.taxData?.cp || "",
+                    emailFactura: p.taxData?.emailFactura || p.email || "",
+                    street: p.address?.street || "", 
+                    externalNumber: p.address?.externalNumber || "", 
+                    internalNumber: p.address?.internalNumber || "", 
+                    suburb: p.address?.suburb || "", 
+                    city: p.address?.city || "", 
+                    state: p.address?.state || "", 
+                    zip: p.address?.zip || ""
+                });
+
+                if (p.referredBy) {
+                    const ref = await getPatientById(p.referredBy);
+                    if (ref) setReferrerName(`${ref.firstName} ${ref.lastName}`);
+                }
+                
+                const recs = await getPatientsRecommendedBy(id);
+                setRecommendedList(recs);
+            }
+        } catch (e) {
+            console.error(e);
+        } finally {
+            setLoading(false);
         }
-        setRecommendedList(getPatientsRecommendedBy(id));
     }
+    setSources(getReferralSources());
+    loadData();
   }, [id]);
 
-  if (!patient) return <div style={{ padding: 40, textAlign: "center" }}>Cargando paciente...</div>;
-
-  const onSave = () => {
+  const onSave = async () => {
     let finalCreatedAt = patient.createdAt;
     if (form.createdAt !== toDateInput(patient.createdAt)) {
-       // Preservar hora fija para evitar saltos
        finalCreatedAt = new Date(form.createdAt + "T12:00:00").toISOString();
     }
     
@@ -158,17 +117,10 @@ export default function PatientDetailPage() {
         }
     };
 
-    const updated = updatePatient(id, payload);
-    setPatient(updated);
+    await updatePatient(id, payload);
+    setPatient({ ...patient, ...payload }); 
     setIsIdentityOpen(false); 
     alert("Ficha actualizada");
-  };
-
-  const calculateAge = (dob) => {
-      if (!dob) return "Edad N/D";
-      const diff = Date.now() - new Date(dob).getTime();
-      const ageDate = new Date(diff);
-      return Math.abs(ageDate.getUTCFullYear() - 1970) + " años";
   };
 
   const handleSellFromExam = (exam) => { 
@@ -188,6 +140,9 @@ export default function PatientDetailPage() {
 
   const inputStyle = { width: "100%", padding: "8px 10px", background: "#111", border: "1px solid #333", color: "white", borderRadius: 6, fontSize: "0.95em" };
 
+  if (loading) return <LoadingState />;
+  if (!patient) return <div style={{padding:40, textAlign:"center"}}>Paciente no encontrado.</div>;
+
   return (
     <div style={{ paddingBottom: 80, width: "100%" }}>
       
@@ -195,13 +150,13 @@ export default function PatientDetailPage() {
         <Link to="/patients" style={{ color: "#888", textDecoration: "none", fontSize: "0.9em" }}>← Regresar al directorio</Link>
       </div>
 
-      {/* HERO: INFO RÁPIDA Y METADATA */}
+      {/* HERO: INFO RÁPIDA */}
       <div style={{ background: "linear-gradient(135deg, #1e3a8a 0%, #111827 100%)", padding: "25px", borderRadius: "12px", marginBottom: 30, border: "1px solid #374151", display: "grid", gap: 15, boxShadow: "0 4px 20px rgba(0,0,0,0.4)" }}>
          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
              <div>
                 <h1 style={{ margin: 0, fontSize: "2.2rem", color: "white" }}>{patient.firstName} {patient.lastName}</h1>
                 <div style={{ display: "flex", gap: 15, marginTop: 8, color: "#bfdbfe", fontSize: "0.95em" }}>
-                    <span>🎂 {calculateAge(form.dob)}</span>
+                    <span>🎂 {form.dob || "Sin fecha"}</span>
                     <span>📞 {patient.phone}</span>
                     <span style={{ color: "#fbbf24", fontWeight: "bold", background: "rgba(251, 191, 36, 0.1)", padding: "0 8px", borderRadius: "4px" }}>
                        💎 {patient.points || 0} Puntos
@@ -219,21 +174,12 @@ export default function PatientDetailPage() {
          <div style={{ borderTop: "1px solid rgba(255,255,255,0.1)", paddingTop: 10, marginTop: 5, display: "flex", gap: 20, fontSize: "0.8em", color: "#9ca3af" }}>
             <span>🕒 <strong>Último acceso:</strong> {formatDateTime(patient.lastViewed)}</span>
             <span>📝 <strong>Última edición:</strong> {formatDateTime(patient.updatedAt)}</span>
-            
-            {/* --- FECHA EN HEADER CON CÁLCULO RELATIVO --- */}
-            <span>
-              📅 <strong>Alta:</strong> {new Date(patient.createdAt).toLocaleDateString()} 
-              <span style={{ opacity: 0.7, marginLeft: 6, fontSize: "0.9em" }}>
-                ({getPatientAge(patient.createdAt)})
-              </span>
-            </span>
+            <span>📅 <strong>Alta:</strong> {new Date(patient.createdAt).toLocaleDateString()} <span style={{ opacity: 0.7, marginLeft: 6, fontSize: "0.9em" }}>({getPatientAge(patient.createdAt)})</span></span>
          </div>
       </div>
 
-      {/* FICHA DE IDENTIFICACIÓN (COLAPSIBLE) */}
+      {/* FICHA DE IDENTIFICACIÓN */}
       <section style={{ background: "#1a1a1a", padding: "15px 25px", borderRadius: "12px", border: "1px solid #333", marginBottom: 40 }}>
-        
-        {/* HEADER CLICKEABLE */}
         <div 
             onClick={() => setIsIdentityOpen(!isIdentityOpen)}
             style={{ display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer", paddingBottom: isIdentityOpen ? 20 : 0, marginBottom: isIdentityOpen ? 20 : 0, borderBottom: isIdentityOpen ? "1px solid #333" : "none" }}
@@ -242,111 +188,30 @@ export default function PatientDetailPage() {
                 <h3 style={{ margin: 0, color: "#e5e7eb" }}>Ficha de Identificación y Datos</h3>
                 <span style={{ color: "#666", fontSize: "0.8em" }}>{isIdentityOpen ? "▼" : "▶"}</span>
             </div>
-            
-            {isIdentityOpen && (
-                <button 
-                    onClick={(e) => { e.stopPropagation(); onSave(); }} 
-                    style={{ background: "#2563eb", color: "white", border: "none", padding: "6px 12px", borderRadius: 6, cursor: "pointer", fontWeight: "600", fontSize: "0.9em" }}
-                >
-                    Guardar Cambios
-                </button>
-            )}
+            {isIdentityOpen && <button onClick={(e) => { e.stopPropagation(); onSave(); }} style={{ background: "#2563eb", color: "white", border: "none", padding: "6px 12px", borderRadius: 6, cursor: "pointer", fontWeight: "600", fontSize: "0.9em" }}>Guardar Cambios</button>}
         </div>
 
-        {/* CONTENIDO COLAPSABLE */}
         {isIdentityOpen && (
             <div style={{ animation: "fadeIn 0.3s ease-in-out" }}>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 20 }}>
-                <Field label="Nombre"><input value={form.firstName} onChange={e => setForm({...form, firstName: e.target.value})} style={inputStyle} /></Field>
-                <Field label="Apellidos"><input value={form.lastName} onChange={e => setForm({...form, lastName: e.target.value})} style={inputStyle} /></Field>
-                
-                {/* 👇 INPUT TELÉFONO ACTUALIZADO */}
-                <Field label="Teléfono">
-                    <input 
-                        type="tel"
-                        placeholder="10 dígitos"
-                        maxLength={10}
-                        value={form.phone} 
-                        onChange={e => setForm({...form, phone: handlePhoneInput(e.target.value)})} 
-                        style={inputStyle} 
-                    />
-                </Field>
-
-                <Field label="Email"><input value={form.email} onChange={e => setForm({...form, email: e.target.value})} style={inputStyle} /></Field>
-                
-                <Field label="Fecha Nacimiento"><input type="date" value={form.dob} onChange={e => setForm({...form, dob: e.target.value})} style={inputStyle} /></Field>
-                <Field label="Sexo">
-                    <select value={form.sex} onChange={e => setForm({...form, sex: e.target.value})} style={inputStyle}>
-                        <option value="NO_ESPECIFICADO">No especificado</option>
-                        <option value="MUJER">Mujer</option>
-                        <option value="HOMBRE">Hombre</option>
-                    </select>
-                </Field>
-                <Field label="Ocupación"><input value={form.occupation} onChange={e => setForm({...form, occupation: e.target.value})} style={inputStyle} /></Field>
-                
-                {/* --- INPUT FECHA CON CÁLCULO EN VIVO --- */}
-                <Field label={
-                    <span style={{display:"flex", justifyContent:"space-between"}}>
-                        Fecha de Alta (Registro)
-                        <span style={{color: "#4ade80", fontWeight: "bold", textTransform: "none"}}>
-                            {getPatientAge(form.createdAt)}
-                        </span>
-                    </span>
-                }>
-                    <input 
-                        type="date" 
-                        value={form.createdAt} 
-                        onChange={e => setForm({...form, createdAt: e.target.value})} 
-                        style={{ ...inputStyle, border: "1px dashed #666", color: "#aaa" }} 
-                        title="Modificar si es un registro histórico" 
-                    />
-                </Field>
-
-                <div style={{ gridColumn: "span 1", background: "#111", padding: 10, borderRadius: 8, border: "1px dashed #444" }}>
-                    <Field label="Marketing / Origen">
-                        <select value={form.referralSource} onChange={e => setForm({...form, referralSource: e.target.value})} style={{ ...inputStyle, border: "none", background: "transparent", padding: 0, color: "#4ade80", fontWeight: "bold" }}>
-                            {sources.map(s => <option key={s} value={s}>{s}</option>)}
-                        </select>
-                    </Field>
-                    {referrerName && <div style={{ fontSize: "0.8em", color: "#aaa", marginTop: 5 }}>Recomendado por: <Link to={`/patients/${patient.referredBy}`} style={{color: "#60a5fa"}}>{referrerName}</Link></div>}
-                    {recommendedList.length > 0 && <div style={{ fontSize: "0.8em", color: "#fbbf24", marginTop: 5 }}>🏆 {recommendedList.length} referidos</div>}
-                </div>
-                </div>
-
-                {/* DIRECCIÓN */}
-                <div style={{ marginTop: 20, paddingTop: 20, borderTop: "1px solid #333" }}>
-                    <h4 style={{ margin: "0 0 15px 0", color: "#f472b6", fontSize: "0.9em" }}>Dirección Particular</h4>
-                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 15 }}>
-                        <div style={{ gridColumn: "span 2" }}>
-                            <Field label="Calle"><input value={form.street} onChange={e => setForm({...form, street: e.target.value})} style={inputStyle} placeholder="Calle principal" /></Field>
-                        </div>
-                        <Field label="Num Ext"><input value={form.externalNumber} onChange={e => setForm({...form, externalNumber: e.target.value})} style={inputStyle} /></Field>
-                        <Field label="Num Int"><input value={form.internalNumber} onChange={e => setForm({...form, internalNumber: e.target.value})} style={inputStyle} /></Field>
-                        <Field label="Colonia"><input value={form.suburb} onChange={e => setForm({...form, suburb: e.target.value})} style={inputStyle} /></Field>
-                        <Field label="C.P."><input value={form.zip} onChange={e => setForm({...form, zip: e.target.value})} style={inputStyle} placeholder="00000" /></Field>
-                        <Field label="Ciudad / Municipio"><input value={form.city} onChange={e => setForm({...form, city: e.target.value})} style={inputStyle} /></Field>
-                        <Field label="Estado"><input value={form.state} onChange={e => setForm({...form, state: e.target.value})} style={inputStyle} /></Field>
+                    <Field label="Nombre"><input value={form.firstName} onChange={e => setForm({...form, firstName: e.target.value})} style={inputStyle} /></Field>
+                    <Field label="Apellidos"><input value={form.lastName} onChange={e => setForm({...form, lastName: e.target.value})} style={inputStyle} /></Field>
+                    <Field label="Teléfono"><input type="tel" maxLength={10} value={form.phone} onChange={e => setForm({...form, phone: handlePhoneInput(e.target.value)})} style={inputStyle} /></Field>
+                    <Field label="Email"><input value={form.email} onChange={e => setForm({...form, email: e.target.value})} style={inputStyle} /></Field>
+                    <Field label="Fecha Nacimiento"><input type="date" value={form.dob} onChange={e => setForm({...form, dob: e.target.value})} style={inputStyle} /></Field>
+                    <Field label="Sexo"><select value={form.sex} onChange={e => setForm({...form, sex: e.target.value})} style={inputStyle}><option value="NO_ESPECIFICADO">No especificado</option><option value="MUJER">Mujer</option><option value="HOMBRE">Hombre</option></select></Field>
+                    <Field label="Ocupación"><input value={form.occupation} onChange={e => setForm({...form, occupation: e.target.value})} style={inputStyle} /></Field>
+                    <div style={{ gridColumn: "span 1", background: "#111", padding: 10, borderRadius: 8, border: "1px dashed #444" }}>
+                        <Field label="Marketing / Origen"><select value={form.referralSource} onChange={e => setForm({...form, referralSource: e.target.value})} style={{ ...inputStyle, border: "none", background: "transparent", padding: 0, color: "#4ade80", fontWeight: "bold" }}>{sources.map(s => <option key={s} value={s}>{s}</option>)}</select></Field>
+                        {referrerName && <div style={{ fontSize: "0.8em", color: "#aaa", marginTop: 5 }}>Recomendado por: <Link to={`/patients/${patient.referredBy}`} style={{color: "#60a5fa"}}>{referrerName}</Link></div>}
+                        {recommendedList.length > 0 && <div style={{ fontSize: "0.8em", color: "#fbbf24", marginTop: 5 }}>🏆 {recommendedList.length} referidos</div>}
                     </div>
                 </div>
-
-                {/* DATOS FISCALES */}
-                <div style={{ marginTop: 20, paddingTop: 20, borderTop: "1px solid #333" }}>
-                    <h4 style={{ margin: "0 0 15px 0", color: "#60a5fa", fontSize: "0.9em" }}>Datos de Facturación (SAT)</h4>
-                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 15 }}>
-                        <Field label="RFC"><input value={form.rfc} onChange={e => setForm({...form, rfc: e.target.value})} style={inputStyle} placeholder="ABCD010101XYZ" /></Field>
-                        <Field label="Razón Social"><input value={form.razonSocial} onChange={e => setForm({...form, razonSocial: e.target.value})} style={inputStyle} placeholder="Nombre completo" /></Field>
-                        <Field label="Régimen Fiscal"><input value={form.regimen} onChange={e => setForm({...form, regimen: e.target.value})} style={inputStyle} placeholder="601, 626..." /></Field>
-                        <Field label="C.P. Fiscal"><input value={form.cp} onChange={e => setForm({...form, cp: e.target.value})} style={inputStyle} placeholder="Igual a dirección" /></Field>
-                        <Field label="Email Factura"><input value={form.emailFactura} onChange={e => setForm({...form, emailFactura: e.target.value})} style={inputStyle} placeholder="Para XML/PDF" /></Field>
-                    </div>
-                </div>
-                
-                <style>{`@keyframes fadeIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }`}</style>
             </div>
         )}
       </section>
 
-      {/* SECCIONES ORDENADAS CLÍNICAMENTE */}
+      {/* SECCIONES */}
       <div style={{ display: "grid", gap: "40px" }}>
         <AnamnesisPanel patientId={id} />
         <ConsultationsPanel patientId={id} />

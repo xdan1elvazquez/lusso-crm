@@ -1,13 +1,14 @@
-import { useState, useMemo } from "react";
+import { useState, useEffect } from "react";
 import { getAllExpenses, createExpense, deleteExpense } from "@/services/expensesStorage";
-// 👇 IMPORTAR HANDLERS
 import { preventNegativeKey, sanitizeMoney, formatMoneyBlur } from "@/utils/inputHandlers";
+import LoadingState from "@/components/LoadingState";
 
 const CATEGORIES = ["INVENTARIO", "OPERATIVO", "NOMINA", "MARKETING", "MANTENIMIENTO", "OTROS"];
 const METHODS = ["EFECTIVO", "TRANSFERENCIA", "TARJETA", "CHEQUE"];
 
 export default function ExpensesPage() {
-  const [tick, setTick] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [expenses, setExpenses] = useState([]);
   const [isCreating, setIsCreating] = useState(false);
   
   const [form, setForm] = useState({
@@ -18,28 +19,49 @@ export default function ExpensesPage() {
     date: new Date().toISOString().slice(0, 10)
   });
 
-  const expenses = useMemo(() => getAllExpenses(), [tick]);
-
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    if (!form.amount || !form.description) return;
-    createExpense(form);
-    setForm({ description: "", amount: "", category: "OPERATIVO", method: "EFECTIVO", date: new Date().toISOString().slice(0, 10) });
-    setIsCreating(false);
-    setTick(t => t + 1);
-  };
-
-  const handleDelete = (id) => {
-    if(confirm("¿Eliminar registro de gasto?")) {
-      deleteExpense(id);
-      setTick(t => t + 1);
+  // Función de recarga
+  const refresh = async () => {
+    setLoading(true);
+    try {
+        const data = await getAllExpenses();
+        setExpenses(data);
+    } catch (error) {
+        console.error(error);
+        alert("Error al cargar gastos");
+    } finally {
+        setLoading(false);
     }
   };
+
+  useEffect(() => { refresh(); }, []);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!form.amount || !form.description) return;
+    
+    try {
+        await createExpense(form);
+        setForm({ description: "", amount: "", category: "OPERATIVO", method: "EFECTIVO", date: new Date().toISOString().slice(0, 10) });
+        setIsCreating(false);
+        refresh();
+    } catch (e) {
+        alert("Error: " + e.message);
+    }
+  };
+
+  const handleDelete = async (id) => {
+    if(confirm("¿Eliminar registro de gasto?")) {
+      await deleteExpense(id);
+      refresh();
+    }
+  };
+
+  if (loading && expenses.length === 0) return <LoadingState />;
 
   return (
     <div style={{ width: "100%", paddingBottom: 40 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-        <h1 style={{ margin: 0 }}>Gastos y Compras</h1>
+        <h1 style={{ margin: 0 }}>Gastos y Compras (Nube)</h1>
         <button onClick={() => setIsCreating(!isCreating)} style={{ background: "#f87171", color: "white", border: "none", padding: "10px 20px", borderRadius: 6, cursor: "pointer", fontWeight: "bold" }}>
           - Registrar Gasto
         </button>
@@ -55,7 +77,6 @@ export default function ExpensesPage() {
                  <input value={form.description} onChange={e => setForm({...form, description: e.target.value})} placeholder="Ej. Pago de Luz" style={{ padding: 8, background: "#222", border: "1px solid #444", color: "white", borderRadius: 4 }} />
               </label>
               
-              {/* 👇 MONTO ACTUALIZADO */}
               <label style={{ display: "grid", gap: 5 }}>
                  <span style={{fontSize:12, color:"#aaa"}}>Monto ($)</span>
                  <input 

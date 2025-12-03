@@ -1,20 +1,36 @@
 import { useState, useMemo, useEffect } from "react";
 import { getPatients } from "@/services/patientsStorage";
-import { getCurrentShift } from "@/services/shiftsStorage"; // 👈 IMPORTAR
+import { getCurrentShift } from "@/services/shiftsStorage";
 import SalesPanel from "@/components/SalesPanel";
+import LoadingState from "@/components/LoadingState";
 
 export default function SalesPage() {
+  const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
   const [selectedPatient, setSelectedPatient] = useState(null);
-  const [isShiftOpen, setIsShiftOpen] = useState(false);
-
-  // Validar estado del turno al montar
-  useEffect(() => {
-      const shift = getCurrentShift();
-      setIsShiftOpen(!!shift); // Solo true si hay turno OPEN
-  }, []);
   
-  const patients = useMemo(() => getPatients(), []);
+  const [isShiftOpen, setIsShiftOpen] = useState(false);
+  const [patients, setPatients] = useState([]);
+
+  // Carga inicial de datos desde Firebase
+  useEffect(() => {
+      async function loadData() {
+          setLoading(true);
+          try {
+              const [shiftData, patientsData] = await Promise.all([
+                  getCurrentShift(),
+                  getPatients()
+              ]);
+              setIsShiftOpen(!!shiftData);
+              setPatients(patientsData);
+          } catch (e) {
+              console.error(e);
+          } finally {
+              setLoading(false);
+          }
+      }
+      loadData();
+  }, []);
   
   const filteredPatients = useMemo(() => {
     if (!query) return [];
@@ -26,13 +42,15 @@ export default function SalesPage() {
     ).slice(0, 5);
   }, [patients, query]);
 
+  if (loading) return <LoadingState />;
+
   if (!isShiftOpen) {
       return (
           <div style={{ width: "100%", height: "80vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", color: "#666" }}>
               <div style={{ fontSize: "4rem", marginBottom: 20 }}>⛔</div>
               <h1>Caja Cerrada</h1>
               <p style={{ fontSize: "1.2em", maxWidth: 400, textAlign: "center" }}>
-                  No hay un turno abierto o se está realizando el corte de caja (Arqueo).
+                  No hay un turno abierto en este momento.
                   <br/><br/>
                   Ve a la sección <strong>Control Turnos</strong> para abrir caja.
               </p>

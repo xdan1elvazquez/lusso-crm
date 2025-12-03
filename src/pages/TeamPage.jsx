@@ -1,40 +1,58 @@
 import { useState, useEffect } from "react";
 import { getEmployees, createEmployee, updateEmployee, deleteEmployee, ROLES } from "@/services/employeesStorage";
+import LoadingState from "@/components/LoadingState";
 
 export default function TeamPage() {
   const [employees, setEmployees] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [form, setForm] = useState({ name: "", role: "SALES", commissionPercent: "", baseSalary: "" });
 
-  useEffect(() => { setEmployees(getEmployees()); }, []);
-
-  const handleSave = (e) => {
-    e.preventDefault();
-    if (!form.name) return;
-    createEmployee(form);
-    setForm({ name: "", role: "SALES", commissionPercent: "", baseSalary: "" });
-    setEmployees(getEmployees());
-  };
-
-  const handleUpdate = (id, field, val) => {
-      updateEmployee(id, { [field]: Number(val) });
-      setEmployees(getEmployees());
-  };
-
-  const handleDelete = (id) => {
-    if(confirm("¿Eliminar colaborador?")) {
-      deleteEmployee(id);
-      setEmployees(getEmployees());
+  // Función para recargar datos
+  const refresh = async () => {
+    setLoading(true);
+    try {
+      const data = await getEmployees();
+      setEmployees(data);
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setLoading(false);
     }
   };
 
+  useEffect(() => { refresh(); }, []);
+
+  const handleSave = async (e) => {
+    e.preventDefault();
+    if (!form.name) return;
+    await createEmployee(form);
+    setForm({ name: "", role: "SALES", commissionPercent: "", baseSalary: "" });
+    refresh();
+  };
+
+  const handleUpdate = async (id, field, val) => {
+      // Actualización optimista local para mejor UX
+      setEmployees(prev => prev.map(e => e.id === id ? { ...e, [field]: Number(val) } : e));
+      await updateEmployee(id, { [field]: Number(val) });
+  };
+
+  const handleDelete = async (id) => {
+    if(confirm("¿Eliminar colaborador?")) {
+      await deleteEmployee(id);
+      refresh();
+    }
+  };
+
+  if (loading && employees.length === 0) return <LoadingState />;
+
   return (
     <div style={{ paddingBottom: 40, width: "100%" }}>
-      <h1 style={{ marginBottom: 20 }}>Colaboradores y Configuración</h1>
+      <h1 style={{ marginBottom: 20 }}>Colaboradores (Nube)</h1>
       
       {/* FORMULARIO DE ALTA */}
       <form onSubmit={handleSave} style={{ background: "#1a1a1a", padding: 20, borderRadius: 12, border: "1px solid #333", marginBottom: 30 }}>
          <h3 style={{margin:"0 0 15px 0", color:"#e5e7eb", fontSize:"1.1em"}}>Nuevo Integrante</h3>
-         <div style={{ display: "grid", gridTemplateColumns: "2fr 1.5fr 1fr 1fr auto", gap: 15, alignItems: "end" }}>
+         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 15, alignItems: "end" }}>
              <label>
                 <div style={{fontSize:12, color:"#aaa", marginBottom:5}}>Nombre Completo</div>
                 <input autoFocus value={form.name} onChange={e => setForm({...form, name: e.target.value})} style={{width:"100%", padding:10, background:"#222", border:"1px solid #444", color:"white", borderRadius:6}} placeholder="Ej. Juan Pérez" />
@@ -57,7 +75,7 @@ export default function TeamPage() {
          </div>
       </form>
 
-      {/* LISTA EDITABLE */}
+      {/* LISTA */}
       <div style={{ display: "grid", gap: 10 }}>
          {employees.map(emp => (
              <div key={emp.id} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", background:"#111", padding:15, borderRadius:8, border:"1px solid #333" }}>
@@ -70,32 +88,17 @@ export default function TeamPage() {
                          <div style={{fontSize:"0.9em", color: ROLES[emp.role] ? "#60a5fa" : "#888"}}>{ROLES[emp.role] || emp.role}</div>
                      </div>
                  </div>
-                 
                  <div style={{display:"flex", gap:20, alignItems:"center", marginRight:20}}>
-                     {/* EDITOR SUELDO */}
                      <label style={{display:"flex", alignItems:"center", gap:5}}>
                         <span style={{fontSize:12, color:"#aaa"}}>Mensual: $</span>
-                        <input 
-                            type="number" 
-                            value={emp.baseSalary || 0} 
-                            onChange={(e) => handleUpdate(emp.id, 'baseSalary', e.target.value)}
-                            style={{width:70, padding:6, background:"#222", border:"1px solid #555", color:"#4ade80", borderRadius:4, textAlign:"right", fontWeight:"bold"}}
-                        />
+                        <input type="number" value={emp.baseSalary || 0} onChange={(e) => handleUpdate(emp.id, 'baseSalary', e.target.value)} style={{width:70, padding:6, background:"#222", border:"1px solid #555", color:"#4ade80", borderRadius:4, textAlign:"right", fontWeight:"bold"}} />
                      </label>
-
-                     {/* EDITOR COMISIÓN */}
                      <label style={{display:"flex", alignItems:"center", gap:5}}>
                         <span style={{fontSize:12, color:"#aaa"}}>Comisión:</span>
-                        <input 
-                            type="number" 
-                            value={emp.commissionPercent || 0} 
-                            onChange={(e) => handleUpdate(emp.id, 'commissionPercent', e.target.value)}
-                            style={{width:50, padding:6, background:"#222", border:"1px solid #555", color:"#fbbf24", borderRadius:4, textAlign:"center", fontWeight:"bold"}}
-                        />
+                        <input type="number" value={emp.commissionPercent || 0} onChange={(e) => handleUpdate(emp.id, 'commissionPercent', e.target.value)} style={{width:50, padding:6, background:"#222", border:"1px solid #555", color:"#fbbf24", borderRadius:4, textAlign:"center", fontWeight:"bold"}} />
                         <span style={{color:"#fbbf24"}}>%</span>
                      </label>
                  </div>
-
                  <button onClick={() => handleDelete(emp.id)} style={{color:"#f87171", background:"none", border:"none", cursor:"pointer"}}>Eliminar</button>
              </div>
          ))}

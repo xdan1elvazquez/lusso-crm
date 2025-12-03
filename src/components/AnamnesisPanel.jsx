@@ -10,30 +10,11 @@ import {
   getHypertensionMeds, updateHypertensionMeds 
 } from "@/services/settingsStorage";
 
-// --- LISTAS DE PADECIMIENTOS ---
-const SYSTEMIC_LIST = [
-  "Diabetes", "Hipertensión", "Artritis", "Tiroides", 
-  "Cáncer", "Enf. Autoinmune", "Renal", "Cardiovascular", "Embarazo"
-];
+const SYSTEMIC_LIST = ["Diabetes", "Hipertensión", "Artritis", "Tiroides", "Cáncer", "Enf. Autoinmune", "Renal", "Cardiovascular", "Embarazo"];
+const NON_PATHOLOGICAL_LIST = ["Tabaquismo", "Alcoholismo", "Toxicomanías", "Alimentación", "Actividad Física", "Inmunizaciones"];
+const OCULAR_LIST = ["Glaucoma", "Catarata", "Cirugía Ocular", "Trauma Ocular", "Uso de Lentes de Contacto", "Ojo Seco", "Infecciones Recurrentes", "Desprendimiento Retina"];
+const FAMILY_LIST = ["Diabetes (Fam)", "Hipertensión (Fam)", "Glaucoma (Fam)", "Queratocono (Fam)", "Ceguera (Fam)", "Catarata (Fam)"];
 
-// 👈 NUEVA LISTA (Relevante Oftalmología)
-const NON_PATHOLOGICAL_LIST = [
-  "Tabaquismo", "Alcoholismo", "Toxicomanías", 
-  "Alimentación", "Actividad Física", "Inmunizaciones"
-];
-
-const OCULAR_LIST = [
-  "Glaucoma", "Catarata", "Cirugía Ocular", "Trauma Ocular", 
-  "Uso de Lentes de Contacto", "Ojo Seco", "Infecciones Recurrentes", 
-  "Desprendimiento Retina"
-];
-
-const FAMILY_LIST = [
-  "Diabetes (Fam)", "Hipertensión (Fam)", "Glaucoma (Fam)", 
-  "Queratocono (Fam)", "Ceguera (Fam)", "Catarata (Fam)"
-];
-
-// --- UTILIDAD: CALCULAR EVOLUCIÓN ---
 function calculateEvolution(dateStr) {
     if (!dateStr) return "";
     const start = new Date(dateStr);
@@ -49,11 +30,11 @@ function calculateEvolution(dateStr) {
     return "Reciente (<1 mes)";
 }
 
-// --- SUBCOMPONENTE: GESTOR DE CATÁLOGO ---
+// --- SUBCOMPONENTES ---
+
 const CatalogManager = ({ mode, onClose, catalog, onUpdate }) => {
     const [newItem, setNewItem] = useState("");
     if (!mode) return null;
-
     const title = mode === "DIABETES" ? "Medicamentos Diabetes" : "Medicamentos Hipertensión";
 
     const handleAdd = () => {
@@ -99,7 +80,6 @@ const CatalogManager = ({ mode, onClose, catalog, onUpdate }) => {
     );
 };
 
-// --- SUBCOMPONENTE: FILA DE MEDICAMENTO ---
 const MedsRow = ({ meds, onChange, catalog, onOpenCatalog, listId }) => {
     const addRow = () => onChange([...meds, { name: "", dose: "" }]);
     const updateRow = (idx, field, val) => {
@@ -130,130 +110,26 @@ const MedsRow = ({ meds, onChange, catalog, onOpenCatalog, listId }) => {
     );
 };
 
-export default function AnamnesisPanel({ patientId }) {
-  const [tick, setTick] = useState(0);
-  const [isCreating, setIsCreating] = useState(false);
-  
-  const [catalogMode, setCatalogMode] = useState(null);
-  const [diabetesCatalog, setDiabetesCatalog] = useState([]);
-  const [hyperCatalog, setHyperCatalog] = useState([]);
-
-  const [detailModal, setDetailModal] = useState(null);
-
-  // ESTADOS DEL FORMULARIO BASE
-  const [systemic, setSystemic] = useState({});
-  const [nonPathological, setNonPathological] = useState({}); // 👈 NUEVO ESTADO
-  const [ocular, setOcular] = useState({});
-  const [family, setFamily] = useState({});
-  const [extras, setExtras] = useState({ allergies: "", medications: "", observations: "" });
-
-  // ESTADOS DETALLADOS
-  const [diabetesData, setDiabetesData] = useState({ 
-      diagnosisDate: "", evolution: "", maxVal: "", maxDate: "", stableDate: "", meds: [] 
-  });
-  const [hyperData, setHyperData] = useState({ 
-      diagnosisDate: "", evolution: "", maxValSys: "", maxValDia: "", maxDate: "", lastTake: "", lastMeasureSys: "", lastMeasureDia: "", lastMeasureDate: "", meds: [] 
-  });
-
-  const historyList = useMemo(() => getAnamnesisByPatientId(patientId), [patientId, tick]);
-
-  useEffect(() => {
-      setDiabetesCatalog(getDiabetesMeds());
-      setHyperCatalog(getHypertensionMeds());
-  }, [catalogMode]); 
-
-  useEffect(() => {
-      if(diabetesData.diagnosisDate) setDiabetesData(d => ({...d, evolution: calculateEvolution(d.diagnosisDate)}));
-  }, [diabetesData.diagnosisDate]);
-
-  useEffect(() => {
-      if(hyperData.diagnosisDate) setHyperData(d => ({...d, evolution: calculateEvolution(d.diagnosisDate)}));
-  }, [hyperData.diagnosisDate]);
-
-  const toggleCondition = (group, setGroup, key) => {
-    setGroup(prev => {
-      const current = prev[key] || { active: false, notes: "" };
-      if (current.active) {
-        const next = { ...prev };
-        delete next[key];
-        return next;
-      } else {
-        return { ...prev, [key]: { active: true, notes: "" } };
-      }
-    });
-  };
-
-  const updateNotes = (setGroup, key, text) => {
-    setGroup(prev => ({ ...prev, [key]: { ...prev[key], active: true, notes: text } }));
-  };
-
-  const handleCloneLast = () => {
-    const last = getLastAnamnesis(patientId);
-    if (!last) return alert("No hay historial previo.");
-    setSystemic(last.systemic || {});
-    setNonPathological(last.nonPathological || {}); // 👈 CLONAR NUEVO GRUPO
-    setOcular(last.ocular || {});
-    setFamily(last.family || {});
-    setExtras({ allergies: last.allergies||"", medications: last.medications||"", observations: last.observations||"" });
-    
-    if(last.systemic?.Diabetes?.details) setDiabetesData(last.systemic.Diabetes.details);
-    if(last.systemic?.Hipertensión?.details) setHyperData(last.systemic.Hipertensión.details);
-    
-    setIsCreating(true);
-  };
-
-  const onSubmit = (e) => {
-    e.preventDefault();
-    
-    const finalSystemic = { ...systemic };
-    if (finalSystemic["Diabetes"]?.active) {
-        const medsTxt = diabetesData.meds.map(m => `${m.name} ${m.dose}`).join(", ");
-        const summary = `Dx: ${diabetesData.diagnosisDate || "?"} (${diabetesData.evolution}). Tx: ${medsTxt || "Ninguno"}. Max: ${diabetesData.maxVal || "-"} mg/dL`;
-        finalSystemic["Diabetes"] = { active: true, notes: summary, details: diabetesData };
-    }
-
-    if (finalSystemic["Hipertensión"]?.active) {
-        const medsTxt = hyperData.meds.map(m => `${m.name} ${m.dose}`).join(", ");
-        const summary = `Dx: ${hyperData.diagnosisDate || "?"} (${hyperData.evolution}). Tx: ${medsTxt || "Ninguno"}. Última: ${hyperData.lastMeasureSys}/${hyperData.lastMeasureDia}`;
-        finalSystemic["Hipertensión"] = { active: true, notes: summary, details: hyperData };
-    }
-
-    // 👈 GUARDAR CON EL NUEVO GRUPO
-    createAnamnesis({ 
-        patientId, 
-        systemic: finalSystemic, 
-        nonPathological, 
-        ocular, 
-        family, 
-        ...extras 
-    });
-    
-    setSystemic({}); setNonPathological({}); setOcular({}); setFamily({});
-    setExtras({ allergies: "", medications: "", observations: "" });
-    setDiabetesData({ diagnosisDate: "", evolution: "", maxVal: "", maxDate: "", stableDate: "", meds: [] });
-    setHyperData({ diagnosisDate: "", evolution: "", maxValSys: "", maxValDia: "", maxDate: "", lastTake: "", lastMeasureSys: "", lastMeasureDia: "", lastMeasureDate: "", meds: [] });
-    
-    setIsCreating(false);
-    setTick(t => t + 1);
-  };
-
-  const onDelete = (id) => { if(confirm("¿Borrar?")) { deleteAnamnesis(id); setTick(t => t + 1); } };
-
-  // --- RENDERIZADORES ---
-  const ConditionRow = ({ label, dataGroup, setGroup }) => {
+const ConditionRow = ({ label, dataGroup, setGroup, diabetesData, setDiabetesData, hyperData, setHyperData, diabetesCatalog, hyperCatalog, setCatalogMode }) => {
     const item = dataGroup[label] || { active: false, notes: "" };
     const isSpecial = label === "Diabetes" || label === "Hipertensión";
 
     return (
       <div style={{ borderBottom: "1px solid #333", paddingBottom: 6, marginBottom: 6 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <div onClick={() => toggleCondition(dataGroup, setGroup, label)} style={{ cursor: "pointer", width: 40, height: 20, borderRadius: 10, position: "relative", background: item.active ? "#4ade80" : "#444", transition: "all 0.2s" }}>
+            <div onClick={() => {
+                setGroup(prev => {
+                  const current = prev[label] || { active: false, notes: "" };
+                  if (current.active) { const next = { ...prev }; delete next[label]; return next; } 
+                  else { return { ...prev, [label]: { active: true, notes: "" } }; }
+                });
+            }} style={{ cursor: "pointer", width: 40, height: 20, borderRadius: 10, position: "relative", background: item.active ? "#4ade80" : "#444", transition: "all 0.2s" }}>
               <div style={{ width: 16, height: 16, borderRadius: "50%", background: "white", position: "absolute", top: 2, left: item.active ? 22 : 2, transition: "all 0.2s" }} />
             </div>
             <div style={{ flex: 1, fontSize: 13, color: item.active ? "white" : "#888", fontWeight: item.active ? "bold" : "normal" }}>{label}</div>
             
             {item.active && !isSpecial && (
-              <input placeholder="Detalles / Cantidad / Frecuencia..." value={item.notes} onChange={e => updateNotes(setGroup, label, e.target.value)} style={{ width: "50%", background: "transparent", border: "none", borderBottom: "1px solid #60a5fa", color: "#60a5fa", fontSize: 12, padding: 2 }} autoFocus />
+              <input placeholder="Detalles / Cantidad / Frecuencia..." value={item.notes} onChange={e => setGroup(prev => ({ ...prev, [label]: { ...prev[label], notes: e.target.value } }))} style={{ width: "50%", background: "transparent", border: "none", borderBottom: "1px solid #60a5fa", color: "#60a5fa", fontSize: 12, padding: 2 }} autoFocus />
             )}
           </div>
 
@@ -298,44 +174,151 @@ export default function AnamnesisPanel({ patientId }) {
           )}
       </div>
     );
+};
+
+const DetailModal = ({ title, data, onClose }) => {
+    if (!data) return null;
+    return (
+        <div style={{position:"fixed", top:0, left:0, right:0, bottom:0, background:"rgba(0,0,0,0.85)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:150}}>
+            <div style={{background:"#1a1a1a", padding:25, borderRadius:10, width:500, border:"1px solid #4ade80"}}>
+                <h3 style={{marginTop:0, color:"#4ade80"}}>{title} (Detalle)</h3>
+                <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:15, marginBottom:15}}>
+                    <div><strong style={{color:"#aaa", fontSize:12}}>DIAGNÓSTICO</strong><div>{data.diagnosisDate} ({data.evolution})</div></div>
+                    {data.stableDate && <div><strong style={{color:"#aaa", fontSize:12}}>ESTABILIZACIÓN</strong><div>{data.stableDate}</div></div>}
+                    {data.maxVal && <div><strong style={{color:"#aaa", fontSize:12}}>PICO MÁXIMO</strong><div>{data.maxVal} mg/dL ({data.maxDate})</div></div>}
+                    {(data.maxValSys || data.maxValDia) && <div><strong style={{color:"#aaa", fontSize:12}}>PICO MÁXIMO</strong><div>{data.maxValSys}/{data.maxValDia} ({data.maxDate})</div></div>}
+                    {(data.lastMeasureSys || data.lastMeasureDia) && <div><strong style={{color:"#aaa", fontSize:12}}>ÚLTIMA MEDICIÓN</strong><div>{data.lastMeasureSys}/{data.lastMeasureDia} ({data.lastMeasureDate})</div></div>}
+                    {data.lastTake && <div><strong style={{color:"#aaa", fontSize:12}}>ÚLTIMA TOMA</strong><div>{data.lastTake}</div></div>}
+                </div>
+                
+                <div style={{background:"#222", padding:10, borderRadius:6}}>
+                    <strong style={{color:"#aaa", fontSize:12}}>TRATAMIENTO ACTUAL</strong>
+                    {data.meds?.length > 0 ? (
+                        <ul style={{margin:"5px 0 0 15px", padding:0}}>
+                            {data.meds.map((m,i) => <li key={i}>{m.name} - {m.dose}</li>)}
+                        </ul>
+                    ) : <div style={{fontStyle:"italic", color:"#666"}}>Sin medicamentos registrados.</div>}
+                </div>
+
+                <div style={{textAlign:"right", marginTop:20}}>
+                    <button onClick={onClose} style={{background:"#333", color:"white", border:"1px solid #555", padding:"8px 16px", borderRadius:6, cursor:"pointer"}}>Cerrar</button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+export default function AnamnesisPanel({ patientId }) {
+  const [loading, setLoading] = useState(true);
+  const [historyList, setHistoryList] = useState([]);
+  const [isCreating, setIsCreating] = useState(false);
+  
+  const [catalogMode, setCatalogMode] = useState(null);
+  const [diabetesCatalog, setDiabetesCatalog] = useState([]);
+  const [hyperCatalog, setHyperCatalog] = useState([]);
+  const [detailModal, setDetailModal] = useState(null);
+
+  // Estados del formulario
+  const [systemic, setSystemic] = useState({});
+  const [nonPathological, setNonPathological] = useState({});
+  const [ocular, setOcular] = useState({});
+  const [family, setFamily] = useState({});
+  const [extras, setExtras] = useState({ allergies: "", medications: "", observations: "" });
+
+  const [diabetesData, setDiabetesData] = useState({ diagnosisDate: "", evolution: "", maxVal: "", maxDate: "", stableDate: "", meds: [] });
+  const [hyperData, setHyperData] = useState({ diagnosisDate: "", evolution: "", maxValSys: "", maxValDia: "", maxDate: "", lastTake: "", lastMeasureSys: "", lastMeasureDia: "", lastMeasureDate: "", meds: [] });
+
+  // Carga Async
+  const refreshData = async () => {
+      setLoading(true);
+      try {
+          const data = await getAnamnesisByPatientId(patientId);
+          setHistoryList(data);
+      } catch (error) {
+          console.error(error);
+      } finally {
+          setLoading(false);
+      }
   };
 
-  const DetailModal = ({ title, data, onClose }) => {
-      if (!data) return null;
-      return (
-          <div style={{position:"fixed", top:0, left:0, right:0, bottom:0, background:"rgba(0,0,0,0.85)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:150}}>
-              <div style={{background:"#1a1a1a", padding:25, borderRadius:10, width:500, border:"1px solid #4ade80"}}>
-                  <h3 style={{marginTop:0, color:"#4ade80"}}>{title} (Detalle)</h3>
-                  <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:15, marginBottom:15}}>
-                      <div><strong style={{color:"#aaa", fontSize:12}}>DIAGNÓSTICO</strong><div>{data.diagnosisDate} ({data.evolution})</div></div>
-                      {data.stableDate && <div><strong style={{color:"#aaa", fontSize:12}}>ESTABILIZACIÓN</strong><div>{data.stableDate}</div></div>}
-                      {data.maxVal && <div><strong style={{color:"#aaa", fontSize:12}}>PICO MÁXIMO</strong><div>{data.maxVal} mg/dL ({data.maxDate})</div></div>}
-                      {(data.maxValSys || data.maxValDia) && <div><strong style={{color:"#aaa", fontSize:12}}>PICO MÁXIMO</strong><div>{data.maxValSys}/{data.maxValDia} ({data.maxDate})</div></div>}
-                      {(data.lastMeasureSys || data.lastMeasureDia) && <div><strong style={{color:"#aaa", fontSize:12}}>ÚLTIMA MEDICIÓN</strong><div>{data.lastMeasureSys}/{data.lastMeasureDia} ({data.lastMeasureDate})</div></div>}
-                      {data.lastTake && <div><strong style={{color:"#aaa", fontSize:12}}>ÚLTIMA TOMA</strong><div>{data.lastTake}</div></div>}
-                  </div>
-                  
-                  <div style={{background:"#222", padding:10, borderRadius:6}}>
-                      <strong style={{color:"#aaa", fontSize:12}}>TRATAMIENTO ACTUAL</strong>
-                      {data.meds?.length > 0 ? (
-                          <ul style={{margin:"5px 0 0 15px", padding:0}}>
-                              {data.meds.map((m,i) => <li key={i}>{m.name} - {m.dose}</li>)}
-                          </ul>
-                      ) : <div style={{fontStyle:"italic", color:"#666"}}>Sin medicamentos registrados.</div>}
-                  </div>
+  useEffect(() => { refreshData(); }, [patientId]);
 
-                  <div style={{textAlign:"right", marginTop:20}}>
-                      <button onClick={onClose} style={{background:"#333", color:"white", border:"1px solid #555", padding:"8px 16px", borderRadius:6, cursor:"pointer"}}>Cerrar</button>
-                  </div>
-              </div>
-          </div>
-      );
+  // Carga de catálogos (Local)
+  useEffect(() => {
+      setDiabetesCatalog(getDiabetesMeds());
+      setHyperCatalog(getHypertensionMeds());
+  }, [catalogMode]);
+
+  // Efectos de cálculo de fechas
+  useEffect(() => { if(diabetesData.diagnosisDate) setDiabetesData(d => ({...d, evolution: calculateEvolution(d.diagnosisDate)})); }, [diabetesData.diagnosisDate]);
+  useEffect(() => { if(hyperData.diagnosisDate) setHyperData(d => ({...d, evolution: calculateEvolution(d.diagnosisDate)})); }, [hyperData.diagnosisDate]);
+
+  const handleCloneLast = async () => {
+    try {
+        const last = await getLastAnamnesis(patientId);
+        if (!last) return alert("No hay historial previo.");
+        
+        setSystemic(last.systemic || {});
+        setNonPathological(last.nonPathological || {});
+        setOcular(last.ocular || {});
+        setFamily(last.family || {});
+        setExtras({ allergies: last.allergies||"", medications: last.medications||"", observations: last.observations||"" });
+        
+        if(last.systemic?.Diabetes?.details) setDiabetesData(last.systemic.Diabetes.details);
+        if(last.systemic?.Hipertensión?.details) setHyperData(last.systemic.Hipertensión.details);
+        
+        setIsCreating(true);
+    } catch(e) {
+        console.error(e);
+    }
+  };
+
+  const onSubmit = async (e) => {
+    e.preventDefault();
+    
+    const finalSystemic = { ...systemic };
+    if (finalSystemic["Diabetes"]?.active) {
+        const medsTxt = diabetesData.meds.map(m => `${m.name} ${m.dose}`).join(", ");
+        const summary = `Dx: ${diabetesData.diagnosisDate || "?"} (${diabetesData.evolution}). Tx: ${medsTxt || "Ninguno"}. Max: ${diabetesData.maxVal || "-"} mg/dL`;
+        finalSystemic["Diabetes"] = { active: true, notes: summary, details: diabetesData };
+    }
+
+    if (finalSystemic["Hipertensión"]?.active) {
+        const medsTxt = hyperData.meds.map(m => `${m.name} ${m.dose}`).join(", ");
+        const summary = `Dx: ${hyperData.diagnosisDate || "?"} (${hyperData.evolution}). Tx: ${medsTxt || "Ninguno"}. Última: ${hyperData.lastMeasureSys}/${hyperData.lastMeasureDia}`;
+        finalSystemic["Hipertensión"] = { active: true, notes: summary, details: hyperData };
+    }
+
+    await createAnamnesis({ 
+        patientId, 
+        systemic: finalSystemic, 
+        nonPathological, 
+        ocular, 
+        family, 
+        ...extras 
+    });
+    
+    // Limpieza
+    setSystemic({}); setNonPathological({}); setOcular({}); setFamily({});
+    setExtras({ allergies: "", medications: "", observations: "" });
+    setDiabetesData({ diagnosisDate: "", evolution: "", maxVal: "", maxDate: "", stableDate: "", meds: [] });
+    setHyperData({ diagnosisDate: "", evolution: "", maxValSys: "", maxValDia: "", maxDate: "", lastTake: "", lastMeasureSys: "", lastMeasureDia: "", lastMeasureDate: "", meds: [] });
+    
+    setIsCreating(false);
+    refreshData();
+  };
+
+  const onDelete = async (id) => { 
+      if(confirm("¿Borrar?")) { 
+          await deleteAnamnesis(id); 
+          refreshData(); 
+      } 
   };
 
   return (
     <section style={{ marginTop: 28, display: "grid", gap: 14, background: "#1a1a1a", padding: 20, borderRadius: 12, border: "1px solid #333" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <h2 style={{ margin: 0, fontSize: "1.2em", color: "#e5e7eb" }}>Anamnesis (Antecedentes)</h2>
+        <h2 style={{ margin: 0, fontSize: "1.2em", color: "#e5e7eb" }}>Anamnesis ({historyList.length})</h2>
         <div style={{display:"flex", gap:10}}>
            {historyList.length > 0 && !isCreating && <button onClick={handleCloneLast} style={{ fontSize: "0.9em", background: "#1e3a8a", color: "#bfdbfe", border: "1px solid #60a5fa", padding: "6px 12px", borderRadius: 6, cursor: "pointer" }}>⚡ Copiar Anterior</button>}
            <button onClick={() => { setIsCreating(!isCreating); setSystemic({}); setNonPathological({}); setOcular({}); setFamily({}); }} style={{ fontSize: "0.9em", background: isCreating ? "#333" : "#2563eb", color: "white", border: "none", padding: "6px 12px", borderRadius: 6, cursor: "pointer" }}>{isCreating ? "Cancelar" : "+ Nuevo Registro"}</button>
@@ -349,25 +332,21 @@ export default function AnamnesisPanel({ patientId }) {
       {isCreating && (
         <form onSubmit={onSubmit} style={{ display: "grid", gap: 20, background: "#111", padding: 20, borderRadius: 10, border: "1px dashed #555" }}>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))", gap: 30 }}>
-            {/* GRUPO 1: PATOLÓGICOS */}
             <div>
                 <h4 style={{ color: "#f87171", borderBottom: "1px solid #f87171", paddingBottom: 5, marginTop: 0 }}>1. Personales Patológicos</h4>
-                {SYSTEMIC_LIST.map(label => <ConditionRow key={label} label={label} dataGroup={systemic} setGroup={setSystemic} />)}
+                {SYSTEMIC_LIST.map(label => <ConditionRow key={label} label={label} dataGroup={systemic} setGroup={setSystemic} diabetesData={diabetesData} setDiabetesData={setDiabetesData} hyperData={hyperData} setHyperData={setHyperData} diabetesCatalog={diabetesCatalog} hyperCatalog={hyperCatalog} setCatalogMode={setCatalogMode} />)}
             </div>
             
-            {/* GRUPO 2: NO PATOLÓGICOS (NUEVO) */}
             <div>
                 <h4 style={{ color: "#34d399", borderBottom: "1px solid #34d399", paddingBottom: 5, marginTop: 0 }}>2. No Patológicos</h4>
                 {NON_PATHOLOGICAL_LIST.map(label => <ConditionRow key={label} label={label} dataGroup={nonPathological} setGroup={setNonPathological} />)}
             </div>
 
-            {/* GRUPO 3: OCULARES */}
             <div>
                 <h4 style={{ color: "#60a5fa", borderBottom: "1px solid #60a5fa", paddingBottom: 5, marginTop: 0 }}>3. Oculares</h4>
                 {OCULAR_LIST.map(label => <ConditionRow key={label} label={label} dataGroup={ocular} setGroup={setOcular} />)}
             </div>
 
-            {/* GRUPO 4: HEREDOFAMILIARES */}
             <div>
                 <h4 style={{ color: "#fbbf24", borderBottom: "1px solid #fbbf24", paddingBottom: 5, marginTop: 0 }}>4. Heredofamiliares</h4>
                 {FAMILY_LIST.map(label => <ConditionRow key={label} label={label} dataGroup={family} setGroup={setFamily} />)}
@@ -383,53 +362,55 @@ export default function AnamnesisPanel({ patientId }) {
         </form>
       )}
 
-      <div style={{ display: "grid", gap: 10 }}>
-        {historyList.map((entry) => {
-           const hasSystemic = Object.keys(entry.systemic || {}).length > 0;
-           const hasNonPath = Object.keys(entry.nonPathological || {}).length > 0;
-           const hasOcular = Object.keys(entry.ocular || {}).length > 0;
-           return (
-            <div key={entry.id} style={{ border: "1px solid #333", borderRadius: 8, padding: 15, background: "#111" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8, borderBottom: "1px solid #222", paddingBottom: 5 }}>
-                <strong style={{color:"#ddd"}}>{new Date(entry.createdAt).toLocaleDateString()}</strong>
-                <button onClick={() => onDelete(entry.id)} style={{ fontSize: 11, background: "none", border: "none", color: "#666", cursor: "pointer" }}>Eliminar</button>
-              </div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 15, fontSize: "0.9em" }}>
-                 {hasSystemic && (
-                    <div>
-                       <span style={{color: "#f87171", fontSize:11, fontWeight:"bold"}}>SISTÉMICOS:</span>
-                       <ul style={{margin:"4px 0 0 15px", padding:0, color:"#ccc"}}>
-                          {Object.entries(entry.systemic).map(([k, v]) => (
-                              <li key={k}>
-                                  {k} {v.notes && <span style={{color:"#888"}}>({v.notes})</span>}
-                                  {v.details && <button onClick={() => setDetailModal({ title: k, data: v.details })} style={{marginLeft:5, fontSize:10, background:"#333", border:"1px solid #555", borderRadius:4, cursor:"pointer", color:"#bfdbfe"}}>Ver Detalle</button>}
-                              </li>
-                          ))}
-                       </ul>
-                    </div>
-                 )}
-                 {hasNonPath && (
-                    <div>
-                       <span style={{color: "#34d399", fontSize:11, fontWeight:"bold"}}>NO PATOLÓGICOS:</span>
-                       <ul style={{margin:"4px 0 0 15px", padding:0, color:"#ccc"}}>
-                          {Object.entries(entry.nonPathological).map(([k, v]) => <li key={k}>{k} {v.notes && <span style={{color:"#888"}}>({v.notes})</span>}</li>)}
-                       </ul>
-                    </div>
-                 )}
-                 {hasOcular && (
-                    <div>
-                       <span style={{color: "#60a5fa", fontSize:11, fontWeight:"bold"}}>OCULARES:</span>
-                       <ul style={{margin:"4px 0 0 15px", padding:0, color:"#ccc"}}>{Object.entries(entry.ocular).map(([k, v]) => <li key={k}>{k} {v.notes && <span style={{color:"#888"}}>({v.notes})</span>}</li>)}</ul>
-                    </div>
-                 )}
-                 <div>
-                    {(entry.allergies || entry.medications) && <><span style={{color: "#fbbf24", fontSize:11, fontWeight:"bold"}}>OTROS:</span><div style={{marginTop:4, color:"#aaa"}}>{entry.allergies && <div>Alergias: {entry.allergies}</div>}{entry.medications && <div>Meds: {entry.medications}</div>}</div></>}
-                 </div>
-              </div>
-            </div>
-           )
-        })}
-      </div>
+      {loading ? <div style={{color:"#666", padding:20, textAlign:"center"}}>Cargando antecedentes...</div> : (
+          <div style={{ display: "grid", gap: 10 }}>
+            {historyList.map((entry) => {
+               const hasSystemic = Object.keys(entry.systemic || {}).length > 0;
+               const hasNonPath = Object.keys(entry.nonPathological || {}).length > 0;
+               const hasOcular = Object.keys(entry.ocular || {}).length > 0;
+               return (
+                <div key={entry.id} style={{ border: "1px solid #333", borderRadius: 8, padding: 15, background: "#111" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8, borderBottom: "1px solid #222", paddingBottom: 5 }}>
+                    <strong style={{color:"#ddd"}}>{new Date(entry.createdAt).toLocaleDateString()}</strong>
+                    <button onClick={() => onDelete(entry.id)} style={{ fontSize: 11, background: "none", border: "none", color: "#666", cursor: "pointer" }}>Eliminar</button>
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 15, fontSize: "0.9em" }}>
+                     {hasSystemic && (
+                        <div>
+                           <span style={{color: "#f87171", fontSize:11, fontWeight:"bold"}}>SISTÉMICOS:</span>
+                           <ul style={{margin:"4px 0 0 15px", padding:0, color:"#ccc"}}>
+                              {Object.entries(entry.systemic).map(([k, v]) => (
+                                  <li key={k}>
+                                      {k} {v.notes && <span style={{color:"#888"}}>({v.notes})</span>}
+                                      {v.details && <button onClick={() => setDetailModal({ title: k, data: v.details })} style={{marginLeft:5, fontSize:10, background:"#333", border:"1px solid #555", borderRadius:4, cursor:"pointer", color:"#bfdbfe"}}>Ver Detalle</button>}
+                                  </li>
+                              ))}
+                           </ul>
+                        </div>
+                     )}
+                     {hasNonPath && (
+                        <div>
+                           <span style={{color: "#34d399", fontSize:11, fontWeight:"bold"}}>NO PATOLÓGICOS:</span>
+                           <ul style={{margin:"4px 0 0 15px", padding:0, color:"#ccc"}}>
+                              {Object.entries(entry.nonPathological).map(([k, v]) => <li key={k}>{k} {v.notes && <span style={{color:"#888"}}>({v.notes})</span>}</li>)}
+                           </ul>
+                        </div>
+                     )}
+                     {hasOcular && (
+                        <div>
+                           <span style={{color: "#60a5fa", fontSize:11, fontWeight:"bold"}}>OCULARES:</span>
+                           <ul style={{margin:"4px 0 0 15px", padding:0, color:"#ccc"}}>{Object.entries(entry.ocular).map(([k, v]) => <li key={k}>{k} {v.notes && <span style={{color:"#888"}}>({v.notes})</span>}</li>)}</ul>
+                        </div>
+                     )}
+                     <div>
+                        {(entry.allergies || entry.medications) && <><span style={{color: "#fbbf24", fontSize:11, fontWeight:"bold"}}>OTROS:</span><div style={{marginTop:4, color:"#aaa"}}>{entry.allergies && <div>Alergias: {entry.allergies}</div>}{entry.medications && <div>Meds: {entry.medications}</div>}</div></>}
+                     </div>
+                  </div>
+                </div>
+               )
+            })}
+          </div>
+      )}
     </section>
   );
 }

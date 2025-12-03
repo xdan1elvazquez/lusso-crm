@@ -1,28 +1,41 @@
-const KEY = "lusso_inventory_logs_v1";
+import { db } from "@/firebase/config";
+import { 
+  collection, 
+  addDoc, 
+  query, 
+  where, 
+  orderBy, 
+  getDocs 
+} from "firebase/firestore";
 
-function read() {
-  try { return JSON.parse(localStorage.getItem(KEY) || "[]"); } catch { return []; }
+const COLLECTION_NAME = "inventory_logs";
+
+// --- LECTURA ---
+export async function getLogsByProductId(productId) {
+  if (!productId) return [];
+  
+  const q = query(
+    collection(db, COLLECTION_NAME),
+    where("productId", "==", productId),
+    orderBy("date", "desc")
+  );
+  
+  const snapshot = await getDocs(q);
+  return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 }
-function write(list) { localStorage.setItem(KEY, JSON.stringify(list)); }
 
-export function getLogsByProductId(productId) {
-  return read()
-    .filter(log => log.productId === productId)
-    .sort((a, b) => new Date(b.date) - new Date(a.date)); // Más reciente primero
-}
-
-export function createLog(data) {
-  const list = read();
+// --- ESCRITURA ---
+export async function createLog(data) {
   const newLog = {
-    id: crypto.randomUUID(),
     productId: data.productId,
     date: new Date().toISOString(),
-    type: data.type || "ADJUSTMENT", // SALE, PURCHASE, ADJUSTMENT, RETURN, INITIAL
-    quantity: Number(data.quantity) || 0, // Puede ser negativo (salida) o positivo (entrada)
-    finalStock: Number(data.finalStock) || 0, // Stock resultante después del movimiento
-    reference: data.reference || "", // ID Venta, ID Compra, o "Manual"
-    user: data.user || "Admin"
+    type: data.type || "ADJUSTMENT",
+    quantity: Number(data.quantity) || 0,
+    finalStock: Number(data.finalStock) || 0,
+    reference: data.reference || "",
+    user: data.user || "Admin" // Aquí conectarás el usuario real luego
   };
-  write([newLog, ...list]);
+
+  await addDoc(collection(db, COLLECTION_NAME), newLog);
   return newLog;
 }

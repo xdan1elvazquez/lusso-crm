@@ -1,43 +1,67 @@
 import { useState, useEffect, useMemo } from "react";
 import { getCurrentShift, getShiftInProcess, openShift, preCloseShift, closeShift, getAllShifts } from "@/services/shiftsStorage";
-import { getSalesMetricsByShift } from "@/services/salesStorage";
+// Estos servicios siguen siendo síncronos (locales) por ahora, no afectan la UI async
+import { getSalesMetricsByShift } from "@/services/salesStorage"; 
 import { getExpensesByShift } from "@/services/expensesStorage";
-import { getEmployees } from "@/services/employeesStorage";
-import { useNotify, useConfirm } from "@/context/UIContext"; // 👈 HOOKS UI
+import { getEmployees } from "@/services/employeesStorage"; // 👈 Ahora usa Firebase
+import { useNotify, useConfirm } from "@/context/UIContext";
+import LoadingState from "@/components/LoadingState";
 
 export default function ShiftPage() {
   const notify = useNotify();
   const confirm = useConfirm();
   
-  const [tick, setTick] = useState(0);
+  const [loading, setLoading] = useState(true);
   const [activeShift, setActiveShift] = useState(null);
   const [auditShift, setAuditShift] = useState(null);
   const [history, setHistory] = useState([]);
+  const [employees, setEmployees] = useState([]); // 👈 Lista dinámica desde Firebase
   
   // Modales de vista
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [viewShift, setViewShift] = useState(null);
-
-  const employees = useMemo(() => getEmployees(), []);
 
   // Estados Formularios
   const [openForm, setOpenForm] = useState({ user: "", initialCash: "" });
   const [blindCount, setBlindCount] = useState({ cash: "", card: "", transfer: "" });
   const [auditNotes, setAuditNotes] = useState("");
 
-  useEffect(() => {
-      setActiveShift(getCurrentShift());
-      setAuditShift(getShiftInProcess()); 
-      setHistory(getAllShifts());
-  }, [tick]);
+  // Función unificada para cargar todos los datos necesarios
+  const refreshData = async () => {
+      setLoading(true);
+      try {
+          // Ejecutamos todas las peticiones a Firebase en paralelo
+          const [current, process, all, emps] = await Promise.all([
+              getCurrentShift(),
+              getShiftInProcess(),
+              getAllShifts(),
+              getEmployees()
+          ]);
+          
+          setActiveShift(current);
+          setAuditShift(process);
+          setHistory(all);
+          setEmployees(emps);
+      } catch (e) {
+          console.error("Error cargando datos:", e);
+          notify.error("Error al cargar estado de caja");
+      } finally {
+          setLoading(false);
+      }
+  };
 
-  const handleOpen = () => {
+  // Carga inicial
+  useEffect(() => { 
+      refreshData(); 
+  }, []);
+
+  const handleOpen = async () => {
       if (!openForm.user) return notify.error("Selecciona tu usuario");
       if (openForm.initialCash === "") return notify.error("Indica fondo de caja");
       
       try {
-          openShift({ user: openForm.user, initialCash: openForm.initialCash });
-          setTick(t => t + 1);
+          await openShift({ user: openForm.user, initialCash: openForm.initialCash });
+          await refreshData();
           notify.success("Turno abierto correctamente");
       } catch(e) { notify.error(e.message); }
   };
@@ -52,16 +76,22 @@ export default function ShiftPage() {
       
       if (!ok) return;
       
-      preCloseShift(activeShift.id, blindCount);
-      setBlindCount({ cash: "", card: "", transfer: "" }); 
-      setTick(t => t + 1);
-      notify.info("Caja cerrada. Esperando auditoría.");
+      try {
+          await preCloseShift(activeShift.id, blindCount);
+          setBlindCount({ cash: "", card: "", transfer: "" }); 
+          await refreshData();
+          notify.info("Caja cerrada. Esperando auditoría.");
+      } catch (e) {
+          notify.error(e.message);
+      }
   };
 
   const metrics = useMemo(() => {
       const targetShift = auditShift || activeShift;
       if (!targetShift) return null;
 
+      // ⚠️ NOTA: salesStorage y expensesStorage aún leen de localStorage en esta fase.
+      // Cuando migres Ventas, esto deberá actualizarse.
       const sales = getSalesMetricsByShift(targetShift.id);
       const expenses = getExpensesByShift(targetShift.id);
       
@@ -74,7 +104,7 @@ export default function ShiftPage() {
           expenses, 
           expected: { cash: expectedCash, card: expectedCard, transfer: expectedTransfer } 
       };
-  }, [activeShift, auditShift, tick]);
+  }, [activeShift, auditShift]);
 
   const handleFinalClose = async () => {
       if (!metrics || !auditShift) return;
@@ -94,17 +124,23 @@ export default function ShiftPage() {
 
       if(!ok) return;
 
-      closeShift(auditShift.id, {
-          expected: metrics.expected,
-          declared: declared,
-          difference: diff,
-          notes: auditNotes
-      });
-      
-      setAuditNotes("");
-      setTick(t => t + 1);
-      notify.success("Turno finalizado y guardado.");
+      try {
+          await closeShift(auditShift.id, {
+              expected: metrics.expected,
+              declared: declared,
+              difference: diff,
+              notes: auditNotes
+          });
+          
+          setAuditNotes("");
+          await refreshData();
+          notify.success("Turno finalizado y guardado.");
+      } catch (e) {
+          notify.error(e.message);
+      }
   };
+
+  if (loading && !activeShift && !auditShift) return <LoadingState />;
 
   return (
     <div style={{ paddingBottom: 40, width: "100%" }}>

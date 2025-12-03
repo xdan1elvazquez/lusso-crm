@@ -1,12 +1,34 @@
-import { useMemo, useState } from "react";
-import { getPatients } from "@/services/patientsStorage";
+import { useMemo, useState, useEffect } from "react";
+import { getPatients } from "@/services/patientsStorage"; // 👈 Ahora es async
+import LoadingState from "@/components/LoadingState";
 
 export default function StatisticsPage() {
-  const [tick, setTick] = useState(0); // Por si queremos refrescar
-  const patients = useMemo(() => getPatients(), [tick]);
+  const [loading, setLoading] = useState(true);
+  const [patients, setPatients] = useState([]); // 👈 Iniciamos como array vacío
+
+  // Función para cargar datos desde Firebase
+  const refreshData = async () => {
+      setLoading(true);
+      try {
+          const data = await getPatients();
+          setPatients(data);
+      } catch (error) {
+          console.error("Error cargando estadísticas:", error);
+      } finally {
+          setLoading(false);
+      }
+  };
+
+  // Cargar al montar el componente
+  useEffect(() => {
+      refreshData();
+  }, []);
 
   // --- 1. ESTADÍSTICAS POR CÓDIGO POSTAL (GEO) ---
   const zipStats = useMemo(() => {
+    // Si no hay pacientes, retornamos vacío para evitar errores
+    if (patients.length === 0) return [];
+
     const counts = {};
     let withZip = 0;
     patients.forEach(p => {
@@ -23,6 +45,8 @@ export default function StatisticsPage() {
 
   // --- 2. ESTADÍSTICAS DE MARKETING (ORIGEN) ---
   const sourceStats = useMemo(() => {
+    if (patients.length === 0) return [];
+
     const counts = {};
     patients.forEach(p => {
         const src = p.referralSource || "Desconocido";
@@ -51,11 +75,13 @@ export default function StatisticsPage() {
     </div>
   );
 
+  if (loading) return <LoadingState />;
+
   return (
     <div style={{ width: "100%", paddingBottom: 40 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 30 }}>
         <h1 style={{ margin: 0 }}>Estadísticas de Pacientes</h1>
-        <button onClick={() => setTick(t => t + 1)} style={{ background: "#333", border: "1px solid #555", color: "white", padding: "8px 16px", borderRadius: 6, cursor: "pointer" }}>🔄 Actualizar</button>
+        <button onClick={refreshData} style={{ background: "#333", border: "1px solid #555", color: "white", padding: "8px 16px", borderRadius: 6, cursor: "pointer" }}>🔄 Actualizar</button>
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 20 }}>

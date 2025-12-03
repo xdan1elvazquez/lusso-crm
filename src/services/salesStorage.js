@@ -1,200 +1,68 @@
+import { db } from "@/firebase/config";
+import { 
+  collection, addDoc, getDocs, getDoc, doc, updateDoc, deleteDoc, query, where, orderBy 
+} from "firebase/firestore";
+
+// Servicios vinculados (Async)
 import { createWorkOrder, getAllWorkOrders, deleteWorkOrdersBySaleId } from "./workOrdersStorage";
 import { adjustStock } from "./inventoryStorage";
-import { getPatientById, adjustPatientPoints } from "./patientsStorage"; 
-import { getLoyaltySettings } from "./settingsStorage"; 
+import { adjustPatientPoints, getPatientById } from "./patientsStorage"; 
 import { createExpense } from "./expensesStorage";
-import { getCurrentShift } from "./shiftsStorage"; // 👈 IMPORTANTE: GESTIÓN DE TURNOS
+import { getCurrentShift } from "./shiftsStorage";
+import { getLoyaltySettings } from "./settingsStorage"; 
 
-const KEY = "lusso_sales_v1";
-const LAB_KINDS = new Set(["LENSES", "CONTACT_LENS"]);
+const COLLECTION_NAME = "sales";
 
-// Helper simple para obtener YYYY-MM-DD
+// Helper simple para fechas
 const getDay = (iso) => iso ? iso.slice(0, 10) : "";
 
-function read() {
-  try {
-    const str = localStorage.getItem(KEY);
-    if (!str) return [];
-    const parsed = JSON.parse(str);
-    return Array.isArray(parsed) ? parsed.filter(item => item && typeof item === 'object') : [];
-  } catch { return []; }
+// --- LECTURA ---
+export async function getAllSales() {
+  const q = query(collection(db, COLLECTION_NAME), orderBy("createdAt", "desc"));
+  const snapshot = await getDocs(q);
+  return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 }
 
-function write(list) { localStorage.setItem(KEY, JSON.stringify(list)); }
-
-// --- NUEVA FUNCIÓN PARA CORREGIR PAGOS (GERENTE) ---
-export function updateSalePaymentMethod(saleId, paymentId, newMethod) {
-  const list = read();
-  let updated = false;
-  
-  const next = list.map(s => {
-    if (s.id !== saleId) return s;
-
-    // Buscamos si el pago existe en esta venta
-    const paymentIndex = s.payments.findIndex(p => p.id === paymentId);
-    if (paymentIndex === -1) return s;
-
-    // Creamos copia de los pagos
-    const newPayments = [...s.payments];
-    
-    // Actualizamos solo el método (Mantenemos monto y fecha originales)
-    newPayments[paymentIndex] = {
-        ...newPayments[paymentIndex],
-        method: newMethod
-    };
-
-    updated = true;
-    return { ...s, payments: newPayments, updatedAt: new Date().toISOString() };
-  });
-
-  if (updated) {
-      write(next);
-      return true;
-  }
-  return false;
+export async function getSalesByPatientId(id) {
+  const q = query(collection(db, COLLECTION_NAME), where("patientId", "==", id));
+  const snapshot = await getDocs(q);
+  // Ordenamos en cliente
+  return snapshot.docs
+    .map(doc => ({ id: doc.id, ...doc.data() }))
+    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 }
 
-function mapLegacyCategoryToKind(category) {
-  switch ((category || "").toUpperCase()) {
-    case "LENTES": return "LENSES";
-    case "LC": return "CONTACT_LENS";
-    case "MEDICAMENTO": return "MEDICATION";
-    case "ACCESORIO": return "ACCESSORY";
-    case "CONSULTA": return "CONSULTATION";
-    default: return "OTHER";
-  }
-}
-
-function normalizeItem(item, saleFallback) {
-  const base = item || {}; 
-  const fallback = saleFallback || {};
-  const kind = base.kind || mapLegacyCategoryToKind(base.category || fallback.category || fallback.kind);
-
-  return {
-    id: base.id ?? crypto.randomUUID(),
-    kind,
-    description: base.description || fallback.description || "",
-    qty: Number(base.qty) || 1,
-    unitPrice: Number(base.unitPrice) || 0,
-    cost: Number(base.cost) || 0,
-    requiresLab: LAB_KINDS.has(kind) || Boolean(base.requiresLab),
-    consultationId: base.consultationId ?? fallback.consultationId ?? null,
-    eyeExamId: base.eyeExamId ?? null,
-    inventoryProductId: base.inventoryProductId ?? null,
-    taxable: base.taxable !== undefined ? Boolean(base.taxable) : true,
-    rxSnapshot: base.rxSnapshot ?? null,
-    labName: base.labName || "",
-    dueDate: base.dueDate || null,
-    specs: {
-        material: base.specs?.material || "",
-        design: base.specs?.design || "",
-        treatment: base.specs?.treatment || "",
-        frameModel: base.specs?.frameModel || "",
-        frameStatus: base.specs?.frameStatus || "NUEVO",
-        notes: base.specs?.notes || "",
-        requiresBisel: base.specs?.requiresBisel !== undefined ? base.specs.requiresBisel : true,
-        requiresTallado: base.specs?.requiresTallado || false
-    }
-  };
-}
-
-function normalizePayment(p, defaultDate) {
-  return {
-     id: p.id || crypto.randomUUID(),
-     amount: Number(p.amount) || 0,
-     method: p.method || "EFECTIVO",
-     paidAt: p.paidAt || defaultDate,
-     cardType: p.cardType || null,
-     terminal: p.terminal || null,
-     installments: p.installments || null,
-     feeAmount: Number(p.feeAmount) || 0,
-     shiftId: p.shiftId || null 
-  };
-}
-
-function normalizeSale(raw) {
-  const sale = raw || {};
-  let itemsArray = Array.isArray(sale.items) ? sale.items : [sale];
-  const items = itemsArray.map(i => normalizeItem(i, sale));
-  
-  const subtotalGross = items.reduce((sum, it) => sum + (it.qty * it.unitPrice), 0);
-  const discount = Number(sale.discount) || 0;
-  let total = subtotalGross - discount; if (total < 0) total = 0;
-
-  const payments = (Array.isArray(sale.payments) ? sale.payments : []).map(p => normalizePayment(p, sale.createdAt || new Date().toISOString()));
-  
-  return {
-    id: sale.id || crypto.randomUUID(),
-    patientId: sale.patientId ?? null,
-    boxNumber: sale.boxNumber || "",
-    soldBy: sale.soldBy || sale.logistics?.soldBy || "",
-    kind: sale.kind || items[0]?.kind || "OTHER",
-    description: sale.description || items[0]?.description || "",
-    subtotalGross, discount, total,
-    items, payments,
-    createdAt: sale.createdAt || new Date().toISOString(),
-    updatedAt: sale.updatedAt || sale.createdAt || new Date().toISOString(),
-    pointsAwarded: sale.pointsAwarded || 0,
-    shiftId: sale.shiftId || null,
-    logistics: {
-        jobMadeBy: sale.logistics?.jobMadeBy || sale.labDetails?.jobMadeBy || "",
-        labSentBy: sale.logistics?.labSentBy || sale.labDetails?.sentBy || "",
-        labReceivedBy: sale.logistics?.labReceivedBy || sale.labDetails?.receivedBy || "",
-        courier: sale.logistics?.courier || sale.labDetails?.courier || "",
-        deliveryDate: sale.logistics?.deliveryDate || sale.labDetails?.deliveryDate || null
-    }
-  };
-}
-
-function withDerived(sale) {
-  const paidAmount = sale.payments.reduce((acc, p) => acc + (Number(p.amount) || 0), 0);
-  const balance = Math.max(sale.total - paidAmount, 0);
-  const status = balance <= 0.01 ? "PAID" : "PENDING";
-  return { ...sale, paidAmount, balance, status };
-}
-
-export function getAllSales() { return read().map(s => withDerived(normalizeSale(s))); }
-export function getSalesByPatientId(id) { return getAllSales().filter(s => s.patientId === id); }
-
-function ensureWorkOrdersForSale(sale) {
-  const existing = getAllWorkOrders();
-  const existingKeys = new Set(existing.map(w => `${w.saleId}::${w.saleItemId}`));
-  
+// --- CREACIÓN DE VENTA ---
+async function ensureWorkOrdersForSale(sale, saleId) {
   const total = Number(sale.total) || 0;
   const paid = Number(sale.paidAmount) || 0;
   const ratio = total > 0 ? paid / total : 1;
   const initialStatus = ratio >= 0.5 ? "TO_PREPARE" : "ON_HOLD";
 
-  sale.items.forEach(item => {
-    if (!item.requiresLab) return;
-    const key = `${sale.id}::${item.id}`;
-    if (existingKeys.has(key)) return;
-    
-    createWorkOrder({
-      patientId: sale.patientId,
-      saleId: sale.id,
-      saleItemId: item.id,
-      type: item.kind === "CONTACT_LENS" ? "LC" : "LENTES",
-      status: initialStatus,
-      labName: item.labName || "",
-      labCost: item.cost || 0, 
-      rxNotes: item.rxSnapshot ? JSON.stringify(item.rxSnapshot) : "",
-      dueDate: item.dueDate || null,
-      createdAt: sale.createdAt,
-    });
-  });
+  for (const item of sale.items) {
+    if (item.requiresLab) {
+      await createWorkOrder({
+        patientId: sale.patientId,
+        saleId: saleId,
+        saleItemId: item.id,
+        type: item.kind === "CONTACT_LENS" ? "LC" : "LENTES",
+        status: initialStatus,
+        labName: item.labName || "",
+        labCost: item.cost || 0,
+        rxNotes: item.rxSnapshot ? JSON.stringify(item.rxSnapshot) : "",
+        dueDate: item.dueDate || null,
+        createdAt: sale.createdAt,
+      });
+    }
+  }
 }
 
-export function createSale(payload) {
+export async function createSale(payload) {
   if (!payload?.patientId) throw new Error("patientId requerido");
-  
-  // 👈 VALIDACIÓN DE TURNO (CORTE CIEGO)
-  const currentShift = getCurrentShift();
-  if (!currentShift) {
-      throw new Error("⛔ CAJA CERRADA: No hay un turno abierto para cobrar.");
-  }
 
-  const list = read();
+  const currentShift = await getCurrentShift();
+  if (!currentShift) throw new Error("⛔ CAJA CERRADA: No hay un turno abierto.");
+
   const now = new Date().toISOString();
   const loyalty = getLoyaltySettings();
 
@@ -210,102 +78,147 @@ export function createSale(payload) {
       pointsToAward = Math.floor((payload.total * rate) / 100);
   }
 
-  const normalizedSale = normalizeSale({
-    id: crypto.randomUUID(),
-    ...payload,
+  const newSale = {
+    patientId: payload.patientId,
+    boxNumber: payload.boxNumber || "",
+    soldBy: payload.soldBy || "",
+    kind: payload.items[0]?.kind || "OTHER",
+    description: payload.items[0]?.description || "Venta General",
+    
+    subtotalGross: Number(payload.subtotalGross) || 0,
+    discount: Number(payload.discount) || 0,
+    total: Number(payload.total) || 0,
+    paidAmount: paymentsWithShift.reduce((sum, p) => sum + Number(p.amount), 0),
+    balance: Math.max(0, payload.total - paymentsWithShift.reduce((sum, p) => sum + Number(p.amount), 0)),
+    
+    items: payload.items,
     payments: paymentsWithShift,
+    
     shiftId: currentShift.id,
     createdAt: now,
     updatedAt: now,
-    pointsAwarded: pointsToAward
-  });
+    pointsAwarded: pointsToAward,
+    status: "PENDING" // Se recalcula al leer o actualizar
+  };
+  
+  // Corregir status inicial
+  if (newSale.balance <= 0.01) newSale.status = "PAID";
 
-  normalizedSale.items.forEach(item => {
+  const docRef = await addDoc(collection(db, COLLECTION_NAME), newSale);
+  const saleId = docRef.id;
+
+  // Efectos secundarios en paralelo
+  const tasks = [];
+  payload.items.forEach(item => {
     if (item.inventoryProductId) {
-        adjustStock(item.inventoryProductId, -item.qty, `Venta #${normalizedSale.id.slice(0,6)}`);
+        tasks.push(adjustStock(item.inventoryProductId, -item.qty, `Venta #${saleId.slice(0,6)}`));
     }
   });
 
-  if (pointsToAward > 0) adjustPatientPoints(payload.patientId, pointsToAward);
-  const patient = getPatientById(payload.patientId);
-  if (loyalty.enabled && patient && patient.referredBy) {
-      const referralPoints = Math.floor((payload.total * loyalty.referralBonusPercent) / 100);
-      if (referralPoints > 0) adjustPatientPoints(patient.referredBy, referralPoints);
+  if (pointsToAward > 0) tasks.push(adjustPatientPoints(payload.patientId, pointsToAward));
+  
+  if (loyalty.enabled) {
+      const patient = await getPatientById(payload.patientId);
+      if (patient && patient.referredBy) {
+          const referralPoints = Math.floor((payload.total * loyalty.referralBonusPercent) / 100);
+          if (referralPoints > 0) tasks.push(adjustPatientPoints(patient.referredBy, referralPoints));
+      }
   }
 
-  write([normalizedSale, ...list]);
-  
-  const finalSale = withDerived(normalizedSale);
-  ensureWorkOrdersForSale(finalSale);
-  return finalSale;
+  await Promise.all(tasks);
+  await ensureWorkOrdersForSale(newSale, saleId);
+
+  return { id: saleId, ...newSale };
 }
 
-export function updateSaleLogistics(id, data) {
-    const list = read();
-    const now = new Date().toISOString();
-    const next = list.map(s => {
-        if (s.id !== id) return s;
-        return { ...s, soldBy: data.soldBy!==undefined?data.soldBy:s.soldBy, logistics: { ...(s.logistics||{}), ...(data.labDetails||{}) }, updatedAt: now };
-    });
-    write(next);
-}
+// --- ACTUALIZACIONES Y ABONOS ---
 
-export function addPaymentToSale(saleId, payment) {
-  // 👈 VALIDACIÓN DE TURNO PARA ABONOS
-  const currentShift = getCurrentShift();
-  if (!currentShift) throw new Error("⛔ CAJA CERRADA: Abre un turno para recibir abonos.");
+export async function addPaymentToSale(saleId, payment) {
+  const currentShift = await getCurrentShift();
+  if (!currentShift) throw new Error("⛔ CAJA CERRADA: Abre un turno para abonos.");
 
-  const list = read();
+  const saleRef = doc(db, COLLECTION_NAME, saleId);
+  const saleSnap = await getDoc(saleRef);
   
-  let updated = null;
-  const next = list.map(s => {
-    if (s.id !== saleId) return s;
-    const norm = normalizeSale(s);
-    const derived = withDerived(norm);
-    const amount = Math.min(Number(payment?.amount) || 0, derived.balance);
-    if (amount <= 0) return s;
-    
-    const newPay = normalizePayment({ 
-        ...payment, 
-        id: crypto.randomUUID(), 
-        amount, 
-        paidAt: new Date().toISOString(),
-        shiftId: currentShift.id 
-    }, new Date().toISOString());
-    
-    const updatedSale = { ...norm, payments: [...norm.payments, newPay], updatedAt: new Date().toISOString() };
-    updated = withDerived(updatedSale);
-    return updatedSale;
+  if (!saleSnap.exists()) throw new Error("Venta no encontrada");
+  const saleData = saleSnap.data();
+
+  // Calcular nuevo saldo
+  const currentPaid = saleData.payments.reduce((sum, p) => sum + (Number(p.amount)||0), 0);
+  const balance = saleData.total - currentPaid;
+  const amountToPay = Math.min(Number(payment.amount), balance);
+
+  if (amountToPay <= 0) return;
+
+  const newPayment = {
+      id: crypto.randomUUID(),
+      amount: amountToPay,
+      method: payment.method || "EFECTIVO",
+      paidAt: new Date().toISOString(),
+      shiftId: currentShift.id,
+      // Extras si es tarjeta
+      terminal: payment.terminal || null,
+      cardType: payment.cardType || null
+  };
+
+  const newPayments = [...saleData.payments, newPayment];
+  const newBalance = saleData.total - (currentPaid + amountToPay);
+  
+  await updateDoc(saleRef, {
+      payments: newPayments,
+      balance: newBalance,
+      status: newBalance <= 0.01 ? "PAID" : "PENDING",
+      updatedAt: new Date().toISOString()
   });
-  if(updated) write(next);
-  return updated;
 }
 
-export function processReturn(saleId, itemId, qtyToReturn, refundMethod = "EFECTIVO", notes = "") {
-    // 👈 VALIDACIÓN DE TURNO PARA DEVOLUCIONES
-    const currentShift = getCurrentShift();
-    if (!currentShift) throw new Error("⛔ CAJA CERRADA: No se pueden procesar devoluciones (salida de dinero) sin turno.");
+export async function updateSalePaymentMethod(saleId, paymentId, newMethod) {
+  const saleRef = doc(db, COLLECTION_NAME, saleId);
+  const saleSnap = await getDoc(saleRef);
+  if (!saleSnap.exists()) return false;
+  
+  const saleData = saleSnap.data();
+  const newPayments = saleData.payments.map(p => 
+      p.id === paymentId ? { ...p, method: newMethod } : p
+  );
 
-    const list = read();
-    let sale = list.find(s => s.id === saleId);
-    if (!sale) throw new Error("Venta no encontrada");
+  await updateDoc(saleRef, { payments: newPayments, updatedAt: new Date().toISOString() });
+  return true;
+}
 
-    const item = sale.items.find(i => i.id === itemId);
-    if (!item) throw new Error("Producto no encontrado en la venta");
+export async function updateSaleLogistics(id, data) {
+    const saleRef = doc(db, COLLECTION_NAME, id);
+    await updateDoc(saleRef, {
+        soldBy: data.soldBy,
+        updatedAt: new Date().toISOString()
+    });
+}
+
+// --- DEVOLUCIONES (Restaurada) ---
+export async function processReturn(saleId, itemId, qtyToReturn, refundMethod = "EFECTIVO") {
+    const currentShift = await getCurrentShift();
+    if (!currentShift) throw new Error("⛔ CAJA CERRADA: Requieres turno para devoluciones.");
+
+    const saleRef = doc(db, COLLECTION_NAME, saleId);
+    const saleSnap = await getDoc(saleRef);
+    if (!saleSnap.exists()) throw new Error("Venta no encontrada");
     
-    const refundAmount = item.unitPrice * qtyToReturn;
+    const sale = saleSnap.data();
+    const itemIndex = sale.items.findIndex(i => i.id === itemId);
+    if (itemIndex === -1) throw new Error("Producto no encontrado");
 
+    const item = sale.items[itemIndex];
+    
+    // 1. Ajustar Inventario (Devolver stock)
     if (item.inventoryProductId) {
-        adjustStock(
-            item.inventoryProductId, 
-            qtyToReturn,
-            `Devolución Venta #${saleId.slice(0,6)}`
-        );
+        await adjustStock(item.inventoryProductId, qtyToReturn, `Devolución Venta #${saleId.slice(0,6)}`);
     }
 
+    // 2. Registrar Egreso de Caja (Si aplica reembolso)
+    const refundAmount = item.unitPrice * qtyToReturn;
     if (refundAmount > 0) {
-        createExpense({
-            description: `Reembolso / Devolución: ${item.description} (Venta #${saleId.slice(0,6)})`,
+        await createExpense({
+            description: `Devolución: ${item.description} (Venta #${saleId.slice(0,6)})`,
             amount: refundAmount,
             category: "COSTO_VENTA",
             method: refundMethod,
@@ -314,58 +227,81 @@ export function processReturn(saleId, itemId, qtyToReturn, refundMethod = "EFECT
         });
     }
 
-    const updatedItems = sale.items.map(i => {
-        if (i.id === itemId) {
-            return { 
-                ...i, 
-                returnedQty: (i.returnedQty || 0) + qtyToReturn,
-                qty: i.qty - qtyToReturn
-            };
-        }
-        return i;
-    });
+    // 3. Actualizar Venta
+    const updatedItems = [...sale.items];
+    updatedItems[itemIndex] = {
+        ...item,
+        returnedQty: (item.returnedQty || 0) + qtyToReturn,
+        qty: item.qty - qtyToReturn
+    };
 
+    // Recalcular total venta
     const newSubtotal = updatedItems.reduce((sum, i) => sum + (i.qty * i.unitPrice), 0);
     const newTotal = Math.max(0, newSubtotal - (sale.discount || 0));
-    
-    const next = list.map(s => s.id === saleId ? { ...s, items: updatedItems, total: newTotal, updatedAt: new Date().toISOString() } : s);
-    write(next);
 
-    return true;
+    await updateDoc(saleRef, {
+        items: updatedItems,
+        total: newTotal,
+        updatedAt: new Date().toISOString()
+    });
 }
 
-export function deleteSale(id) { 
-    const list = read();
-    const sale = list.find(s => s.id === id);
-
-    if (sale) {
-        if (sale.pointsAwarded > 0) adjustPatientPoints(sale.patientId, -sale.pointsAwarded);
-        const loyalty = getLoyaltySettings();
-        const patient = getPatientById(sale.patientId);
+// --- ELIMINAR ---
+export async function deleteSale(id) {
+    const saleRef = doc(db, COLLECTION_NAME, id);
+    const saleSnap = await getDoc(saleRef);
+    
+    if (saleSnap.exists()) {
+        const sale = saleSnap.data();
         
-        if (loyalty.enabled && patient && patient.referredBy) {
-            const referralPoints = Math.floor((sale.total * loyalty.referralBonusPercent) / 100);
-            if (referralPoints > 0) adjustPatientPoints(patient.referredBy, -referralPoints);
+        // Revertir puntos
+        if (sale.pointsAwarded > 0) {
+            await adjustPatientPoints(sale.patientId, -sale.pointsAwarded);
         }
         
-        sale.items.forEach(item => {
-            if (item.inventoryProductId) adjustStock(item.inventoryProductId, item.qty, `Cancelación Venta #${sale.id.slice(0,6)}`);
-        });
+        // Revertir inventario
+        const tasks = sale.items.map(item => {
+            if (item.inventoryProductId) {
+                return adjustStock(item.inventoryProductId, item.qty, `Cancelación Venta #${id.slice(0,6)}`);
+            }
+            return null;
+        }).filter(Boolean);
+        
+        await Promise.all(tasks);
     }
 
-    deleteWorkOrdersBySaleId(id);
-    write(list.filter(s => s.id !== id)); 
+    await deleteDoc(saleRef);
+    await deleteWorkOrdersBySaleId(id);
 }
 
-export function getFinancialReport(startDate, endDate) {
-    const sales = getAllSales();
+// --- REPORTES ---
+
+export async function getSalesMetricsByShift(shiftId) {
+    if (!shiftId) return { totalIncome: 0, incomeByMethod: {} };
+    const q = query(collection(db, COLLECTION_NAME), where("shiftId", "==", shiftId));
+    const snapshot = await getDocs(q);
     
-    let totalSales = 0;      
-    let totalIncome = 0;     
-    let totalReceivable = 0; 
-    
+    let totalIncome = 0;
+    const incomeByMethod = { EFECTIVO: 0, TARJETA: 0, TRANSFERENCIA: 0, CHEQUE: 0, OTRO: 0 };
+
+    snapshot.forEach(doc => {
+        const sale = doc.data();
+        sale.payments.forEach(pay => {
+            if (pay.shiftId === shiftId) {
+                totalIncome += pay.amount;
+                const m = (pay.method || "OTRO").toUpperCase();
+                if (incomeByMethod[m] !== undefined) incomeByMethod[m] += pay.amount;
+            }
+        });
+    });
+    return { totalIncome, incomeByMethod };
+}
+
+export async function getFinancialReport(startDate, endDate) {
+    const sales = await getAllSales(); 
+    let totalSales = 0, totalIncome = 0, totalReceivable = 0;
     const incomeByMethod = { EFECTIVO: 0, TARJETA: 0, TRANSFERENCIA: 0, OTRO: 0 };
-    
+
     sales.forEach(sale => {
         const saleDate = getDay(sale.createdAt);
         const isSaleInRange = (!startDate || saleDate >= startDate) && (!endDate || saleDate <= endDate);
@@ -386,13 +322,15 @@ export function getFinancialReport(startDate, endDate) {
             }
         });
     });
-
     return { totalSales, totalIncome, totalReceivable, incomeByMethod };
 }
 
-export function getProfitabilityReport(startDate, endDate) {
-    const sales = getAllSales();
-    const workOrders = getAllWorkOrders();
+// 👈 Reporte de Rentabilidad (Restaurado para FinancePage)
+export async function getProfitabilityReport(startDate, endDate) {
+    const [sales, workOrders] = await Promise.all([
+        getAllSales(),
+        getAllWorkOrders()
+    ]);
     
     const labCostMap = {};
     workOrders.forEach(w => {
@@ -402,10 +340,7 @@ export function getProfitabilityReport(startDate, endDate) {
         }
     });
 
-    const report = {
-        global: { sales: 0, cost: 0, profit: 0 },
-        byCategory: {} 
-    };
+    const report = { global: { sales: 0, cost: 0, profit: 0 }, byCategory: {} };
 
     sales.forEach(sale => {
         const saleDate = getDay(sale.createdAt);
@@ -416,7 +351,6 @@ export function getProfitabilityReport(startDate, endDate) {
             const kind = item.kind || "OTHER";
             const itemSaleTotal = item.unitPrice * item.qty;
             const itemProductCost = (item.cost || 0) * item.qty;
-            
             const woKey = `${sale.id}::${item.id}`;
             const itemServiceCost = labCostMap[woKey] || 0;
 
@@ -427,9 +361,8 @@ export function getProfitabilityReport(startDate, endDate) {
             report.global.cost += totalItemCost;
             report.global.profit += itemProfit;
 
-            if (!report.byCategory[kind]) {
-                report.byCategory[kind] = { sales: 0, cost: 0, profit: 0, count: 0 };
-            }
+            if (!report.byCategory[kind]) report.byCategory[kind] = { sales: 0, cost: 0, profit: 0, count: 0 };
+            
             report.byCategory[kind].sales += itemSaleTotal;
             report.byCategory[kind].cost += totalItemCost;
             report.byCategory[kind].profit += itemProfit;
@@ -443,24 +376,4 @@ export function getProfitabilityReport(startDate, endDate) {
     });
 
     return report;
-}
-
-export function getSalesMetricsByShift(shiftId) {
-    if (!shiftId) return { totalIncome: 0, incomeByMethod: {} };
-    
-    const sales = getAllSales();
-    let totalIncome = 0;
-    const incomeByMethod = { EFECTIVO: 0, TARJETA: 0, TRANSFERENCIA: 0, CHEQUE: 0, OTRO: 0 };
-
-    sales.forEach(sale => {
-        sale.payments.forEach(pay => {
-            if (pay.shiftId === shiftId) {
-                totalIncome += pay.amount;
-                const m = (pay.method || "OTRO").toUpperCase();
-                incomeByMethod[m] = (incomeByMethod[m] || 0) + pay.amount;
-            }
-        });
-    });
-
-    return { totalIncome, incomeByMethod };
 }

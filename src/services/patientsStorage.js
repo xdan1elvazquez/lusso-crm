@@ -1,41 +1,56 @@
-const KEY = "lusso_patients_v1";
+import { db } from "@/firebase/config";
+import { 
+  collection, 
+  getDocs, 
+  getDoc, 
+  addDoc, 
+  updateDoc, 
+  deleteDoc, 
+  doc, 
+  query, 
+  orderBy,
+  where,
+  increment 
+} from "firebase/firestore";
 
-function read() { try { return JSON.parse(localStorage.getItem(KEY) || "[]"); } catch { return []; } }
-function write(list) { localStorage.setItem(KEY, JSON.stringify(list)); }
+const COLLECTION_NAME = "patients";
 
-export function seedPatientsIfEmpty() {
-  const list = read();
-  if (list.length) return;
-  write([{
-      id: crypto.randomUUID(), firstName: "Cristian", lastName: "Demo", phone: "0000000000", email: "demo@lusso.mx",
-      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), lastViewed: new Date().toISOString(),
-      dob: "1990-01-01", sex: "HOMBRE", occupation: "Desarrollador", referralSource: "Google Maps", referredBy: null, points: 0,
-      taxData: { rfc: "", razonSocial: "", regimen: "", cp: "", emailFactura: "" },
-      address: { street: "", externalNumber: "", internalNumber: "", suburb: "", city: "", state: "", zip: "" }
-  }]);
+// --- LECTURA ---
+export async function getPatients() {
+  const q = query(collection(db, COLLECTION_NAME), orderBy("createdAt", "desc"));
+  const snapshot = await getDocs(q);
+  return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 }
 
-export function getPatients() { return read().sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || "")); }
-export function getPatientById(id) { return read().find((p) => p.id === id) || null; }
-export function getPatientsRecommendedBy(patientId) { return read().filter(p => p.referredBy === patientId); }
-
-export function touchPatientView(id) {
-  const list = read();
-  const next = list.map(p => p.id === id ? { ...p, lastViewed: new Date().toISOString() } : p);
-  write(next);
+export async function getPatientById(id) {
+  if (!id) return null;
+  const docRef = doc(db, COLLECTION_NAME, id);
+  const snapshot = await getDoc(docRef);
+  return snapshot.exists() ? { id: snapshot.id, ...snapshot.data() } : null;
 }
 
-export function createPatient(data) {
-  const list = read();
+export async function getPatientsRecommendedBy(patientId) {
+  if (!patientId) return [];
+  const q = query(collection(db, COLLECTION_NAME), where("referredBy", "==", patientId));
+  const snapshot = await getDocs(q);
+  return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+}
+
+// --- ESCRITURA ---
+export async function createPatient(data) {
   const now = new Date().toISOString();
-  const patient = {
-    id: crypto.randomUUID(),
-    createdAt: data.createdAt ? new Date(data.createdAt).toISOString() : now,
-    updatedAt: now, lastViewed: now,
-    firstName: data.firstName?.trim() || "", lastName: data.lastName?.trim() || "",
-    phone: data.phone?.trim() || "", email: data.email?.trim() || "",
-    dob: data.dob || "", sex: data.sex || "NO_ESPECIFICADO", occupation: data.occupation?.trim() || "",
-    referralSource: data.referralSource || "Otro", referredBy: data.referredBy || null, points: 0,
+  
+  const newPatient = {
+    firstName: data.firstName?.trim() || "", 
+    lastName: data.lastName?.trim() || "",
+    phone: data.phone?.trim() || "", 
+    email: data.email?.trim() || "",
+    dob: data.dob || "", 
+    sex: data.sex || "NO_ESPECIFICADO", 
+    occupation: data.occupation?.trim() || "",
+    referralSource: data.referralSource || "Otro", 
+    referredBy: data.referredBy || null, 
+    points: 0,
     
     taxData: {
         rfc: data.taxData?.rfc || "",
@@ -44,47 +59,67 @@ export function createPatient(data) {
         cp: data.taxData?.cp || "",
         emailFactura: data.taxData?.emailFactura || data.email || ""
     },
-    
-    // NUEVO: DIRECCIÓN FÍSICA
     address: {
         street: data.address?.street || "",
         externalNumber: data.address?.externalNumber || "",
         internalNumber: data.address?.internalNumber || "",
-        suburb: data.address?.suburb || "", // Colonia
+        suburb: data.address?.suburb || "",
         city: data.address?.city || "",
         state: data.address?.state || "",
-        zip: data.address?.zip || "" // Código Postal (Clave para estadística)
-    }
+        zip: data.address?.zip || ""
+    },
+    
+    createdAt: now,
+    updatedAt: now,
+    lastViewed: now
   };
-  write([patient, ...list]);
-  return patient;
+
+  const docRef = await addDoc(collection(db, COLLECTION_NAME), newPatient);
+  return { id: docRef.id, ...newPatient };
 }
 
-export function updatePatient(id, data) {
-  const list = read();
+export async function updatePatient(id, data) {
+  const docRef = doc(db, COLLECTION_NAME, id);
   const now = new Date().toISOString();
-  const next = list.map((p) =>
-    p.id === id ? {
-          ...p, ...data,
-          taxData: { ...p.taxData, ...(data.taxData || {}) },
-          address: { ...p.address, ...(data.address || {}) }, // Merge seguro de dirección
-          createdAt: data.createdAt ? new Date(data.createdAt).toISOString() : p.createdAt,
-          updatedAt: now,
-        } : p
-  );
-  write(next);
-  return next.find((p) => p.id === id) || null;
+  
+  const updatePayload = { ...data, updatedAt: now };
+  delete updatePayload.id; // Evitar duplicar ID
+
+  await updateDoc(docRef, updatePayload);
+  return { id, ...updatePayload };
 }
 
-export function adjustPatientPoints(id, amount) {
-  const list = read();
-  const next = list.map(p => {
-    if (p.id !== id) return p;
-    const current = Number(p.points) || 0;
-    const newBalance = current + Number(amount);
-    return { ...p, points: newBalance < 0 ? 0 : newBalance };
+// 👇 ESTA ES LA FUNCIÓN QUE FALTABA Y CAUSABA EL ERROR
+export async function adjustPatientPoints(id, amount) {
+  if (!id) return;
+  const docRef = doc(db, COLLECTION_NAME, id);
+  // Usamos 'increment' de Firebase para sumar/restar atómicamente
+  await updateDoc(docRef, {
+    points: increment(Number(amount))
   });
-  write(next);
 }
 
-export function deletePatient(id) { write(read().filter((p) => p.id !== id)); }
+// 👇 ESTA TAMBIÉN FALTABA
+export async function touchPatientView(id) {
+  if (!id) return;
+  const docRef = doc(db, COLLECTION_NAME, id);
+  await updateDoc(docRef, { lastViewed: new Date().toISOString() });
+}
+
+export async function deletePatient(id) {
+  await deleteDoc(doc(db, COLLECTION_NAME, id));
+}
+
+// --- UTILIDADES ---
+export async function seedPatientsIfEmpty() {
+  const patients = await getPatients();
+  if (patients.length > 0) return;
+
+  console.log("Sembrando paciente demo...");
+  await createPatient({
+      firstName: "Cristian", lastName: "Demo (Nube)", 
+      phone: "5512345678", email: "demo@lusso.mx",
+      dob: "1990-01-01", sex: "HOMBRE", occupation: "Tester"
+  });
+  window.location.reload();
+}

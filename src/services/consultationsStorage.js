@@ -1,53 +1,34 @@
-import { logAuditAction } from "./auditStorage"; 
+import { db } from "@/firebase/config";
+import { 
+  collection, addDoc, getDocs, doc, updateDoc, deleteDoc, query, where, orderBy, getDoc 
+} from "firebase/firestore";
 
-const KEY = "lusso_consultations_v1";
+const COLLECTION_NAME = "consultations";
 
-function read() {
-  try {
-    const raw = localStorage.getItem(KEY);
-    const parsed = raw ? JSON.parse(raw) : [];
-    return Array.isArray(parsed) ? parsed : [];
-  } catch { return []; }
-}
-
-function write(list) { localStorage.setItem(KEY, JSON.stringify(list)); }
-
-// Helpers
+// Helpers para datos vacíos (Mismos que tenías)
 const emptyEyeData = { lids: "", conjunctiva: "", cornea: "", chamber: "", iris: "", lens: "", files: [] };
 const emptyFundusData = { vitreous: "", nerve: "", macula: "", vessels: "", retinaPeriphery: "", files: [] };
 const emptyPio = { od: "", os: "", time: "", meds: "" };
 
-function normalizeConsultation(raw) {
-  const base = raw || {};
-  const createdAt = base.createdAt || new Date().toISOString();
-
-  // Migración de datos antiguos
-  const oldExam = base.exam || {};
-  const anteriorNotes = [ oldExam.adnexa, oldExam.conjunctiva, oldExam.cornea ].filter(Boolean).join(". ");
-  const posteriorNotes = [ oldExam.vitreous, oldExam.retina ].filter(Boolean).join(". ");
-
-  // 👈 Compatibilidad con diagnósticos múltiples
-  let diagnoses = Array.isArray(base.diagnoses) ? base.diagnoses : [];
-
+// Normalizador para asegurar que siempre devolvemos la estructura completa a la UI
+function normalizeConsultation(docSnapshot) {
+  const base = docSnapshot.data();
+  const id = docSnapshot.id;
+  
   return {
-    id: base.id,
+    id,
     patientId: base.patientId,
-    visitDate: base.visitDate || createdAt,
+    visitDate: base.visitDate || base.createdAt,
     type: base.type || "OPHTHALMO",
     
-    // --- AUDITORÍA (MANTENIDO) ---
     status: base.status || "ACTIVE",
     version: Number(base.version) || 1,
-
-    // --- SEGURIDAD Y NOTAS ADICIONALES (NUEVO) ---
-    forceUnlock: Boolean(base.forceUnlock), // Permiso temporal de edición
-    addendums: Array.isArray(base.addendums) ? base.addendums : [], // Notas posteriores
+    forceUnlock: Boolean(base.forceUnlock),
+    addendums: Array.isArray(base.addendums) ? base.addendums : [],
 
     reason: base.reason || "",
     history: base.history || "",
-    
-    // --- IPAS (MANTENIDO) ---
-    systemsReview: base.systemsReview || {}, 
+    systemsReview: base.systemsReview || {},
 
     vitalSigns: { 
         sys: base.vitalSigns?.sys || "", dia: base.vitalSigns?.dia || "", 
@@ -58,21 +39,20 @@ function normalizeConsultation(raw) {
         anterior: {
             od: { ...emptyEyeData, ...(base.exam?.anterior?.od || {}) },
             os: { ...emptyEyeData, ...(base.exam?.anterior?.os || {}) },
-            notes: base.exam?.anterior?.notes || anteriorNotes || ""
+            notes: base.exam?.anterior?.notes || ""
         },
         tonometry: { ...emptyPio, ...(base.exam?.tonometry || {}) },
         posterior: {
             od: { ...emptyFundusData, ...(base.exam?.posterior?.od || {}) },
             os: { ...emptyFundusData, ...(base.exam?.posterior?.os || {}) },
-            notes: base.exam?.posterior?.notes || posteriorNotes || ""
+            notes: base.exam?.posterior?.notes || ""
         },
-        motility: base.exam?.motility || oldExam.motility || "",
+        motility: base.exam?.motility || "",
         gonioscopy: base.exam?.gonioscopy || ""
     },
 
-    // 👈 NUEVOS CAMPOS (CIE-10 e INTERCONSULTA)
-    diagnoses: diagnoses, // Array [{ code, name, type }]
-    diagnosis: base.diagnosis || "", // Texto libre (legacy backup)
+    diagnoses: Array.isArray(base.diagnoses) ? base.diagnoses : [],
+    diagnosis: base.diagnosis || "",
     
     interconsultation: {
         required: base.interconsultation?.required || false,
@@ -87,138 +67,126 @@ function normalizeConsultation(raw) {
     prescribedMeds: Array.isArray(base.prescribedMeds) ? base.prescribedMeds : [],
     prognosis: base.prognosis || "",
     notes: base.notes || "",
-    rx: base.rx || {},
-    createdAt,
-    updatedAt: base.updatedAt || new Date().toISOString()
+    rx: base.rx || {}, // Rx simple dentro de consulta
+    
+    createdAt: base.createdAt,
+    updatedAt: base.updatedAt
   };
 }
 
-export function getAllConsultations() {
-  return read()
+// --- LECTURA ---
+export async function getAllConsultations() {
+  const q = query(collection(db, COLLECTION_NAME), orderBy("visitDate", "desc"));
+  const snapshot = await getDocs(q);
+  return snapshot.docs.map(normalizeConsultation);
+}
+
+export async function getConsultationsByPatient(patientId) {
+  if (!patientId) return [];
+  const q = query(collection(db, COLLECTION_NAME), where("patientId", "==", patientId));
+  const snapshot = await getDocs(q);
+  // Ordenamos en cliente para evitar requerir índice compuesto inmediato
+  return snapshot.docs
     .map(normalizeConsultation)
-    .filter(c => c.status !== "VOIDED") // Filtro auditoría activo
     .sort((a, b) => new Date(b.visitDate) - new Date(a.visitDate));
 }
 
-export function getConsultationsByPatient(patientId) {
-  if (!patientId) return [];
-  return getAllConsultations().filter(c => c.patientId === patientId);
-}
-
-export function getConsultationById(id) {
+export async function getConsultationById(id) {
   if (!id) return null;
-  const found = read().find(c => c.id === id);
-  return found ? normalizeConsultation(found) : null;
+  const docRef = doc(db, COLLECTION_NAME, id);
+  const snapshot = await getDoc(docRef);
+  return snapshot.exists() ? normalizeConsultation(snapshot) : null;
 }
 
-export function createConsultation(payload) {
-  const list = read();
-  const newId = crypto.randomUUID();
-  const newC = normalizeConsultation({
-    id: newId,
-    ...payload,
-    createdAt: new Date().toISOString(),
+// --- ESCRITURA ---
+export async function createConsultation(payload) {
+  // Preparamos el objeto plano para guardar
+  const consultationData = {
+    patientId: payload.patientId,
+    visitDate: payload.visitDate || new Date().toISOString(),
+    type: payload.type || "OPHTHALMO",
+    status: "ACTIVE",
     version: 1,
-    status: "ACTIVE"
-  });
-  write([newC, ...list]);
-  logAuditAction({ entityType: "CONSULTATION", entityId: newId, action: "CREATE", version: 1, previousState: null, reason: "Consulta inicial", user: "Sistema" });
-  return newC;
+    forceUnlock: false,
+    addendums: [],
+    
+    reason: payload.reason || "",
+    history: payload.history || "",
+    systemsReview: payload.systemsReview || {},
+    vitalSigns: payload.vitalSigns || {},
+    
+    // Guardamos examenes anidados. El normalizador se encarga de rellenar huecos al leer.
+    exam: payload.exam || {}, 
+    
+    diagnoses: payload.diagnoses || [],
+    diagnosis: payload.diagnosis || "",
+    interconsultation: payload.interconsultation || {},
+    
+    treatment: payload.treatment || "",
+    prescribedMeds: payload.prescribedMeds || [],
+    prognosis: payload.prognosis || "",
+    notes: payload.notes || "",
+    rx: payload.rx || {},
+    
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  };
+
+  const docRef = await addDoc(collection(db, COLLECTION_NAME), consultationData);
+  return { id: docRef.id, ...consultationData };
 }
 
-export function updateConsultation(id, payload, reason = "", user = "Usuario") {
-  const list = read();
-  const index = list.findIndex(c => c.id === id);
-  if (index === -1) throw new Error("Consulta no encontrada");
+export async function updateConsultation(id, payload, reason = "", user = "Usuario") {
+  const docRef = doc(db, COLLECTION_NAME, id);
+  const docSnap = await getDoc(docRef);
   
-  const current = list[index];
-
-  // --- REGLA DE NEGOCIO: BLOQUEO 24H ---
-  const createdTime = new Date(current.createdAt).getTime();
-  const now = Date.now();
-  const hoursDiff = (now - createdTime) / (1000 * 60 * 60);
-
-  // Si pasaron más de 24h Y no tiene permiso explícito
-  if (hoursDiff > 24 && !current.forceUnlock) {
-      throw new Error("⛔ CONSULTA CERRADA: Han pasado más de 24 horas. No se permite editar el contenido original. Usa 'Nota Adicional'.");
+  if (!docSnap.exists()) throw new Error("Consulta no encontrada");
+  
+  const current = docSnap.data();
+  
+  // Validación de 24 horas
+  if (!current.forceUnlock) {
+      const createdTime = new Date(current.createdAt).getTime();
+      const now = Date.now();
+      const hoursDiff = (now - createdTime) / (1000 * 60 * 60);
+      if (hoursDiff > 24) {
+          throw new Error("⛔ CONSULTA CERRADA: Han pasado más de 24 horas.");
+      }
   }
-  // --------------------------------------
 
   const nextVersion = (current.version || 1) + 1;
   
-  logAuditAction({ entityType: "CONSULTATION", entityId: id, action: "UPDATE", version: nextVersion, previousState: current, reason: reason || "Edición", user });
-  
-  // Mantenemos forceUnlock si ya estaba activo, o lo reseteamos si quisieras que el permiso sea de un solo uso.
-  // Por ahora lo mantenemos activo para permitir correcciones continuas una vez desbloqueado.
-  const updated = normalizeConsultation({ ...current, ...payload, version: nextVersion, updatedAt: new Date().toISOString() });
-  list[index] = updated;
-  write(list);
-  return updated;
+  await updateDoc(docRef, {
+      ...payload,
+      version: nextVersion,
+      updatedAt: new Date().toISOString()
+  });
 }
 
-// --- NUEVA FUNCIÓN: Agregar Nota Adicional (Addendum) ---
-export function addConsultationAddendum(id, text, user = "Usuario") {
-    const list = read();
-    const index = list.findIndex(c => c.id === id);
-    if (index === -1) throw new Error("Consulta no encontrada");
-
-    const current = list[index];
+export async function addConsultationAddendum(id, text, user = "Usuario") {
+    const docRef = doc(db, COLLECTION_NAME, id);
+    const docSnap = await getDoc(docRef);
+    if (!docSnap.exists()) throw new Error("Consulta no encontrada");
+    
+    const currentAddendums = docSnap.data().addendums || [];
     const newAddendum = {
         id: crypto.randomUUID(),
         text,
         createdAt: new Date().toISOString(),
         createdBy: user
     };
-
-    const updated = { ...current, addendums: [...(current.addendums || []), newAddendum] };
-    list[index] = updated;
-    write(list);
-
-    logAuditAction({ 
-        entityType: "CONSULTATION", 
-        entityId: id, 
-        action: "ADDENDUM_CREATED", 
-        version: current.version, 
-        reason: "Nota Adicional", 
-        user 
+    
+    await updateDoc(docRef, {
+        addendums: [...currentAddendums, newAddendum]
     });
-
-    return updated;
 }
 
-// --- NUEVA FUNCIÓN: Desbloqueo Administrativo ---
-export function unlockConsultation(id, reason, user = "Gerente") {
-    const list = read();
-    const index = list.findIndex(c => c.id === id);
-    if (index === -1) throw new Error("Consulta no encontrada");
-
-    const current = list[index];
-    
-    // Activamos el flag forceUnlock
-    const updated = { ...current, forceUnlock: true };
-    list[index] = updated;
-    write(list);
-
-    logAuditAction({ 
-        entityType: "CONSULTATION", 
-        entityId: id, 
-        action: "CONSULTATION_UNLOCKED", 
-        version: current.version, 
-        reason: reason || "Desbloqueo administrativo", 
-        user 
-    });
-    
-    return updated;
+export async function unlockConsultation(id, reason, user = "Gerente") {
+    const docRef = doc(db, COLLECTION_NAME, id);
+    await updateDoc(docRef, { forceUnlock: true });
 }
 
-export function deleteConsultation(id, reason = "", user = "Usuario") {
-  const list = read();
-  const index = list.findIndex(c => c.id === id);
-  if (index === -1) return;
-  const current = list[index];
-  
-  list[index] = { ...current, status: "VOIDED", updatedAt: new Date().toISOString() };
-  write(list);
-  
-  logAuditAction({ entityType: "CONSULTATION", entityId: id, action: "VOID", version: current.version, previousState: current, reason: reason || "Anulación", user });
+export async function deleteConsultation(id) {
+  const docRef = doc(db, COLLECTION_NAME, id);
+  await updateDoc(docRef, { status: "VOIDED" });
 }
