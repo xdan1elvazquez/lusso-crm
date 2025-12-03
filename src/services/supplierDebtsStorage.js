@@ -1,36 +1,32 @@
-const KEY = "lusso_supplier_debts_v1";
+import { db } from "@/firebase/config";
+import { collection, addDoc, getDocs, doc, updateDoc, deleteDoc, query, orderBy } from "firebase/firestore";
 
-function read() {
-  try { return JSON.parse(localStorage.getItem(KEY) || "[]"); } catch { return []; }
+const COLLECTION_NAME = "supplier_debts";
+
+export async function getAllSupplierDebts() {
+  const q = query(collection(db, COLLECTION_NAME), orderBy("createdAt", "desc"));
+  const snapshot = await getDocs(q);
+  return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 }
-function write(list) { localStorage.setItem(KEY, JSON.stringify(list)); }
 
-export function getAllSupplierDebts() {
-  return read().sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-}
-
-export function createSupplierDebt(data) {
-  const list = read();
+export async function createSupplierDebt(data) {
   const newDebt = {
-    id: crypto.randomUUID(),
-    provider: data.provider || "Proveedor General", // Ej. Marchon, Luxottica
-    concept: data.concept || "Compra de Inventario",
+    provider: data.provider || "Proveedor General",
+    concept: data.concept || "Compra",
     amount: Number(data.amount) || 0,
-    category: data.category || "INVENTARIO", // INVENTARIO, OPERATIVO, OTRO
+    category: data.category || "INVENTARIO",
     isPaid: false,
     createdAt: new Date().toISOString(),
-    dueDate: data.dueDate || null // Fecha límite de pago (opcional)
+    dueDate: data.dueDate || null
   };
-  write([newDebt, ...list]);
-  return newDebt;
+  const docRef = await addDoc(collection(db, COLLECTION_NAME), newDebt);
+  return { id: docRef.id, ...newDebt };
 }
 
-export function markDebtAsPaid(id) {
-  const list = read();
-  const next = list.map(d => d.id === id ? { ...d, isPaid: true, paidAt: new Date().toISOString() } : d);
-  write(next);
+export async function markDebtAsPaid(id) {
+  await updateDoc(doc(db, COLLECTION_NAME, id), { isPaid: true, paidAt: new Date().toISOString() });
 }
 
-export function deleteSupplierDebt(id) {
-  write(read().filter(d => d.id !== id));
+export async function deleteSupplierDebt(id) {
+  await deleteDoc(doc(db, COLLECTION_NAME, id));
 }

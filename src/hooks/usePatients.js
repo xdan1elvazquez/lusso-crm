@@ -2,29 +2,28 @@ import { useEffect, useState, useCallback } from "react";
 import {
   getPatients,
   createPatient,
-  deletePatient,
-  seedPatientsIfEmpty
-} from "../services/patientsStorage";
+  deletePatient
+} from "@/services/patientsStorage"; // Asegúrate que este path sea correcto
 
 export function usePatients() {
-  const [patients, setPatients] = useState([]);
+  const [patients, setPatients] = useState([]); // Estado inicial: Array vacío
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // Función para cargar datos (ahora es async)
+  // Función para cargar datos
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await getPatients();
-      setPatients(data);
+      // Esperamos a que la promesa se resuelva
+      const data = await getPatients(); 
       
-      // Auto-seed solo si está vacío (opcional)
-      if (data.length === 0) {
-         // seedPatientsIfEmpty(); // Descomentar si quieres que cree uno automático
-      }
+      // Verificación de seguridad: si data es null/undefined, ponemos []
+      setPatients(Array.isArray(data) ? data : []);
+      setError(null);
     } catch (err) {
-      console.error(err);
+      console.error("Error en usePatients:", err);
       setError("Error al cargar pacientes");
+      setPatients([]); // En error, aseguramos array vacío
     } finally {
       setLoading(false);
     }
@@ -35,24 +34,27 @@ export function usePatients() {
     refresh();
   }, [refresh]);
 
-  // Wrappers para las acciones
+  // Acción: Crear
   const create = async (data) => {
     try {
       await createPatient(data);
-      await refresh(); // Recargamos la lista tras crear
+      await refresh(); // Recargamos la lista
       return true;
     } catch (e) {
+      console.error(e);
       alert("Error al crear: " + e.message);
       return false;
     }
   };
 
+  // Acción: Eliminar
   const remove = async (id) => {
     if(!confirm("¿Eliminar paciente permanentemente?")) return;
     try {
       await deletePatient(id);
-      await refresh(); // Recargamos la lista tras borrar
+      await refresh(); // Recargamos
     } catch (e) {
+      console.error(e);
       alert("Error al eliminar: " + e.message);
     }
   };

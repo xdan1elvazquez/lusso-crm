@@ -1,35 +1,31 @@
-const KEY = "lusso_suppliers_v1";
+import { db } from "@/firebase/config";
+import { collection, addDoc, getDocs, doc, updateDoc, deleteDoc, query, orderBy } from "firebase/firestore";
 
-function read() {
-  try { return JSON.parse(localStorage.getItem(KEY) || "[]"); } catch { return []; }
+const COLLECTION_NAME = "suppliers";
+
+export async function getSuppliers() {
+  const q = query(collection(db, COLLECTION_NAME), orderBy("name", "asc"));
+  const snapshot = await getDocs(q);
+  return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 }
-function write(list) { localStorage.setItem(KEY, JSON.stringify(list)); }
 
-export function getSuppliers() {
-  return read().sort((a, b) => a.name.localeCompare(b.name));
-}
-
-export function createSupplier(data) {
-  const list = read();
+export async function createSupplier(data) {
   const newSup = {
-    id: crypto.randomUUID(),
-    name: data.name, // Ej. Luxottica
-    contactName: data.contactName || "", // Ej. Juan Pérez (Vendedor)
+    name: data.name,
+    contactName: data.contactName || "",
     phone: data.phone || "",
     email: data.email || "",
-    creditDays: Number(data.creditDays) || 0, // Días de crédito
+    creditDays: Number(data.creditDays) || 0,
     createdAt: new Date().toISOString()
   };
-  write([newSup, ...list]);
-  return newSup;
+  const docRef = await addDoc(collection(db, COLLECTION_NAME), newSup);
+  return { id: docRef.id, ...newSup };
 }
 
-export function updateSupplier(id, patch) {
-  const list = read();
-  const next = list.map(s => s.id === id ? { ...s, ...patch } : s);
-  write(next);
+export async function updateSupplier(id, patch) {
+  await updateDoc(doc(db, COLLECTION_NAME, id), patch);
 }
 
-export function deleteSupplier(id) {
-  write(read().filter(s => s.id !== id));
+export async function deleteSupplier(id) {
+  await deleteDoc(doc(db, COLLECTION_NAME, id));
 }

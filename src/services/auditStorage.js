@@ -1,26 +1,39 @@
-const KEY = "lusso_audit_trail_v1";
+import { db } from "@/firebase/config";
+import { collection, addDoc, getDocs, query, where, orderBy } from "firebase/firestore";
 
-function read() {
-  try { return JSON.parse(localStorage.getItem(KEY) || "[]"); } catch { return []; }
-}
-function write(list) { localStorage.setItem(KEY, JSON.stringify(list)); }
+const COLLECTION_NAME = "audit_logs";
 
-export function logAuditAction({ entityType, entityId, action, version, previousState, reason, user }) {
-  const list = read();
+export async function logAuditAction({ entityType, entityId, action, version, previousState, reason, user }) {
   const entry = {
-    id: crypto.randomUUID(),
     entityType,
     entityId,
-    action, // "CREATE", "UPDATE", "VOID"
-    version,
-    previousState: previousState ? JSON.stringify(previousState) : null, // Guardamos snapshot serializado
+    action, // Ej: "CREATE", "UPDATE", "VOID", "UNLOCK"
+    version: version || 1,
+    // Convertimos el estado previo a string para guardarlo como 'snapshot' ligero
+    previousState: previousState ? JSON.stringify(previousState) : null,
     reason: reason || "",
-    user: user || "Usuario Actual", // En fase 2 conectamos con auth real
+    user: user || "Desconocido", // Aquí idealmente conectarías el email del usuario actual
     timestamp: new Date().toISOString()
   };
-  write([entry, ...list]); // Más recientes primero
+  
+  try {
+      // "Fire and forget": No usamos await para no detener la interfaz del usuario
+      // mientras se guarda el log en segundo plano.
+      addDoc(collection(db, COLLECTION_NAME), entry);
+  } catch (error) {
+      console.error("Error guardando auditoría:", error);
+  }
 }
 
-export function getAuditHistory(entityId) {
-  return read().filter(log => log.entityId === entityId);
+export async function getAuditHistory(entityId) {
+  if (!entityId) return [];
+  
+  const q = query(
+      collection(db, COLLECTION_NAME), 
+      where("entityId", "==", entityId), 
+      orderBy("timestamp", "desc")
+  );
+  
+  const snapshot = await getDocs(q);
+  return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 }

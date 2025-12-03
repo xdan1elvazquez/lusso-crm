@@ -1,13 +1,11 @@
 import React, { useMemo, useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-// Servicios (Ahora Async)
+// Servicios (Async)
 import { createSale, getSalesByPatientId, deleteSale } from "@/services/salesStorage"; 
 import { getAllProducts } from "@/services/inventoryStorage"; 
-// Estos servicios se asumirán como async (si aún no los migras, Promise.resolve lo manejará)
 import { getExamsByPatient } from "@/services/eyeExamStorage"; 
 import { getConsultationsByPatient } from "@/services/consultationsStorage"; 
 import { getLabs } from "@/services/labStorage"; 
-// Configuración (Local)
 import { getTerminals } from "@/services/settingsStorage"; 
 
 import SaleDetailModal from "./SaleDetailModal"; 
@@ -33,7 +31,7 @@ export default function SalesPanel({ patientId, prefillData, onClearPrefill }) {
   const [terminals, setTerminals] = useState([]);
   
   const [loadingData, setLoadingData] = useState(false);
-  const [isProcessing, setIsProcessing] = useState(false); // Spinner para el botón cobrar
+  const [isProcessing, setIsProcessing] = useState(false); 
 
   // Estados del Carrito y Venta
   const [cart, setCart] = useState([]);
@@ -59,21 +57,21 @@ export default function SalesPanel({ patientId, prefillData, onClearPrefill }) {
   const loadAllData = async () => {
       setLoadingData(true);
       try {
-          // Promise.all permite cargar todo en paralelo
-          const [prodsData, salesData, examsData, consData, labsData] = await Promise.all([
+          const [prodsData, salesData, examsData, consData, labsData, termsData] = await Promise.all([
               getAllProducts(),
               getSalesByPatientId(patientId),
-              Promise.resolve(getExamsByPatient(patientId)), // Envuelto en resolve por si aún es síncrono
-              Promise.resolve(getConsultationsByPatient(patientId)),
-              Promise.resolve(getLabs())
+              getExamsByPatient(patientId),
+              getConsultationsByPatient(patientId),
+              getLabs(),
+              getTerminals()
           ]);
 
           setProducts(prodsData);
           setSales(salesData);
           setExams(examsData || []);
           setConsultations(consData || []);
+          setTerminals(termsData || []);
           
-          // Aplanamos el catálogo de lentes
           const allLenses = [];
           (labsData || []).forEach(lab => {
               (lab.lensCatalog || []).forEach(lens => {
@@ -84,7 +82,7 @@ export default function SalesPanel({ patientId, prefillData, onClearPrefill }) {
 
       } catch (e) {
           console.error(e);
-          notify.error("Error cargando catálogos");
+          notify.error("Error cargando datos de venta");
       } finally {
           setLoadingData(false);
       }
@@ -92,7 +90,6 @@ export default function SalesPanel({ patientId, prefillData, onClearPrefill }) {
 
   useEffect(() => {
       loadAllData();
-      setTerminals(getTerminals()); // Esto sigue siendo local
   }, [patientId]);
 
   // --- MEMOS Y FILTROS ---
@@ -106,7 +103,6 @@ export default function SalesPanel({ patientId, prefillData, onClearPrefill }) {
     return labsCatalog.filter(l => l.name.toLowerCase().includes(lensQuery.toLowerCase())).slice(0, 5);
   }, [labsCatalog, lensQuery]);
 
-  // Lógica de compatibilidad de lentes (Intacta)
   const filterOptions = useMemo(() => {
     const designs = new Set(); const materials = new Set(); const treatments = new Set();
     labsCatalog.forEach(l => { if(l.design) designs.add(l.design); if(l.material) materials.add(l.material); if(l.treatment) treatments.add(l.treatment); });
@@ -191,7 +187,6 @@ export default function SalesPanel({ patientId, prefillData, onClearPrefill }) {
       addToCart({ kind: "LENSES", description: `Lente ${lens.name}`, qty: 1, unitPrice: 0, cost: 0, requiresLab: true, rxSnapshot: currentRx, labName: lens.labName, taxable: true });
   };
 
-  // --- PREFILL (Desde detalle paciente) ---
   useEffect(() => {
     if (prefillData && prefillData.type === 'EXAM') {
       const exam = prefillData.data;
@@ -208,7 +203,6 @@ export default function SalesPanel({ patientId, prefillData, onClearPrefill }) {
     }
   }, [prefillData]);
 
-  // --- TOTALES ---
   const subtotalGross = cart.reduce((sum, item) => sum + (item.qty * item.unitPrice), 0);
   let discountAmount = 0; const discountValue = Number(payment.discount) || 0;
   if (payment.discountType === "PERCENT") discountAmount = subtotalGross * (discountValue / 100); else discountAmount = discountValue;
@@ -241,13 +235,11 @@ export default function SalesPanel({ patientId, prefillData, onClearPrefill }) {
             }))
         });
         
-        // Limpiar formulario
         setCart([]); setBoxNumber(""); setSoldBy(""); 
         setItemDetails({ material: "", design: "", treatment: "", frameModel: "", frameStatus: "NUEVO", notes: "", requiresBisel: true, requiresTallado: false }); 
         setShowOpticalSpecs(false);
         setPayment({ initial: 0, discount: "", discountType: "AMOUNT", method: "EFECTIVO", terminalId: "", cardType: "TDD", installments: "1", feePercent: 0 });
         
-        // Recargar historial
         await loadAllData(); 
         
         if (cart.some(i => i.requiresLab)) {
@@ -297,7 +289,6 @@ export default function SalesPanel({ patientId, prefillData, onClearPrefill }) {
                {currentRx.od.sph !== null && <div style={{fontSize:11, color:"#bfdbfe", marginTop:5}}>Rx Cargada: OD {currentRx.od.sph} / OI {currentRx.os.sph}</div>}
             </div>
 
-            {/* SECCIÓN ÓPTICA (Selector de Micas) */}
             {showOpticalSpecs && (
                 <div style={{ background: "#1f1f1f", padding: 10, borderRadius: 8, marginBottom: 15, border:"1px solid #60a5fa" }}>
                     <div style={{fontSize:11, color:"#60a5fa", fontWeight:"bold", marginBottom:10}}>SELECTOR DE MICA (Rx Inteligente)</div>
@@ -314,76 +305,36 @@ export default function SalesPanel({ patientId, prefillData, onClearPrefill }) {
                     </div>
 
                     <div style={{display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:8, marginBottom:10}}>
-                        <select value={filters.design} onChange={e => setFilters({...filters, design: e.target.value})} style={{padding:6, background:"#333", border:"1px solid #555", color:"white", borderRadius:4, fontSize:12}}>
-                            <option value="">-- Diseño --</option>
-                            {filterOptions.designs.map(d => <option key={d} value={d}>{d}</option>)}
-                        </select>
-                        <select value={filters.material} onChange={e => setFilters({...filters, material: e.target.value})} style={{padding:6, background:"#333", border:"1px solid #555", color:"white", borderRadius:4, fontSize:12}}>
-                            <option value="">-- Material --</option>
-                            {filterOptions.materials.map(m => <option key={m} value={m}>{m}</option>)}
-                        </select>
-                        <select value={filters.treatment} onChange={e => setFilters({...filters, treatment: e.target.value})} style={{padding:6, background:"#333", border:"1px solid #555", color:"white", borderRadius:4, fontSize:12}}>
-                            <option value="">-- Tratamiento --</option>
-                            {filterOptions.treatments.map(t => <option key={t} value={t}>{t}</option>)}
-                        </select>
+                        <select value={filters.design} onChange={e => setFilters({...filters, design: e.target.value})} style={{padding:6, background:"#333", border:"1px solid #555", color:"white", borderRadius:4, fontSize:12}}><option value="">-- Diseño --</option>{filterOptions.designs.map(d => <option key={d} value={d}>{d}</option>)}</select>
+                        <select value={filters.material} onChange={e => setFilters({...filters, material: e.target.value})} style={{padding:6, background:"#333", border:"1px solid #555", color:"white", borderRadius:4, fontSize:12}}><option value="">-- Material --</option>{filterOptions.materials.map(m => <option key={m} value={m}>{m}</option>)}</select>
+                        <select value={filters.treatment} onChange={e => setFilters({...filters, treatment: e.target.value})} style={{padding:6, background:"#333", border:"1px solid #555", color:"white", borderRadius:4, fontSize:12}}><option value="">-- Tratamiento --</option>{filterOptions.treatments.map(t => <option key={t} value={t}>{t}</option>)}</select>
                     </div>
 
                     <div style={{ maxHeight: 200, overflowY: "auto", border: "1px solid #333", borderRadius: 4, background: "#111" }}>
-                        {validLenses.length > 0 ? (
-                            validLenses.map(l => (
-                                <div key={l.id} onClick={() => selectSmartLens(l)} style={{ padding: 8, cursor: "pointer", borderBottom: "1px solid #222", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-                                    <div>
-                                        <div style={{fontWeight:"bold", color:"white", fontSize:13}}>{l.name}</div>
-                                        <div style={{fontSize:11, color:"#aaa"}}>{l.labName} · {l.material} · {l.treatment}</div>
-                                    </div>
-                                    <div style={{textAlign:"right"}}>
-                                        <div style={{fontSize:12, color:"#4ade80", fontWeight:"bold"}}>${l.calculatedPrice?.toLocaleString()}</div>
-                                        <div style={{fontSize:9, color:"#666"}}>Costo: ${l.calculatedCost}</div>
-                                        <div style={{fontSize:11, color:"#4ade80"}}>Seleccionar →</div>
-                                    </div>
-                                </div>
-                            ))
-                        ) : (
-                            <div style={{ padding: 15, textAlign: "center", fontSize: 13, color: "#888" }}>
-                                {suggestions.length > 0 ? (
-                                    <>
-                                        <div style={{color:"#f87171", marginBottom:5}}>No hay coincidencias exactas.</div>
-                                        <ul style={{textAlign:"left", margin:0, paddingLeft:20, color:"#fbbf24"}}>
-                                            {suggestions.map((s, i) => <li key={i}>{s}</li>)}
-                                        </ul>
-                                    </>
-                                ) : (
-                                    currentRx.od.sph !== null ? "Usa los filtros para buscar micas compatibles." : "Carga una Rx para ver opciones inteligentes."
-                                )}
+                        {validLenses.map(l => (
+                            <div key={l.id} onClick={() => selectSmartLens(l)} style={{ padding: 8, cursor: "pointer", borderBottom: "1px solid #222", display:"flex", justifyContent:"space-between" }}>
+                                <div><div style={{fontWeight:"bold", color:"white", fontSize:13}}>{l.name}</div><div style={{fontSize:11, color:"#aaa"}}>{l.labName} · {l.material}</div></div>
+                                <div style={{textAlign:"right"}}><div style={{fontSize:12, color:"#4ade80", fontWeight:"bold"}}>${l.calculatedPrice?.toLocaleString()}</div></div>
                             </div>
-                        )}
+                        ))}
                     </div>
                     
-                    {/* Fallback Manual */}
                     <div style={{marginTop:10, borderTop:"1px dashed #444", paddingTop:8}}>
                         <input value={lensQuery} onChange={e => setLensQuery(e.target.value)} placeholder="O busca manualmente por nombre..." style={{ width: "100%", padding: 6, background: "#222", color: "#aaa", border: "1px solid #333", borderRadius: 4, fontSize:12 }} />
                          {lensQuery && filteredLenses.length > 0 && (
-                            <div style={{ position: "absolute", zIndex: 20, background: "#222", border: "1px solid #444", width: "100%" }}>
-                                {filteredLenses.map(l => (
-                                    <div key={l.id} onClick={() => selectCatalogLens(l)} style={{ padding: 10, cursor: "pointer", borderBottom: "1px solid #444" }}>
-                                        <div style={{fontWeight:"bold", color:"white"}}>{l.name}</div>
-                                        <div style={{fontSize:11, color:"#aaa"}}>{l.labName} · {l.material}</div>
-                                    </div>
-                                ))}
+                            <div style={{ position: "absolute", zIndex: 20, background: "#222", border: "1px solid #444", width: "300px" }}>
+                                {filteredLenses.map(l => <div key={l.id} onClick={() => selectCatalogLens(l)} style={{padding:10, borderBottom:"1px solid #444", cursor:"pointer"}}>{l.name}</div>)}
                             </div>
                         )}
                     </div>
 
                     <div style={{display:"flex", gap:5, marginTop:10}}>
                          <input placeholder="Armazón (Marca/Modelo)" value={itemDetails.frameModel} onChange={e => setItemDetails({...itemDetails, frameModel:e.target.value})} style={{flex:1, padding:6, background:"#333", border:"none", color:"white", borderRadius:4, fontSize:12}} />
-                         <select value={itemDetails.frameStatus} onChange={e => setItemDetails({...itemDetails, frameStatus:e.target.value})} style={{width:80, padding:6, background:"#333", border:"none", color:"#aaa", borderRadius:4, fontSize:11}}>
-                             <option value="NUEVO">Nuevo</option><option value="USADO">Usado</option><option value="PROPIO">Propio</option>
-                         </select>
+                         <select value={itemDetails.frameStatus} onChange={e => setItemDetails({...itemDetails, frameStatus:e.target.value})} style={{width:80, padding:6, background:"#333", border:"none", color:"#aaa", borderRadius:4, fontSize:11}}><option value="NUEVO">Nuevo</option><option value="USADO">Usado</option><option value="PROPIO">Propio</option></select>
                     </div>
                 </div>
             )}
 
-            {/* BUSCADOR PRODUCTOS */}
             <div style={{ position: "relative" }}>
               <label style={{ fontSize: 12, color: "#aaa" }}>Agregar otro producto</label>
               <input value={prodQuery} onChange={e => setProdQuery(e.target.value)} placeholder="Escribe marca..." style={{ width: "100%", padding: 10, background: "#222", color: "white", border: "1px solid #444", borderRadius: 6 }} />
@@ -397,12 +348,8 @@ export default function SalesPanel({ patientId, prefillData, onClearPrefill }) {
                 </div>
               )}
             </div>
-
-            {!showOpticalSpecs && (
-                <button onClick={() => setShowOpticalSpecs(true)} style={{ marginTop: 15, background: "transparent", border: "1px dashed #60a5fa", color: "#60a5fa", padding: "6px 12px", borderRadius: 4, cursor: "pointer", fontSize: "0.9em", width: "100%" }}>
-                    👓 Agregar Detalles de Lente/Armazón Manualmente
-                </button>
-            )}
+            
+            {!showOpticalSpecs && <button onClick={() => setShowOpticalSpecs(true)} style={{ marginTop: 15, background: "transparent", border: "1px dashed #60a5fa", color: "#60a5fa", padding: "6px 12px", borderRadius: 4, cursor: "pointer", fontSize: "0.9em", width: "100%" }}>👓 Lentes Graduados</button>}
           </div>
 
           {/* COLUMNA DER: COBRO */}
@@ -411,43 +358,14 @@ export default function SalesPanel({ patientId, prefillData, onClearPrefill }) {
              <div style={{ maxHeight: 200, overflowY: "auto", marginBottom: 20 }}>
                 {cart.map((item, i) => (
                     <div key={i} style={{ background: "#222", padding: 8, borderRadius: 4, marginBottom: 5, borderLeft: item.specs?.design ? "3px solid #60a5fa" : "3px solid transparent" }}>
-                        <div style={{display:"flex", justifyContent:"space-between", fontSize:13}}>
-                            <span>{item.description}</span>
-                            <button onClick={() => removeFromCart(item._tempId)} style={{color:"red", background:"none", border:"none"}}>✕</button>
-                        </div>
-                        {item.cost > 0 && <div style={{fontSize:10, color:"#f87171"}}>Costo Lab: ${item.cost}</div>}
-                        
-                        {/* Feedback de Servicios */}
-                        {item.specs && (item.specs.requiresBisel || item.specs.requiresTallado) && (
-                            <div style={{fontSize:10, color:"#bfdbfe", marginTop:2}}>
-                                Servicios: {item.specs.requiresBisel && "🛠️ Bisel "} {item.specs.requiresTallado && "⚙️ Tallado"}
-                            </div>
-                        )}
-
-                        <div style={{display:"flex", justifyContent:"flex-end"}}>${item.unitPrice.toLocaleString()}</div>
+                        <div style={{display:"flex", justifyContent:"space-between", fontSize:13}}><span>{item.description}</span><button onClick={() => removeFromCart(item._tempId)} style={{color:"red", background:"none", border:"none"}}>✕</button></div>
+                        <div style={{textAlign:"right"}}>${item.unitPrice.toLocaleString()}</div>
                     </div>
                 ))}
              </div>
              
-             {/* TOTALES Y COBRO */}
              <div style={{ borderTop: "1px solid #333", paddingTop: 15 }}>
                <div style={{ background: "#1e293b", padding: 10, borderRadius: 6, marginBottom: 15 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.9em", color: "#aaa", marginBottom: 5 }}><span>Subtotal:</span><span>${subtotalGross.toLocaleString()}</span></div>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 5 }}>
-                      <span style={{fontSize:"0.9em", color:"#f87171"}}>Desc:</span>
-                      <div style={{ display: "flex", gap: 5 }}>
-                          <input 
-                              type="number" 
-                              min="0"
-                              onKeyDown={preventNegativeKey}
-                              value={payment.discount} 
-                              onChange={e => setPayment({...payment, discount: sanitizeMoney(e.target.value)})} 
-                              placeholder="0" 
-                              style={{ width: 60, padding: 4, background: "#0f172a", border: "1px solid #f87171", color: "#f87171", textAlign: "right", borderRadius: 4 }} 
-                          />
-                          <select value={payment.discountType} onChange={e => setPayment({...payment, discountType: e.target.value})} style={{ padding: "0 4px", background: "#0f172a", border: "1px solid #f87171", color: "#f87171", fontSize: "0.8em" }}><option value="AMOUNT">$</option><option value="PERCENT">%</option></select>
-                      </div>
-                  </div>
                   <div style={{ display: "flex", justifyContent: "space-between", fontSize: "1.4em", fontWeight: "bold", color: "white" }}><span>Total:</span><span>${finalTotal.toLocaleString()}</span></div>
                </div>
 

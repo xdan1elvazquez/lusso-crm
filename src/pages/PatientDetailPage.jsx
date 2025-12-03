@@ -54,8 +54,13 @@ export default function PatientDetailPage() {
     async function loadData() {
         setLoading(true);
         try {
-            const p = await getPatientById(id);
+            const [p, sourcesData] = await Promise.all([
+                getPatientById(id),
+                getReferralSources()
+            ]);
+            
             setPatient(p);
+            setSources(sourcesData);
             
             if (p) {
                 touchPatientView(id);
@@ -93,7 +98,6 @@ export default function PatientDetailPage() {
             setLoading(false);
         }
     }
-    setSources(getReferralSources());
     loadData();
   }, [id]);
 

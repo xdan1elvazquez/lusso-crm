@@ -1,67 +1,67 @@
 import { useMemo, useState, useEffect } from "react";
-import { getPatients } from "@/services/patientsStorage"; // 👈 Ahora es async
+import { getPatients } from "@/services/patientsStorage";
 import LoadingState from "@/components/LoadingState";
 
 export default function StatisticsPage() {
   const [loading, setLoading] = useState(true);
-  const [patients, setPatients] = useState([]); // 👈 Iniciamos como array vacío
+  const [patients, setPatients] = useState([]); 
 
-  // Función para cargar datos desde Firebase
   const refreshData = async () => {
       setLoading(true);
       try {
           const data = await getPatients();
-          setPatients(data);
+          // 🛡️ BLINDAJE: Aseguramos que siempre sea array
+          setPatients(Array.isArray(data) ? data : []);
       } catch (error) {
           console.error("Error cargando estadísticas:", error);
+          setPatients([]);
       } finally {
           setLoading(false);
       }
   };
 
-  // Cargar al montar el componente
   useEffect(() => {
       refreshData();
   }, []);
 
+  // 🛡️ BLINDAJE EXTRA: Variable segura para los cálculos
+  const safePatients = Array.isArray(patients) ? patients : [];
+
   // --- 1. ESTADÍSTICAS POR CÓDIGO POSTAL (GEO) ---
   const zipStats = useMemo(() => {
-    // Si no hay pacientes, retornamos vacío para evitar errores
-    if (patients.length === 0) return [];
+    if (safePatients.length === 0) return [];
 
     const counts = {};
-    let withZip = 0;
-    patients.forEach(p => {
+    safePatients.forEach(p => {
         if (p.address?.zip) {
             counts[p.address.zip] = (counts[p.address.zip] || 0) + 1;
-            withZip++;
         }
     });
-    // Convertir a array y ordenar
+    
     return Object.entries(counts)
-      .map(([zip, count]) => ({ zip, count, percent: ((count / patients.length) * 100).toFixed(1) }))
+      .map(([zip, count]) => ({ zip, count, percent: ((count / safePatients.length) * 100).toFixed(1) }))
       .sort((a, b) => b.count - a.count);
-  }, [patients]);
+  }, [safePatients]);
 
   // --- 2. ESTADÍSTICAS DE MARKETING (ORIGEN) ---
   const sourceStats = useMemo(() => {
-    if (patients.length === 0) return [];
+    if (safePatients.length === 0) return [];
 
     const counts = {};
-    patients.forEach(p => {
+    safePatients.forEach(p => {
         const src = p.referralSource || "Desconocido";
         counts[src] = (counts[src] || 0) + 1;
     });
     return Object.entries(counts)
-      .map(([name, count]) => ({ name, count, percent: ((count / patients.length) * 100).toFixed(1) }))
+      .map(([name, count]) => ({ name, count, percent: ((count / safePatients.length) * 100).toFixed(1) }))
       .sort((a, b) => b.count - a.count);
-  }, [patients]);
+  }, [safePatients]);
 
   const StatCard = ({ title, data, icon, color }) => (
     <div style={{ background: "#1a1a1a", padding: 20, borderRadius: 12, border: "1px solid #333" }}>
       <h3 style={{ margin: "0 0 15px 0", color }}>{icon} {title}</h3>
       <div style={{ display: "grid", gap: 10 }}>
-         {data.slice(0, 6).map((item, i) => ( // Top 6
+         {data.slice(0, 6).map((item, i) => (
              <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid #333", paddingBottom: 8 }}>
                  <span style={{ fontSize: 14 }}>{item.zip || item.name}</span>
                  <div style={{ textAlign: "right" }}>
@@ -85,32 +85,18 @@ export default function StatisticsPage() {
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 20 }}>
-          {/* TARJETA 1: ZONAS GEOGRÁFICAS */}
-          <StatCard 
-             title="Top Zonas (C.P.)" 
-             data={zipStats} 
-             icon="📍" 
-             color="#f472b6" 
-          />
-
-          {/* TARJETA 2: MARKETING */}
-          <StatCard 
-             title="Fuentes de Captación" 
-             data={sourceStats} 
-             icon="📢" 
-             color="#60a5fa" 
-          />
+          <StatCard title="Top Zonas (C.P.)" data={zipStats} icon="📍" color="#f472b6" />
+          <StatCard title="Fuentes de Captación" data={sourceStats} icon="📢" color="#60a5fa" />
           
-          {/* TARJETA 3: RESUMEN RÁPIDO */}
           <div style={{ background: "#1a1a1a", padding: 20, borderRadius: 12, border: "1px solid #333", display: "flex", flexDirection: "column", justifyContent: "center", gap: 15 }}>
              <div style={{ textAlign: "center" }}>
                 <div style={{ fontSize: 13, color: "#888" }}>TOTAL PACIENTES</div>
-                <div style={{ fontSize: "3rem", fontWeight: "bold", color: "white" }}>{patients.length}</div>
+                <div style={{ fontSize: "3rem", fontWeight: "bold", color: "white" }}>{safePatients.length}</div>
              </div>
              <div style={{ textAlign: "center", borderTop: "1px solid #333", paddingTop: 15 }}>
                 <div style={{ fontSize: 13, color: "#888" }}>PACIENTES CON C.P. REGISTRADO</div>
                 <div style={{ fontSize: "1.5rem", fontWeight: "bold", color: "#4ade80" }}>
-                    {patients.filter(p => p.address?.zip).length}
+                    {safePatients.filter(p => p.address?.zip).length}
                 </div>
              </div>
           </div>

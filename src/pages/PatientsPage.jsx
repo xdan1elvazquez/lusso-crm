@@ -1,15 +1,18 @@
 import { useMemo, useState, useEffect } from "react";
 import { Link } from "react-router-dom";
-import { usePatients } from "@/hooks/usePatients";
+import { usePatients } from "@/hooks/usePatients"; // Usa el hook de arriba
 import { validatePatient } from "@/utils/validators";
-import { getReferralSources } from "@/services/settingsStorage";
-// 👇 IMPORTAR HANDLER
+import { getReferralSources } from "@/services/settingsStorage"; // Async
 import { handlePhoneInput } from "@/utils/inputHandlers";
+import LoadingState from "@/components/LoadingState";
 
 export default function PatientsPage() {
-  const { patients, create, remove } = usePatients();
+  // Extraemos datos y estado del hook
+  const { patients, create, remove, loading: loadingPatients, refresh } = usePatients();
+  
   const [q, setQ] = useState("");
   const [sources, setSources] = useState([]);
+  const [loadingConfig, setLoadingConfig] = useState(true);
   
   const [form, setForm] = useState({ 
     firstName: "", lastName: "", phone: "", email: "", 
@@ -21,28 +24,64 @@ export default function PatientsPage() {
   const [selectedReferrer, setSelectedReferrer] = useState(null);
   const [errors, setErrors] = useState({});
 
-  useEffect(() => { setSources(getReferralSources()); }, []);
+  // Cargar configuración
+  useEffect(() => {
+    async function loadConfig() {
+        try {
+            const srcs = await getReferralSources();
+            // Blindaje: si srcs no es array, usar []
+            setSources(Array.isArray(srcs) ? srcs : []);
+        } catch (e) {
+            console.error(e);
+            setSources([]);
+        } finally {
+            setLoadingConfig(false);
+        }
+    }
+    loadConfig();
+  }, []);
+
+  // Blindaje local: aseguramos que safePatients sea array
+  const safePatients = Array.isArray(patients) ? patients : [];
 
   const filtered = useMemo(() => {
     const s = q.trim().toLowerCase();
-    if (!s) return patients;
-    return patients.filter((p) => `${p.firstName} ${p.lastName} ${p.phone}`.toLowerCase().includes(s));
-  }, [patients, q]);
+    if (!s) return safePatients;
+    return safePatients.filter((p) => {
+        const fullName = `${p.firstName} ${p.lastName}`.toLowerCase();
+        const phone = p.phone || "";
+        return fullName.includes(s) || phone.includes(s);
+    });
+  }, [safePatients, q]);
 
   const filteredReferrers = useMemo(() => {
     if (!referrerQuery) return [];
     const s = referrerQuery.toLowerCase();
-    return patients.filter(p => `${p.firstName} ${p.lastName}`.toLowerCase().includes(s)).slice(0, 5);
-  }, [patients, referrerQuery]);
+    return safePatients.filter(p => `${p.firstName} ${p.lastName}`.toLowerCase().includes(s)).slice(0, 5);
+  }, [safePatients, referrerQuery]);
 
-  const onSubmit = (e) => {
+  const onSubmit = async (e) => {
     e.preventDefault();
     const validation = validatePatient(form);
     if (!validation.isValid) { setErrors(validation.errors); return; }
     setErrors({});
-    create({ ...form, referralSource: form.referralSource || "Pasaba por aquí", referredBy: selectedReferrer?.id || null });
-    setForm({ firstName: "", lastName: "", phone: "", email: "", dob: "", sex: "NO_ESPECIFICADO", occupation: "", referralSource: "", referredBy: "" });
-    setReferrerQuery(""); setSelectedReferrer(null);
+    
+    const success = await create({ 
+        ...form, 
+        referralSource: form.referralSource || "Pasaba por aquí", 
+        referredBy: selectedReferrer?.id || null 
+    });
+
+    if (success) {
+        setForm({ firstName: "", lastName: "", phone: "", email: "", dob: "", sex: "NO_ESPECIFICADO", occupation: "", referralSource: "", referredBy: "" });
+        setReferrerQuery(""); 
+        setSelectedReferrer(null);
+        alert("Paciente registrado correctamente.");
+    }
+  };
+  
+  const handleDelete = async (id) => {
+      await remove(id);
   };
 
   const InputGroup = ({ label, error, children }) => (
@@ -53,23 +92,27 @@ export default function PatientsPage() {
     </label>
   );
 
+  if (loadingPatients || loadingConfig) return <LoadingState />;
+
   return (
     <div style={{ width: "100%", paddingBottom: 40 }}>
       
-      {/* HEADER Y BUSCADOR */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 30 }}>
         <h1 style={{ margin: 0 }}>Pacientes</h1>
-        <input
-          placeholder="🔍 Buscar por nombre o teléfono..."
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          style={{ width: 300, padding: "10px", borderRadius: "8px", border: "1px solid #444", background: "#111", color: "white" }}
-        />
+        <div style={{display:"flex", gap:10}}>
+             <button onClick={refresh} style={{background:"#333", border:"1px solid #555", color:"white", borderRadius:6, cursor:"pointer", padding:"0 12px"}}>🔄</button>
+             <input
+              placeholder="🔍 Buscar por nombre o teléfono..."
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              style={{ width: 300, padding: "10px", borderRadius: "8px", border: "1px solid #444", background: "#111", color: "white" }}
+            />
+        </div>
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 350px", gap: 30, alignItems: "start" }}>
           
-          {/* FORMULARIO PRINCIPAL (MÁS LIMPIO) */}
+          {/* FORMULARIO */}
           <div style={{ background: "#1a1a1a", padding: 25, borderRadius: 12, border: "1px solid #333" }}>
             <h3 style={{ marginTop: 0, color: "#e5e7eb", borderBottom: "1px solid #333", paddingBottom: 15, marginBottom: 20 }}>Registrar Nuevo Paciente</h3>
             
@@ -84,7 +127,6 @@ export default function PatientsPage() {
                 </div>
 
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 15 }}>
-                    {/* 👇 INPUT DE TELÉFONO ACTUALIZADO */}
                     <InputGroup label="Teléfono (10 dígitos)" error={errors.phone}>
                         <input 
                             type="tel"
@@ -92,7 +134,6 @@ export default function PatientsPage() {
                             maxLength={10}
                             value={form.phone} 
                             onChange={(e) => {
-                                // Sanitización inmediata
                                 const clean = handlePhoneInput(e.target.value);
                                 setForm(f => ({ ...f, phone: clean }));
                             }} 
@@ -120,13 +161,13 @@ export default function PatientsPage() {
                     </InputGroup>
                 </div>
 
-                {/* SECCIÓN MARKETING (DIFERENCIADA) */}
                 <div style={{ background: "#111", padding: 15, borderRadius: 8, border: "1px dashed #444", marginTop: 10 }}>
                     <div style={{ fontSize: 12, color: "#60a5fa", fontWeight: "bold", marginBottom: 10 }}>📊 Origen del Paciente</div>
                     <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 10 }}>
                         <select value={form.referralSource} onChange={(e) => setForm(f => ({ ...f, referralSource: e.target.value }))} style={{ width: "100%", padding: 10, borderRadius: 6, border: "1px solid #444", background: "#222", color: "white" }}>
                             <option value="">-- ¿Cómo se enteró? --</option>
-                            {sources.map(s => <option key={s} value={s}>{s}</option>)}
+                            {/* Blindaje en el map */}
+                            {Array.isArray(sources) && sources.map(s => <option key={s} value={s}>{s}</option>)}
                         </select>
 
                         {form.referralSource === "Recomendación" && (
@@ -159,7 +200,7 @@ export default function PatientsPage() {
             </form>
           </div>
 
-          {/* LISTADO COMPACTO (DERECHA) */}
+          {/* LISTADO COMPACTO */}
           <div style={{ display: "grid", gap: 10, alignContent: "start" }}>
             <div style={{ fontSize: 12, color: "#888", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: 5 }}>Directorio Reciente</div>
             {filtered.length === 0 ? <p style={{ opacity: 0.6, fontSize: 13 }}>Sin resultados.</p> : 
@@ -171,7 +212,7 @@ export default function PatientsPage() {
                       </Link>
                       <div style={{ fontSize: "0.8em", color: "#888", marginTop: "2px" }}>{p.phone}</div>
                     </div>
-                    <button onClick={() => remove(p.id)} style={{ background: "none", border: "none", color: "#666", fontSize: "16px", cursor: "pointer", padding: "0 5px" }}>×</button>
+                    <button onClick={() => handleDelete(p.id)} style={{ background: "none", border: "none", color: "#666", fontSize: "16px", cursor: "pointer", padding: "0 5px" }}>×</button>
                   </div>
               ))
             }

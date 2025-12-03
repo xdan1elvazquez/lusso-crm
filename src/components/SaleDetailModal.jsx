@@ -1,5 +1,5 @@
-import React, { useState, useMemo } from "react";
-import { updateSaleLogistics, processReturn, updateSalePaymentMethod } from "@/services/salesStorage"; // 👈 IMPORTAR updateSalePaymentMethod
+import React, { useState, useEffect } from "react";
+import { updateSaleLogistics, processReturn, updateSalePaymentMethod } from "@/services/salesStorage"; 
 import { getAllWorkOrders } from "@/services/workOrdersStorage";
 
 const STATUS_LABELS = { 
@@ -22,32 +22,45 @@ export default function SaleDetailModal({ sale, patient, onClose, onUpdate }) {
   const [editingPaymentId, setEditingPaymentId] = useState(null); 
   const [tempMethod, setTempMethod] = useState("");
 
-  const relatedWorkOrders = useMemo(() => {
-      const allWos = getAllWorkOrders();
-      return allWos.filter(w => w.saleId === sale.id);
-  }, [sale.id]);
+  // Estado para las Work Orders (Ahora se cargan asíncronamente)
+  const [relatedWorkOrders, setRelatedWorkOrders] = useState([]);
 
-  const handleSave = () => {
-      updateSaleLogistics(sale.id, { soldBy });
+  useEffect(() => {
+      async function loadWOs() {
+          try {
+              // Solo cargamos las órdenes si estamos en la pestaña de LAB para ahorrar recursos
+              if (activeTab === "LAB") {
+                  const allWos = await getAllWorkOrders();
+                  setRelatedWorkOrders(allWos.filter(w => w.saleId === sale.id));
+              }
+          } catch (error) {
+              console.error("Error cargando work orders:", error);
+          }
+      }
+      loadWOs();
+  }, [activeTab, sale.id]);
+
+  const handleSave = async () => {
+      await updateSaleLogistics(sale.id, { soldBy });
       alert("Vendedor actualizado");
       if (onUpdate) onUpdate();
   };
 
-  // NUEVO: Manejador para guardar corrección de pago
-  const handleUpdatePayment = (paymentId) => {
+  // Manejador para guardar corrección de pago
+  const handleUpdatePayment = async (paymentId) => {
       if (!tempMethod) return;
       
-      const success = updateSalePaymentMethod(sale.id, paymentId, tempMethod);
+      const success = await updateSalePaymentMethod(sale.id, paymentId, tempMethod);
       if (success) {
           alert("Método de pago corregido.");
           setEditingPaymentId(null);
-          if (onUpdate) onUpdate(); // Refresca la vista principal y recalcula totales del turno
+          if (onUpdate) onUpdate(); 
       } else {
           alert("Error al actualizar.");
       }
   };
   
-  const handleReturnItem = (item) => {
+  const handleReturnItem = async (item) => {
       // 1. Preguntar cantidad
       const qty = prompt(`¿Cuántos "${item.description}" deseas devolver? (Máx: ${item.qty})`, 1);
       if (!qty) return;
@@ -60,10 +73,10 @@ export default function SaleDetailModal({ sale, patient, onClose, onUpdate }) {
       
       if (confirm(confirmMsg)) {
           try {
-              processReturn(sale.id, item.id, q);
+              await processReturn(sale.id, item.id, q);
               alert("Devolución procesada correctamente.");
               if (onUpdate) onUpdate();
-              onClose(); // Cerramos para refrescar datos
+              onClose(); 
           } catch (e) {
               alert("Error: " + e.message);
           }
@@ -89,6 +102,11 @@ export default function SaleDetailModal({ sale, patient, onClose, onUpdate }) {
   const TabBtn = ({ id, label }) => (
       <button onClick={() => setActiveTab(id)} style={{ flex: 1, padding: 12, background: activeTab===id ? "#2563eb" : "#333", color: "white", border: "none", borderBottom: activeTab===id ? "2px solid white" : "2px solid transparent", cursor: "pointer", fontWeight: "bold", fontSize:"0.9em" }}>{label}</button>
   );
+
+  // Estilos inline para mantener consistencia
+  const labelStyle = { fontSize: 11, color: "#888", textTransform: "uppercase", marginBottom: 2 };
+  const valStyle = { fontSize: 14, fontWeight: "bold", color: "white" };
+  const inputStyle = { width: "100%", padding: "8px 10px", background: "#111", border: "1px solid #444", color: "white", borderRadius: 4 };
 
   return (
     <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.85)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 200 }}>
@@ -278,7 +296,3 @@ export default function SaleDetailModal({ sale, patient, onClose, onUpdate }) {
     </div>
   );
 }
-
-const labelStyle = { fontSize: 11, color: "#888", textTransform: "uppercase", marginBottom: 2 };
-const valStyle = { fontSize: 14, fontWeight: "bold", color: "white" };
-const inputStyle = { width: "100%", padding: 8, background: "#111", border: "1px solid #444", color: "white", borderRadius: 4 };

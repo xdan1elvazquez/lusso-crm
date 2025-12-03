@@ -15,6 +15,10 @@ const NON_PATHOLOGICAL_LIST = ["Tabaquismo", "Alcoholismo", "Toxicomanías", "Al
 const OCULAR_LIST = ["Glaucoma", "Catarata", "Cirugía Ocular", "Trauma Ocular", "Uso de Lentes de Contacto", "Ojo Seco", "Infecciones Recurrentes", "Desprendimiento Retina"];
 const FAMILY_LIST = ["Diabetes (Fam)", "Hipertensión (Fam)", "Glaucoma (Fam)", "Queratocono (Fam)", "Ceguera (Fam)", "Catarata (Fam)"];
 
+const labelStyle = { fontSize: 11, color: "#aaa", display: "block", marginBottom: 2 };
+const inputStyle = { padding: 8, background: "#222", border: "1px solid #444", color: "white", borderRadius: 4, width: "100%" };
+const inputStyleSmall = { ...inputStyle, padding: "6px", fontSize: "0.9em" };
+
 function calculateEvolution(dateStr) {
     if (!dateStr) return "";
     const start = new Date(dateStr);
@@ -30,29 +34,27 @@ function calculateEvolution(dateStr) {
     return "Reciente (<1 mes)";
 }
 
-// --- SUBCOMPONENTES ---
-
 const CatalogManager = ({ mode, onClose, catalog, onUpdate }) => {
     const [newItem, setNewItem] = useState("");
     if (!mode) return null;
     const title = mode === "DIABETES" ? "Medicamentos Diabetes" : "Medicamentos Hipertensión";
 
-    const handleAdd = () => {
+    const handleAdd = async () => {
         if (newItem && !catalog.includes(newItem)) {
             const next = [...catalog, newItem].sort();
             onUpdate(next);
-            if (mode === "DIABETES") updateDiabetesMeds(next);
-            if (mode === "HYPERTENSION") updateHypertensionMeds(next);
+            if (mode === "DIABETES") await updateDiabetesMeds(next);
+            if (mode === "HYPERTENSION") await updateHypertensionMeds(next);
             setNewItem("");
         }
     };
 
-    const handleDelete = (item) => {
+    const handleDelete = async (item) => {
         if (confirm(`¿Eliminar "${item}" del catálogo?`)) {
             const next = catalog.filter(i => i !== item);
             onUpdate(next);
-            if (mode === "DIABETES") updateDiabetesMeds(next);
-            if (mode === "HYPERTENSION") updateHypertensionMeds(next);
+            if (mode === "DIABETES") await updateDiabetesMeds(next);
+            if (mode === "HYPERTENSION") await updateHypertensionMeds(next);
         }
     };
 
@@ -101,7 +103,7 @@ const MedsRow = ({ meds, onChange, catalog, onOpenCatalog, listId }) => {
             {meds.map((m, i) => (
                 <div key={i} style={{display:"grid", gridTemplateColumns:"1.5fr 1fr auto", gap:5, marginBottom:5}}>
                     <input list={listId} placeholder="Medicamento" value={m.name} onChange={e => updateRow(i, "name", e.target.value)} style={inputStyleSmall} />
-                    <input placeholder="Dosis (ej. 850mg c/12h)" value={m.dose} onChange={e => updateRow(i, "dose", e.target.value)} style={inputStyleSmall} />
+                    <input placeholder="Dosis" value={m.dose} onChange={e => updateRow(i, "dose", e.target.value)} style={inputStyleSmall} />
                     <button type="button" onClick={() => removeRow(i)} style={{color:"#f87171", background:"none", border:"none", cursor:"pointer"}}>✕</button>
                 </div>
             ))}
@@ -129,7 +131,7 @@ const ConditionRow = ({ label, dataGroup, setGroup, diabetesData, setDiabetesDat
             <div style={{ flex: 1, fontSize: 13, color: item.active ? "white" : "#888", fontWeight: item.active ? "bold" : "normal" }}>{label}</div>
             
             {item.active && !isSpecial && (
-              <input placeholder="Detalles / Cantidad / Frecuencia..." value={item.notes} onChange={e => setGroup(prev => ({ ...prev, [label]: { ...prev[label], notes: e.target.value } }))} style={{ width: "50%", background: "transparent", border: "none", borderBottom: "1px solid #60a5fa", color: "#60a5fa", fontSize: 12, padding: 2 }} autoFocus />
+              <input placeholder="Detalles..." value={item.notes} onChange={e => setGroup(prev => ({ ...prev, [label]: { ...prev[label], notes: e.target.value } }))} style={{ width: "50%", background: "transparent", border: "none", borderBottom: "1px solid #60a5fa", color: "#60a5fa", fontSize: 12, padding: 2 }} autoFocus />
             )}
           </div>
 
@@ -138,13 +140,6 @@ const ConditionRow = ({ label, dataGroup, setGroup, diabetesData, setDiabetesDat
                   <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:10}}>
                       <label style={labelStyle}>Fecha Diagnóstico <input type="date" value={diabetesData.diagnosisDate} onChange={e => setDiabetesData({...diabetesData, diagnosisDate: e.target.value})} style={inputStyleSmall} /></label>
                       <label style={labelStyle}>Evolución <input value={diabetesData.evolution} readOnly style={{...inputStyleSmall, background:"transparent", border:"none", color:"#aaa"}} /></label>
-                  </div>
-                  <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:10}}>
-                      <label style={labelStyle}>Valor más alto (mg/dL) <input type="number" value={diabetesData.maxVal} onChange={e => setDiabetesData({...diabetesData, maxVal: e.target.value})} style={inputStyleSmall} /></label>
-                      <label style={labelStyle}>Fecha del pico <input type="date" value={diabetesData.maxDate} onChange={e => setDiabetesData({...diabetesData, maxDate: e.target.value})} style={inputStyleSmall} /></label>
-                  </div>
-                  <div style={{marginTop:10}}>
-                      <label style={labelStyle}>¿Cuándo se estabilizó? <input value={diabetesData.stableDate} onChange={e => setDiabetesData({...diabetesData, stableDate: e.target.value})} style={inputStyleSmall} placeholder="Fecha aprox o 'Hace X meses'" /></label>
                   </div>
                   <MedsRow meds={diabetesData.meds} onChange={m => setDiabetesData({...diabetesData, meds: m})} catalog={diabetesCatalog} onOpenCatalog={() => setCatalogMode("DIABETES")} listId="list-diabetes-meds"/>
               </div>
@@ -156,55 +151,10 @@ const ConditionRow = ({ label, dataGroup, setGroup, diabetesData, setDiabetesDat
                       <label style={labelStyle}>Fecha Diagnóstico <input type="date" value={hyperData.diagnosisDate} onChange={e => setHyperData({...hyperData, diagnosisDate: e.target.value})} style={inputStyleSmall} /></label>
                       <label style={labelStyle}>Evolución <input value={hyperData.evolution} readOnly style={{...inputStyleSmall, background:"transparent", border:"none", color:"#aaa"}} /></label>
                   </div>
-                  <div style={{display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:5, alignItems:"end"}}>
-                      <label style={labelStyle}>Pico Sys <input type="number" value={hyperData.maxValSys} onChange={e => setHyperData({...hyperData, maxValSys: e.target.value})} style={inputStyleSmall} /></label>
-                      <label style={labelStyle}>Pico Dia <input type="number" value={hyperData.maxValDia} onChange={e => setHyperData({...hyperData, maxValDia: e.target.value})} style={inputStyleSmall} /></label>
-                      <label style={labelStyle}>Fecha Pico <input type="date" value={hyperData.maxDate} onChange={e => setHyperData({...hyperData, maxDate: e.target.value})} style={inputStyleSmall} /></label>
-                  </div>
-                  <div style={{display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:5, alignItems:"end", marginTop:10}}>
-                      <label style={labelStyle}>Última Sys <input type="number" value={hyperData.lastMeasureSys} onChange={e => setHyperData({...hyperData, lastMeasureSys: e.target.value})} style={inputStyleSmall} /></label>
-                      <label style={labelStyle}>Última Dia <input type="number" value={hyperData.lastMeasureDia} onChange={e => setHyperData({...hyperData, lastMeasureDia: e.target.value})} style={inputStyleSmall} /></label>
-                      <label style={labelStyle}>Fecha <input type="date" value={hyperData.lastMeasureDate} onChange={e => setHyperData({...hyperData, lastMeasureDate: e.target.value})} style={inputStyleSmall} /></label>
-                  </div>
-                  <div style={{marginTop:10}}>
-                      <label style={labelStyle}>Última Toma de Med. (Hora/Fecha) <input value={hyperData.lastTake} onChange={e => setHyperData({...hyperData, lastTake: e.target.value})} style={inputStyleSmall} /></label>
-                  </div>
                   <MedsRow meds={hyperData.meds} onChange={m => setHyperData({...hyperData, meds: m})} catalog={hyperCatalog} onOpenCatalog={() => setCatalogMode("HYPERTENSION")} listId="list-hyper-meds"/>
               </div>
           )}
       </div>
-    );
-};
-
-const DetailModal = ({ title, data, onClose }) => {
-    if (!data) return null;
-    return (
-        <div style={{position:"fixed", top:0, left:0, right:0, bottom:0, background:"rgba(0,0,0,0.85)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:150}}>
-            <div style={{background:"#1a1a1a", padding:25, borderRadius:10, width:500, border:"1px solid #4ade80"}}>
-                <h3 style={{marginTop:0, color:"#4ade80"}}>{title} (Detalle)</h3>
-                <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:15, marginBottom:15}}>
-                    <div><strong style={{color:"#aaa", fontSize:12}}>DIAGNÓSTICO</strong><div>{data.diagnosisDate} ({data.evolution})</div></div>
-                    {data.stableDate && <div><strong style={{color:"#aaa", fontSize:12}}>ESTABILIZACIÓN</strong><div>{data.stableDate}</div></div>}
-                    {data.maxVal && <div><strong style={{color:"#aaa", fontSize:12}}>PICO MÁXIMO</strong><div>{data.maxVal} mg/dL ({data.maxDate})</div></div>}
-                    {(data.maxValSys || data.maxValDia) && <div><strong style={{color:"#aaa", fontSize:12}}>PICO MÁXIMO</strong><div>{data.maxValSys}/{data.maxValDia} ({data.maxDate})</div></div>}
-                    {(data.lastMeasureSys || data.lastMeasureDia) && <div><strong style={{color:"#aaa", fontSize:12}}>ÚLTIMA MEDICIÓN</strong><div>{data.lastMeasureSys}/{data.lastMeasureDia} ({data.lastMeasureDate})</div></div>}
-                    {data.lastTake && <div><strong style={{color:"#aaa", fontSize:12}}>ÚLTIMA TOMA</strong><div>{data.lastTake}</div></div>}
-                </div>
-                
-                <div style={{background:"#222", padding:10, borderRadius:6}}>
-                    <strong style={{color:"#aaa", fontSize:12}}>TRATAMIENTO ACTUAL</strong>
-                    {data.meds?.length > 0 ? (
-                        <ul style={{margin:"5px 0 0 15px", padding:0}}>
-                            {data.meds.map((m,i) => <li key={i}>{m.name} - {m.dose}</li>)}
-                        </ul>
-                    ) : <div style={{fontStyle:"italic", color:"#666"}}>Sin medicamentos registrados.</div>}
-                </div>
-
-                <div style={{textAlign:"right", marginTop:20}}>
-                    <button onClick={onClose} style={{background:"#333", color:"white", border:"1px solid #555", padding:"8px 16px", borderRadius:6, cursor:"pointer"}}>Cerrar</button>
-                </div>
-            </div>
-        </div>
     );
 };
 
@@ -216,9 +166,7 @@ export default function AnamnesisPanel({ patientId }) {
   const [catalogMode, setCatalogMode] = useState(null);
   const [diabetesCatalog, setDiabetesCatalog] = useState([]);
   const [hyperCatalog, setHyperCatalog] = useState([]);
-  const [detailModal, setDetailModal] = useState(null);
 
-  // Estados del formulario
   const [systemic, setSystemic] = useState({});
   const [nonPathological, setNonPathological] = useState({});
   const [ocular, setOcular] = useState({});
@@ -228,7 +176,6 @@ export default function AnamnesisPanel({ patientId }) {
   const [diabetesData, setDiabetesData] = useState({ diagnosisDate: "", evolution: "", maxVal: "", maxDate: "", stableDate: "", meds: [] });
   const [hyperData, setHyperData] = useState({ diagnosisDate: "", evolution: "", maxValSys: "", maxValDia: "", maxDate: "", lastTake: "", lastMeasureSys: "", lastMeasureDia: "", lastMeasureDate: "", meds: [] });
 
-  // Carga Async
   const refreshData = async () => {
       setLoading(true);
       try {
@@ -243,13 +190,15 @@ export default function AnamnesisPanel({ patientId }) {
 
   useEffect(() => { refreshData(); }, [patientId]);
 
-  // Carga de catálogos (Local)
   useEffect(() => {
-      setDiabetesCatalog(getDiabetesMeds());
-      setHyperCatalog(getHypertensionMeds());
+      async function loadCats() {
+          const [dMeds, hMeds] = await Promise.all([getDiabetesMeds(), getHypertensionMeds()]);
+          setDiabetesCatalog(dMeds);
+          setHyperCatalog(hMeds);
+      }
+      loadCats();
   }, [catalogMode]);
 
-  // Efectos de cálculo de fechas
   useEffect(() => { if(diabetesData.diagnosisDate) setDiabetesData(d => ({...d, evolution: calculateEvolution(d.diagnosisDate)})); }, [diabetesData.diagnosisDate]);
   useEffect(() => { if(hyperData.diagnosisDate) setHyperData(d => ({...d, evolution: calculateEvolution(d.diagnosisDate)})); }, [hyperData.diagnosisDate]);
 
@@ -279,13 +228,13 @@ export default function AnamnesisPanel({ patientId }) {
     const finalSystemic = { ...systemic };
     if (finalSystemic["Diabetes"]?.active) {
         const medsTxt = diabetesData.meds.map(m => `${m.name} ${m.dose}`).join(", ");
-        const summary = `Dx: ${diabetesData.diagnosisDate || "?"} (${diabetesData.evolution}). Tx: ${medsTxt || "Ninguno"}. Max: ${diabetesData.maxVal || "-"} mg/dL`;
+        const summary = `Dx: ${diabetesData.diagnosisDate || "?"} (${diabetesData.evolution}). Tx: ${medsTxt || "Ninguno"}`;
         finalSystemic["Diabetes"] = { active: true, notes: summary, details: diabetesData };
     }
 
     if (finalSystemic["Hipertensión"]?.active) {
         const medsTxt = hyperData.meds.map(m => `${m.name} ${m.dose}`).join(", ");
-        const summary = `Dx: ${hyperData.diagnosisDate || "?"} (${hyperData.evolution}). Tx: ${medsTxt || "Ninguno"}. Última: ${hyperData.lastMeasureSys}/${hyperData.lastMeasureDia}`;
+        const summary = `Dx: ${hyperData.diagnosisDate || "?"} (${hyperData.evolution}). Tx: ${medsTxt || "Ninguno"}`;
         finalSystemic["Hipertensión"] = { active: true, notes: summary, details: hyperData };
     }
 
@@ -298,7 +247,6 @@ export default function AnamnesisPanel({ patientId }) {
         ...extras 
     });
     
-    // Limpieza
     setSystemic({}); setNonPathological({}); setOcular({}); setFamily({});
     setExtras({ allergies: "", medications: "", observations: "" });
     setDiabetesData({ diagnosisDate: "", evolution: "", maxVal: "", maxDate: "", stableDate: "", meds: [] });
@@ -327,8 +275,6 @@ export default function AnamnesisPanel({ patientId }) {
 
       <CatalogManager mode={catalogMode} onClose={() => setCatalogMode(null)} catalog={catalogMode === "DIABETES" ? diabetesCatalog : hyperCatalog} onUpdate={catalogMode === "DIABETES" ? setDiabetesCatalog : setHyperCatalog} />
       
-      {detailModal && <DetailModal title={detailModal.title} data={detailModal.data} onClose={() => setDetailModal(null)} />}
-
       {isCreating && (
         <form onSubmit={onSubmit} style={{ display: "grid", gap: 20, background: "#111", padding: 20, borderRadius: 10, border: "1px dashed #555" }}>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))", gap: 30 }}>
@@ -336,26 +282,22 @@ export default function AnamnesisPanel({ patientId }) {
                 <h4 style={{ color: "#f87171", borderBottom: "1px solid #f87171", paddingBottom: 5, marginTop: 0 }}>1. Personales Patológicos</h4>
                 {SYSTEMIC_LIST.map(label => <ConditionRow key={label} label={label} dataGroup={systemic} setGroup={setSystemic} diabetesData={diabetesData} setDiabetesData={setDiabetesData} hyperData={hyperData} setHyperData={setHyperData} diabetesCatalog={diabetesCatalog} hyperCatalog={hyperCatalog} setCatalogMode={setCatalogMode} />)}
             </div>
-            
             <div>
                 <h4 style={{ color: "#34d399", borderBottom: "1px solid #34d399", paddingBottom: 5, marginTop: 0 }}>2. No Patológicos</h4>
                 {NON_PATHOLOGICAL_LIST.map(label => <ConditionRow key={label} label={label} dataGroup={nonPathological} setGroup={setNonPathological} />)}
             </div>
-
             <div>
                 <h4 style={{ color: "#60a5fa", borderBottom: "1px solid #60a5fa", paddingBottom: 5, marginTop: 0 }}>3. Oculares</h4>
                 {OCULAR_LIST.map(label => <ConditionRow key={label} label={label} dataGroup={ocular} setGroup={setOcular} />)}
             </div>
-
             <div>
                 <h4 style={{ color: "#fbbf24", borderBottom: "1px solid #fbbf24", paddingBottom: 5, marginTop: 0 }}>4. Heredofamiliares</h4>
                 {FAMILY_LIST.map(label => <ConditionRow key={label} label={label} dataGroup={family} setGroup={setFamily} />)}
             </div>
           </div>
-
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
              <label style={{ display: "grid", gap: 4 }}><span style={{ fontSize: 12, color: "#aaa" }}>Alergias</span><input value={extras.allergies} onChange={e => setExtras({...extras, allergies: e.target.value})} style={inputStyle} /></label>
-             <label style={{ display: "grid", gap: 4 }}><span style={{ fontSize: 12, color: "#aaa" }}>Otros Medicamentos (No listados)</span><input value={extras.medications} onChange={e => setExtras({...extras, medications: e.target.value})} style={inputStyle} /></label>
+             <label style={{ display: "grid", gap: 4 }}><span style={{ fontSize: 12, color: "#aaa" }}>Otros Medicamentos</span><input value={extras.medications} onChange={e => setExtras({...extras, medications: e.target.value})} style={inputStyle} /></label>
           </div>
           <label style={{ display: "grid", gap: 4 }}><span style={{ fontSize: 12, color: "#aaa" }}>Observaciones Generales</span><textarea rows={2} value={extras.observations} onChange={e => setExtras({...extras, observations: e.target.value})} style={inputStyle} /></label>
           <button type="submit" style={{ background: "#4ade80", color: "black", border: "none", padding: "12px", borderRadius: 6, fontWeight: "bold", cursor: "pointer", fontSize: "1em" }}>Guardar Anamnesis</button>
@@ -364,57 +306,20 @@ export default function AnamnesisPanel({ patientId }) {
 
       {loading ? <div style={{color:"#666", padding:20, textAlign:"center"}}>Cargando antecedentes...</div> : (
           <div style={{ display: "grid", gap: 10 }}>
-            {historyList.map((entry) => {
-               const hasSystemic = Object.keys(entry.systemic || {}).length > 0;
-               const hasNonPath = Object.keys(entry.nonPathological || {}).length > 0;
-               const hasOcular = Object.keys(entry.ocular || {}).length > 0;
-               return (
+            {historyList.map((entry) => (
                 <div key={entry.id} style={{ border: "1px solid #333", borderRadius: 8, padding: 15, background: "#111" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8, borderBottom: "1px solid #222", paddingBottom: 5 }}>
                     <strong style={{color:"#ddd"}}>{new Date(entry.createdAt).toLocaleDateString()}</strong>
                     <button onClick={() => onDelete(entry.id)} style={{ fontSize: 11, background: "none", border: "none", color: "#666", cursor: "pointer" }}>Eliminar</button>
                   </div>
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 15, fontSize: "0.9em" }}>
-                     {hasSystemic && (
-                        <div>
-                           <span style={{color: "#f87171", fontSize:11, fontWeight:"bold"}}>SISTÉMICOS:</span>
-                           <ul style={{margin:"4px 0 0 15px", padding:0, color:"#ccc"}}>
-                              {Object.entries(entry.systemic).map(([k, v]) => (
-                                  <li key={k}>
-                                      {k} {v.notes && <span style={{color:"#888"}}>({v.notes})</span>}
-                                      {v.details && <button onClick={() => setDetailModal({ title: k, data: v.details })} style={{marginLeft:5, fontSize:10, background:"#333", border:"1px solid #555", borderRadius:4, cursor:"pointer", color:"#bfdbfe"}}>Ver Detalle</button>}
-                                  </li>
-                              ))}
-                           </ul>
-                        </div>
-                     )}
-                     {hasNonPath && (
-                        <div>
-                           <span style={{color: "#34d399", fontSize:11, fontWeight:"bold"}}>NO PATOLÓGICOS:</span>
-                           <ul style={{margin:"4px 0 0 15px", padding:0, color:"#ccc"}}>
-                              {Object.entries(entry.nonPathological).map(([k, v]) => <li key={k}>{k} {v.notes && <span style={{color:"#888"}}>({v.notes})</span>}</li>)}
-                           </ul>
-                        </div>
-                     )}
-                     {hasOcular && (
-                        <div>
-                           <span style={{color: "#60a5fa", fontSize:11, fontWeight:"bold"}}>OCULARES:</span>
-                           <ul style={{margin:"4px 0 0 15px", padding:0, color:"#ccc"}}>{Object.entries(entry.ocular).map(([k, v]) => <li key={k}>{k} {v.notes && <span style={{color:"#888"}}>({v.notes})</span>}</li>)}</ul>
-                        </div>
-                     )}
-                     <div>
-                        {(entry.allergies || entry.medications) && <><span style={{color: "#fbbf24", fontSize:11, fontWeight:"bold"}}>OTROS:</span><div style={{marginTop:4, color:"#aaa"}}>{entry.allergies && <div>Alergias: {entry.allergies}</div>}{entry.medications && <div>Meds: {entry.medications}</div>}</div></>}
-                     </div>
+                  <div style={{fontSize:"0.9em", color:"#ccc"}}>
+                      {Object.entries(entry.systemic || {}).map(([k,v]) => <div key={k}>• {k} {v.notes ? `(${v.notes})` : ""}</div>)}
+                      {Object.entries(entry.ocular || {}).map(([k,v]) => <div key={k}>• {k} {v.notes ? `(${v.notes})` : ""}</div>)}
                   </div>
                 </div>
-               )
-            })}
+            ))}
           </div>
       )}
     </section>
   );
 }
-
-const labelStyle = { fontSize: 11, color: "#aaa", display: "block", marginBottom: 2 };
-const inputStyle = { padding: 8, background: "#222", border: "1px solid #444", color: "white", borderRadius: 4, width: "100%" };
-const inputStyleSmall = { ...inputStyle, padding: "6px", fontSize: "0.9em" };
