@@ -1,9 +1,9 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { getLabs, createLab, updateLab, deleteLab } from "@/services/labStorage";
+import { getLensMaterials, updateLensMaterials } from "@/services/settingsStorage"; // 👈 IMPORTAR
 import { parseDiopter } from "@/utils/rxUtils";
 
 const LENS_DESIGNS = ["Monofocal", "Bifocal Flat Top", "Bifocal Invisible", "Progresivo", "Ocupacional"];
-const LENS_MATERIALS = ["CR-39", "Policarbonato", "Hi-Index 1.56", "Hi-Index 1.60", "Hi-Index 1.67", "Hi-Index 1.74", "Trivex", "Cristal"];
 const LENS_TREATMENTS = ["Blanco", "Antireflejante (AR)", "Blue Ray / Blue Free", "Fotocromático (Grey)", "Fotocromático (Brown)", "Polarizado", "Espejeado", "Transitions"];
 
 // TIPOS DE SERVICIO PARA ETIQUETAR
@@ -13,20 +13,103 @@ const SERVICE_TYPES = [
     { id: "TALLADO", label: "Tallado Digital" }
 ];
 
+// --- SUBCOMPONENTE: GESTOR DE MATERIALES ---
+const MaterialsManager = ({ onClose }) => {
+    const [materials, setMaterials] = useState(getLensMaterials());
+    const [newName, setNewName] = useState("");
+
+    const handleAdd = () => {
+        if (!newName.trim()) return;
+        const id = newName.toLowerCase().replace(/[^a-z0-9]/g, '_') + "_" + Date.now().toString().slice(-4);
+        const next = [...materials, { id, name: newName.trim(), active: true }];
+        updateLensMaterials(next);
+        setMaterials(next);
+        setNewName("");
+    };
+
+    const toggleActive = (id) => {
+        const next = materials.map(m => m.id === id ? { ...m, active: !m.active } : m);
+        updateLensMaterials(next);
+        setMaterials(next);
+    };
+
+    const handleUpdateName = (id, val) => {
+        const next = materials.map(m => m.id === id ? { ...m, name: val } : m);
+        updateLensMaterials(next);
+        setMaterials(next);
+    };
+
+    return (
+        <div style={{ position: "fixed", top:0, left:0, right:0, bottom:0, background:"rgba(0,0,0,0.8)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:200 }}>
+            <div style={{ background: "#1a1a1a", padding: 20, borderRadius: 10, width: 450, border: "1px solid #60a5fa", maxHeight: "80vh", display: "flex", flexDirection: "column" }}>
+                <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:15}}>
+                    <h3 style={{ margin: 0, color: "#60a5fa" }}>Configurar Materiales</h3>
+                    <button onClick={onClose} style={{background:"none", border:"none", color:"#aaa", fontSize:20, cursor:"pointer"}}>×</button>
+                </div>
+
+                <div style={{display:"flex", gap:10, marginBottom:15}}>
+                    <input 
+                        value={newName} 
+                        onChange={e => setNewName(e.target.value)} 
+                        placeholder="Nuevo material (ej. High Index 1.74)" 
+                        style={{flex:1, padding:8, background:"#222", border:"1px solid #444", color:"white", borderRadius:4}} 
+                    />
+                    <button onClick={handleAdd} style={{background:"#2563eb", color:"white", border:"none", padding:"0 15px", borderRadius:4, fontWeight:"bold", cursor:"pointer"}}>+</button>
+                </div>
+
+                <div style={{flex:1, overflowY:"auto", display:"grid", gap:8, paddingRight:5}}>
+                    {materials.map(m => (
+                        <div key={m.id} style={{display:"flex", alignItems:"center", gap:10, background:"#222", padding:8, borderRadius:4, opacity: m.active ? 1 : 0.5}}>
+                            <input 
+                                type="checkbox" 
+                                checked={m.active} 
+                                onChange={() => toggleActive(m.id)} 
+                                title="Activar/Desactivar"
+                                style={{cursor:"pointer", width:16, height:16}}
+                            />
+                            <input 
+                                value={m.name} 
+                                onChange={(e) => handleUpdateName(m.id, e.target.value)}
+                                style={{flex:1, background:"transparent", border:"none", color: m.active ? "white" : "#888", fontSize:14}}
+                            />
+                            <span style={{fontSize:10, color: m.active ? "#4ade80" : "#f87171"}}>{m.active ? "ACTIVO" : "INACTIVO"}</span>
+                        </div>
+                    ))}
+                </div>
+                
+                <div style={{marginTop:15, fontSize:11, color:"#666", textAlign:"center"}}>
+                    * Desactiva los materiales que ya no uses. No se borran para no afectar el historial.
+                </div>
+            </div>
+        </div>
+    );
+};
+
 export default function LabsPage() {
   const [labs, setLabs] = useState([]);
   const [isEditing, setIsEditing] = useState(false);
+  const [showConfig, setShowConfig] = useState(false); // 👈 Estado para modal configuración
   
   const [form, setForm] = useState({ id: null, name: "", services: [], lensCatalog: [] });
   const [activeTab, setActiveTab] = useState("SERVICES");
   
-  // Estado para nuevo servicio (ahora con TYPE)
+  // Estado para nuevo servicio
   const [tempService, setTempService] = useState({ name: "", price: "", type: "GENERIC" });
   
   const [editingLens, setEditingLens] = useState(null);
   const [tempRange, setTempRange] = useState({ sphMin: -20, sphMax: 20, cylMin: -6, cylMax: 0, cost: 0, price: 0 });
 
-  useEffect(() => { setLabs(getLabs()); }, [isEditing]);
+  // 👈 CARGAR MATERIALES DESDE SETTINGS
+  const [materials, setMaterials] = useState([]);
+  
+  const refreshMaterials = () => {
+      setMaterials(getLensMaterials());
+  };
+
+  useEffect(() => { 
+      setLabs(getLabs());
+      refreshMaterials();
+  }, [isEditing, showConfig]); // Recargar al cerrar config
 
   const handleSaveLab = () => {
     if (editingLens) saveLensToCatalog();
@@ -60,11 +143,14 @@ export default function LabsPage() {
   };
 
   const handleNewLens = () => {
+      // Usamos el primer material activo por defecto
+      const defaultMat = materials.find(m => m.active)?.name || "CR-39";
+      
       setEditingLens({
           id: crypto.randomUUID(),
           name: "", 
           design: "Monofocal",
-          material: "Policarbonato",
+          material: defaultMat, // 👈 Usar dinámico
           treatment: "Antireflejante (AR)",
           ranges: [] 
       });
@@ -125,12 +211,32 @@ export default function LabsPage() {
   const currentUtility = (Number(tempRange.price) || 0) - (Number(tempRange.cost) || 0);
   const utilityColor = currentUtility > 0 ? "#4ade80" : currentUtility < 0 ? "#f87171" : "#aaa";
 
+  // Lógica para mostrar opciones: Activos + El actual (por si es legacy)
+  const materialOptions = useMemo(() => {
+      if (!editingLens) return [];
+      const currentVal = editingLens.material;
+      // Filtramos activos
+      const activeMats = materials.filter(m => m.active);
+      // Si el actual no está en activos (fue desactivado), lo agregamos virtualmente
+      const currentExists = activeMats.find(m => m.name === currentVal);
+      if (currentVal && !currentExists) {
+          return [...activeMats, { id: 'legacy', name: currentVal, active: false }];
+      }
+      return activeMats;
+  }, [materials, editingLens]);
+
   return (
     <div style={{ width: "100%", paddingBottom: 40 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
         <h1>Laboratorios y Listas de Costos</h1>
-        <button onClick={() => { setIsEditing(true); setForm({ id: null, name: "", services: [], lensCatalog: [] }); }} style={{ background: "#2563eb", color: "white", border: "none", padding: "10px 20px", borderRadius: 6, cursor: "pointer" }}>+ Nuevo Lab</button>
+        <div style={{display:"flex", gap:10}}>
+            {/* 👈 BOTÓN CONFIGURACIÓN */}
+            <button onClick={() => setShowConfig(true)} style={{ background: "#333", color: "#ddd", border: "1px solid #555", padding: "10px 15px", borderRadius: 6, cursor: "pointer" }}>⚙️ Materiales</button>
+            <button onClick={() => { setIsEditing(true); setForm({ id: null, name: "", services: [], lensCatalog: [] }); }} style={{ background: "#2563eb", color: "white", border: "none", padding: "10px 20px", borderRadius: 6, cursor: "pointer" }}>+ Nuevo Lab</button>
+        </div>
       </div>
+
+      {showConfig && <MaterialsManager onClose={() => setShowConfig(false)} />}
 
       {isEditing && (
         <div style={{ background: "#1a1a1a", padding: 20, borderRadius: 12, border: "1px solid #333", marginBottom: 20 }}>
@@ -152,7 +258,6 @@ export default function LabsPage() {
                   <div style={{ display: "flex", gap: 10, marginBottom: 10 }}>
                      <input placeholder="Servicio (ej. Bisel Ranurado)" value={tempService.name} onChange={e => setTempService({...tempService, name: e.target.value})} style={{ flex: 2, padding: 6, background: "#222", border: "1px solid #444", color: "white" }} />
                      
-                     {/* NUEVO: SELECTOR DE TIPO DE SERVICIO */}
                      <select value={tempService.type} onChange={e => setTempService({...tempService, type: e.target.value})} style={{ flex: 1, padding: 6, background: "#222", border: "1px solid #444", color: "white" }}>
                          {SERVICE_TYPES.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
                      </select>
@@ -208,7 +313,18 @@ export default function LabsPage() {
                               <label style={{fontSize:12, color:"#aaa"}}>Nombre Interno <input value={editingLens.name} onChange={e=>setEditingLens({...editingLens, name:e.target.value})} placeholder="Ej. Poly AR Green" style={{width:"100%", padding:6, background:"#333", border:"1px solid #555", color:"white", borderRadius:4}} /></label>
                               <div style={{display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:10}}>
                                   <label style={{fontSize:12, color:"#aaa"}}>Diseño <select value={editingLens.design} onChange={e=>setEditingLens({...editingLens, design:e.target.value})} style={{width:"100%", padding:6, background:"#333", border:"1px solid #555", color:"white", borderRadius:4}}>{LENS_DESIGNS.map(d=><option key={d} value={d}>{d}</option>)}</select></label>
-                                  <label style={{fontSize:12, color:"#aaa"}}>Material <select value={editingLens.material} onChange={e=>setEditingLens({...editingLens, material:e.target.value})} style={{width:"100%", padding:6, background:"#333", border:"1px solid #555", color:"white", borderRadius:4}}>{LENS_MATERIALS.map(d=><option key={d} value={d}>{d}</option>)}</select></label>
+                                  
+                                  {/* 👈 SELECTOR MATERIAL DINÁMICO */}
+                                  <label style={{fontSize:12, color:"#aaa"}}>Material 
+                                      <select value={editingLens.material} onChange={e=>setEditingLens({...editingLens, material:e.target.value})} style={{width:"100%", padding:6, background:"#333", border:"1px solid #555", color:"white", borderRadius:4}}>
+                                          {materialOptions.map(m => (
+                                              <option key={m.id || m.name} value={m.name}>
+                                                  {m.name} {!m.active && "(Inactivo)"}
+                                              </option>
+                                          ))}
+                                      </select>
+                                  </label>
+
                                   <label style={{fontSize:12, color:"#aaa"}}>Tratamiento <select value={editingLens.treatment} onChange={e=>setEditingLens({...editingLens, treatment:e.target.value})} style={{width:"100%", padding:6, background:"#333", border:"1px solid #555", color:"white", borderRadius:4}}>{LENS_TREATMENTS.map(d=><option key={d} value={d}>{d}</option>)}</select></label>
                               </div>
                           </div>
@@ -261,7 +377,7 @@ export default function LabsPage() {
 
            <div style={{ marginTop: 20, display: "flex", gap: 10, justifyContent:"flex-end", borderTop:"1px solid #333", paddingTop:15 }}>
               <button onClick={() => { setIsEditing(false); setEditingLens(null); }} style={{ background: "transparent", color: "#aaa", border: "none", cursor: "pointer" }}>Cancelar</button>
-              <button onClick={handleSaveLab} style={{ background: "#16a34a", color: "white", border: "none", padding: "10px 30px", borderRadius: 6, cursor: "pointer", fontWeight:"bold" }}>GUARDAR LABORATORIO</button>
+              <button onClick={handleSaveLab} style={{ background: "#16a34a", color: "white", border: "none", padding: "10px 30px", borderRadius: 6, cursor: "pointer", fontWeight: "bold" }}>GUARDAR LABORATORIO</button>
            </div>
         </div>
       )}

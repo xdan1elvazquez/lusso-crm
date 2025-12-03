@@ -1,5 +1,15 @@
 const KEY = "lusso_settings_v1";
 
+// Lista inicial basada en lo que tenías hardcodeado
+const DEFAULT_LENS_MATERIALS = [
+  "CR-39", "Policarbonato", "Hi-Index 1.56", "Hi-Index 1.60", 
+  "Hi-Index 1.67", "Hi-Index 1.74", "Trivex", "Cristal"
+].map(name => ({
+  id: name.toLowerCase().replace(/[^a-z0-9]/g, '_'), // Generar ID estable simple
+  name: name,
+  active: true
+}));
+
 const DEFAULT_SETTINGS = {
   // DATOS DE LA CLÍNICA (NOM-004)
   organization: {
@@ -33,13 +43,16 @@ const DEFAULT_SETTINGS = {
   hypertensionMeds: [
       "Losartán", "Captopril", "Enalapril", "Amlodipino", "Telmisartán", 
       "Hidroclorotiazida", "Nifedipino", "Candesartán"
-  ]
+  ],
+  // NUEVO: Catálogo de Materiales (Seed)
+  lensMaterials: DEFAULT_LENS_MATERIALS
 };
 
 function read() {
   try {
     const raw = localStorage.getItem(KEY);
     const parsed = raw ? JSON.parse(raw) : DEFAULT_SETTINGS;
+    // Asegurar que lensMaterials exista si el storage ya estaba creado
     return { ...DEFAULT_SETTINGS, ...parsed }; 
   } catch { return DEFAULT_SETTINGS; }
 }
@@ -73,3 +86,7 @@ export function updateDiabetesMeds(list) { return updateSettings({ diabetesMeds:
 
 export function getHypertensionMeds() { return getSettings().hypertensionMeds; }
 export function updateHypertensionMeds(list) { return updateSettings({ hypertensionMeds: list }); }
+
+// NUEVO: Helpers Materiales Lentes
+export function getLensMaterials() { return getSettings().lensMaterials || DEFAULT_LENS_MATERIALS; }
+export function updateLensMaterials(list) { return updateSettings({ lensMaterials: list }); }
