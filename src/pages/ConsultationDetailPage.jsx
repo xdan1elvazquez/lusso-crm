@@ -7,15 +7,15 @@ import {
   unlockConsultation 
 } from "@/services/consultationsStorage";
 import { getAuditHistory } from "@/services/auditStorage"; 
-import { getExamsByConsultation, createEyeExam, deleteEyeExam } from "@/services/eyeExamStorage"; 
 import { getAllProducts } from "@/services/inventoryStorage"; 
 import { getPatientById } from "@/services/patientsStorage"; 
-import RxPicker from "@/components/RxPicker";
-import { normalizeRxValue } from "@/utils/rxOptions";
-import { validateRx } from "@/utils/validators";
 import { searchDiagnosis } from "@/utils/cie10Catalog";
 
-// --- CONFIGURACIÓN DE SISTEMAS (IPAS - MANTENIDO) ---
+// 📍 IMPORTAMOS LOS PANELES NECESARIOS
+import EyeExamsPanel from "@/components/EyeExamsPanel";
+import StudiesPanel from "@/components/StudiesPanel";
+
+// --- CONFIGURACIÓN DE SISTEMAS (IPAS) ---
 const SYSTEMS_CONFIG = [
   { id: "endocrine", label: "Endocrino (Diabetes)", options: ["Poliuria", "Polidipsia", "Pérdida de Peso", "Intolerancia al calor/frío"] },
   { id: "cardiovascular", label: "Cardiovascular (HTA)", options: ["Dolor Torácico", "Disnea", "Ortopnea", "Edema", "Palpitaciones"] },
@@ -99,7 +99,7 @@ const QuickChip = ({ label, active, onClick }) => (
   </button>
 );
 
-// --- COMPONENTE INTERNO: ACORDEÓN DE SISTEMAS ---
+// --- COMPONENTES AUXILIARES ---
 const SystemAccordion = ({ config, data, onChange }) => {
     const [isOpen, setIsOpen] = useState(false);
     
@@ -173,10 +173,8 @@ const ODOSEditor = ({ title, dataOD, dataOS, options, onUpdate, onAddFile }) => 
 function PrescriptionBuilder({ onAdd }) {
   const [query, setQuery] = useState(""); const [selectedMed, setSelectedMed] = useState(null); const [manualName, setManualName] = useState("");
   const [type, setType] = useState("DROPS"); const [dose, setDose] = useState("1"); const [freq, setFreq] = useState("8"); const [duration, setDuration] = useState("7"); const [eye, setEye] = useState("AO"); 
-  
   const [products, setProducts] = useState([]);
 
-  // Carga de productos para el builder (async)
   useEffect(() => {
       getAllProducts().then(setProducts).catch(console.error);
   }, []);
@@ -210,7 +208,6 @@ function PrescriptionBuilder({ onAdd }) {
   );
 }
 
-// --- NUEVO: PICKER DE DIAGNÓSTICOS CIE-10 ---
 const DiagnosisManager = ({ diagnoses, onChange }) => {
     const [query, setQuery] = useState("");
     const [results, setResults] = useState([]);
@@ -285,7 +282,6 @@ const DiagnosisManager = ({ diagnoses, onChange }) => {
     );
 };
 
-// --- NUEVO: COMPONENTE INTERCONSULTA ---
 const InterconsultationForm = ({ data, onChange }) => {
     if (!data.required) {
         return (
@@ -309,7 +305,6 @@ const InterconsultationForm = ({ data, onChange }) => {
     );
 };
 
-// --- MODAL DE HISTORIAL (MANTENIDO) ---
 const HistoryModal = ({ logs, onClose }) => (
     <div style={{position:"fixed", top:0, left:0, right:0, bottom:0, background:"rgba(0,0,0,0.8)", zIndex:200, display:"flex", justifyContent:"center", alignItems:"center"}}>
         <div style={{background:"#1a1a1a", width:600, maxHeight:"80vh", overflowY:"auto", padding:20, borderRadius:10, border:"1px solid #444"}}>
@@ -329,6 +324,7 @@ const HistoryModal = ({ logs, onClose }) => (
     </div>
 );
 
+// --- COMPONENTE PRINCIPAL ---
 export default function ConsultationDetailPage() {
   const { patientId, consultationId } = useParams();
   const [consultation, setConsultation] = useState(null);
@@ -336,22 +332,14 @@ export default function ConsultationDetailPage() {
   const [form, setForm] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  const [exams, setExams] = useState([]);
+  // Estados para refrescar datos
   const [tick, setTick] = useState(0);
-  const [showRxForm, setShowRxForm] = useState(false);
-  const [rxForm, setRxForm] = useState(normalizeRxValue());
-  const [rxErrors, setRxErrors] = useState({});
-
   const [showIPAS, setShowIPAS] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
-  
-  // Estado para auditoría (se carga solo si se abre el modal)
   const [auditLogs, setAuditLogs] = useState([]);
-
-  // Estado para addendums
   const [addendumText, setAddendumText] = useState("");
 
-  // ✅ CORRECCIÓN PRINCIPAL: Carga asíncrona de datos
+  // Carga inicial de datos
   useEffect(() => {
     async function loadData() {
         try {
@@ -397,13 +385,6 @@ export default function ConsultationDetailPage() {
     loadData();
   }, [patientId, consultationId, tick]);
 
-  // ✅ CORRECCIÓN: Carga asíncrona de exámenes anexos
-  useEffect(() => {
-      if (consultationId) {
-          getExamsByConsultation(consultationId).then(setExams).catch(console.error);
-      }
-  }, [consultationId, tick]);
-
   // Carga de auditoría bajo demanda
   useEffect(() => {
       if (showHistory) {
@@ -411,7 +392,7 @@ export default function ConsultationDetailPage() {
       }
   }, [showHistory, consultationId]);
 
-  // --- CÁLCULO DE BLOQUEO (24 Horas) ---
+  // Cálculo de bloqueo (24 Horas)
   const isLocked = useMemo(() => {
       if (!consultation) return false;
       if (consultation.forceUnlock) return false; 
@@ -422,6 +403,7 @@ export default function ConsultationDetailPage() {
       return hours > 24; 
   }, [consultation, tick]);
 
+  // --- HANDLERS ---
   const onSaveConsultation = async () => { 
       try {
           const reason = prompt("¿Motivo de la actualización?", "Actualización de nota clínica");
@@ -470,23 +452,16 @@ export default function ConsultationDetailPage() {
   };
   
   const applyHistoryTemplate = (e) => { const key = e.target.value; if (!key) return; const t = ALICIA_TEMPLATES[key]; setForm(f => ({ ...f, history: f.history ? f.history + "\n\n" + t : t })); e.target.value = ""; };
+  
   const handleAddMed = (textLine, medObject) => { setForm(prev => ({ ...prev, treatment: (prev.treatment ? prev.treatment + "\n" : "") + textLine, prescribedMeds: medObject ? [...prev.prescribedMeds, medObject] : prev.prescribedMeds })); };
+  
   const removeMedFromList = (i) => { setForm(prev => ({ ...prev, prescribedMeds: prev.prescribedMeds.filter((_, idx) => idx !== i) })); };
   
-  const onSaveExam = async (e) => { 
-      e.preventDefault(); 
-      if (!validateRx(rxForm).isValid) { setRxErrors(validateRx(rxForm).errors); return; } 
-      await createEyeExam({ patientId, consultationId, examDate: form.visitDate, rx: rxForm, notes: rxForm.notes }); 
-      setRxForm(normalizeRxValue()); setShowRxForm(false); setTick(t => t + 1); 
-  };
-  
-  const onDeleteExam = async (id) => { 
-      if (confirm("¿Borrar?")) { await deleteEyeExam(id); setTick(t => t + 1); } 
-  };
-  
   const handleAddFile = (section, eye, fileUrl) => { setForm(f => ({ ...f, exam: { ...f.exam, [section]: { ...f.exam[section], [eye]: { ...f.exam[section][eye], files: [...(f.exam[section][eye].files || []), fileUrl] } } } })); alert("Archivo adjuntado: " + fileUrl); };
+  
   const handleAllSystemsNormal = () => { if(confirm("¿Marcar todos los sistemas como NORMALES y limpiar detalles?")) { setForm(f => ({ ...f, systemsReview: getEmptySystems() })); } };
 
+  // --- GENERACIÓN DE RESUMEN E IMPRESIÓN ---
   const generateClinicalSummary = () => {
       const priorityKeys = ["endocrine", "cardiovascular"];
       const otherKeys = SYSTEMS_CONFIG.map(s => s.id).filter(k => !priorityKeys.includes(k));
@@ -594,6 +569,8 @@ export default function ConsultationDetailPage() {
 
       <div style={{ display: "grid", gap: 30 }}>
         <section style={{ background: "#1a1a1a", padding: 24, borderRadius: 12, border: "1px solid #333" }}>
+          
+          {/* CABECERA DE FECHA Y BOTONES */}
           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 20, background:"#111", padding:10, borderRadius:8, border:"1px solid #333" }}>
              <label style={{ fontSize: 13, color: "#888" }}>Fecha Atención 
                 <input type="date" disabled={isLocked} value={form.visitDate} onChange={(e) => setForm(f => ({ ...f, visitDate: e.target.value }))} style={{ display:"block", marginTop:4, padding: "6px 10px", background: isLocked ? "#333" : "#222", border: "1px solid #444", color: isLocked ? "#aaa" : "white", borderRadius: 4 }} />
@@ -608,9 +585,9 @@ export default function ConsultationDetailPage() {
              </div>
           </div>
 
-          {/* 👉 CAMPO DESHABILITADO SI ESTÁ BLOQUEADO */}
           <fieldset disabled={isLocked} style={{ border: "none", padding: 0, margin: 0, minInlineSize: "auto" }}>
               <div style={{ display: "grid", gap: 30 }}>
+                {/* 1. INTERROGATORIO */}
                 <div>
                   <h3 style={{ color:"#60a5fa", borderBottom:"1px solid #60a5fa", paddingBottom:5 }}>1. Interrogatorio</h3>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>{QUICK_DATA.symptoms.map(sym => <QuickChip key={sym} label={sym} active={form.reason.includes(sym)} onClick={() => toggleSymptom(sym)} />)}</div>
@@ -621,6 +598,7 @@ export default function ConsultationDetailPage() {
                   </div>
                 </div>
 
+                {/* IPAS (SISTEMAS) */}
                 <div style={{background:"#111", padding:15, borderRadius:8, border:"1px solid #444"}}>
                     <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10}}>
                         <h4 style={{color:"#fbbf24", margin:0, cursor:"pointer", display:"flex", alignItems:"center", gap:5}} onClick={() => setShowIPAS(!showIPAS)}>
@@ -634,7 +612,6 @@ export default function ConsultationDetailPage() {
                             </button>
                         </div>
                     </div>
-                    
                     {showIPAS && (
                         <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(300px, 1fr))", gap:10, animation:"fadeIn 0.2s"}}>
                             {SYSTEMS_CONFIG.map(sys => (
@@ -657,6 +634,7 @@ export default function ConsultationDetailPage() {
                     )}
                 </div>
 
+                {/* 2. SIGNOS VITALES */}
                 <div>
                   <h3 style={{ color:"#a3a3a3", borderBottom:"1px solid #a3a3a3", paddingBottom:5 }}>2. Signos Vitales</h3>
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(100px, 1fr))", gap: 10 }}>
@@ -667,6 +645,13 @@ export default function ConsultationDetailPage() {
                   </div>
                 </div>
 
+                {/* 📍 A) MÓDULO EXAMEN DE LA VISTA (RX COMPLETO) */}
+                <EyeExamsPanel 
+                    patientId={patientId} 
+                    consultationId={consultationId} 
+                />
+
+                {/* 3. BIOMICROSCOPÍA */}
                 <div>
                   <h3 style={{ color:"#4ade80", borderBottom:"1px solid #4ade80", paddingBottom:5 }}>3. Biomicroscopía (Ant)</h3>
                   <div style={{ display: "grid", gap: 20 }}>
@@ -685,6 +670,7 @@ export default function ConsultationDetailPage() {
                   </div>
                 </div>
 
+                {/* 4. TONOMETRÍA */}
                 <div>
                    <h3 style={{ color:"#fcd34d", borderBottom:"1px solid #fcd34d", paddingBottom:5 }}>4. Tonometría</h3>
                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 15, background:"#292524", padding:15, borderRadius:8 }}>
@@ -695,6 +681,7 @@ export default function ConsultationDetailPage() {
                    </div>
                 </div>
 
+                {/* 5. FONDO DE OJO */}
                 <div>
                   <h3 style={{ color:"#f472b6", borderBottom:"1px solid #f472b6", paddingBottom:5 }}>5. Fondo de Ojo (Post)</h3>
                   <div style={{ display: "grid", gap: 20 }}>
@@ -713,7 +700,7 @@ export default function ConsultationDetailPage() {
                   </div>
                 </div>
 
-                {/* SECCIÓN 6: DIAGNÓSTICO */}
+                {/* 6. DIAGNÓSTICO Y PLAN */}
                 <div>
                   <h3 style={{ color:"#a78bfa", borderBottom:"1px solid #a78bfa", paddingBottom:5 }}>6. Diagnóstico y Plan</h3>
                   <div style={{ display: "grid", gap: 15 }}>
@@ -772,14 +759,12 @@ export default function ConsultationDetailPage() {
             </div>
         </section>
 
-        <section style={{ background: "#111", padding: 20, borderRadius: 12, border: "1px dashed #444" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 15 }}>
-            <h3 style={{ margin: 0, color: "#aaa" }}>Anexo: Refracción</h3>
-            {!showRxForm && <button onClick={() => setShowRxForm(true)} style={{ background: "#333", color: "white", border: "1px solid #555", padding: "6px 12px", borderRadius: 4, cursor:"pointer" }}>+ Agregar Rx</button>}
-          </div>
-          <div style={{ display: "grid", gap: 10 }}>{exams.map(exam => (<div key={exam.id} style={{ background: "#222", padding: 10, borderRadius: 6, borderLeft: "3px solid #60a5fa" }}><div style={{fontSize:"0.9em"}}>OD {exam.rx.od.sph} / OI {exam.rx.os.sph}</div><button onClick={() => onDeleteExam(exam.id)} style={{ fontSize: 11, background: "none", border: "none", color: "#666", cursor: "pointer" }}>Borrar</button></div>))}</div>
-          {showRxForm && <div style={{ background: "#1f1f1f", padding: 15, borderRadius: 8 }}><RxPicker value={rxForm} onChange={setRxForm} /><button onClick={onSaveExam} style={{ marginTop: 10, background: "#60a5fa", border: "none", padding: "8px" }}>Guardar Rx</button></div>}
-        </section>
+        {/* 📍 B) ESTUDIOS / GABINETE (RESTAURADO) */}
+        <StudiesPanel 
+            patientId={patientId} 
+            consultationId={consultationId} 
+        />
+
       </div>
 
       {showHistory && <HistoryModal logs={auditLogs} onClose={() => setShowHistory(false)} />}

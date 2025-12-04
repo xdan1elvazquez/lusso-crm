@@ -1,17 +1,24 @@
 import React, { useMemo, useState, useEffect } from "react";
 import { 
   getExamsByPatient, 
+  getExamsByConsultation, // 👈 IMPORTANTE: Importamos esto
   createEyeExam, 
   updateEyeExam,
   deleteEyeExam 
-} from "@/services/eyeExamStorage";
+} from "@/services/eyeExamStorage"; //
 import RxPicker from "@/components/RxPicker";
 import { normalizeRxValue } from "@/utils/rxOptions";
 import { validateRx } from "@/utils/validators";
 
+// ... (Mantenemos las constantes TABS, getVaPercentage, TabButton, AvInput, inputStyle sin cambios) ...
+// Puedes colapsar u omitir esas partes en tu editor, solo copiaremos la lógica del componente principal.
+
+// [PEGAR AQUÍ LAS FUNCIONES AUXILIARES Y COMPONENTES PEQUEÑOS (TabButton, AvInput, etc.) SI NO LOS TIENES A MANO]
+// (Asumo que mantienes el código auxiliar existente de getVaPercentage, TabButton y AvInput)
+
 const TABS = { PRELIM: "prelim", REFRACTION: "refraction", CONTACT: "contact" };
 
-// --- HELPER: PORCENTAJES AV ---
+// --- HELPER: PORCENTAJES AV (Copia del anterior) ---
 function getVaPercentage(value) {
   if (!value || typeof value !== 'string') return null;
   const clean = value.trim().toLowerCase();
@@ -76,7 +83,8 @@ const AvInput = ({ label, valOD, valOS, valAO, onChange, prevData }) => {
   );
 };
 
-export default function EyeExamsPanel({ patientId, onSell }) {
+// 👇 CAMBIO PRINCIPAL: Añadimos consultationId como prop
+export default function EyeExamsPanel({ patientId, consultationId = null, onSell }) {
   const [loading, setLoading] = useState(true);
   const [allExams, setAllExams] = useState([]);
   const [isCreating, setIsCreating] = useState(false);
@@ -89,6 +97,7 @@ export default function EyeExamsPanel({ patientId, onSell }) {
   const [formDate, setFormDate] = useState(new Date().toISOString().slice(0, 10));
   const [notes, setNotes] = useState("");
   
+  // Estados del formulario (iguales que antes)
   const [prelim, setPrelim] = useState({ avsc: { far: { od: "", os: "", ao: "" }, near: { od: "", os: "", ao: "" } }, avcc: { far: { od: "", os: "", ao: "" }, near: { od: "", os: "", ao: "" } }, cv: { far: { od: "", os: "", ao: "" }, near: { od: "", os: "", ao: "" } }, ishihara: "", motility: "", lensometry: normalizeRxValue() });
   const [refraction, setRefraction] = useState({ autorefrac: { od: "", os: "" }, finalRx: normalizeRxValue(), finalAv: { far: { od: "", os: "", ao: "" }, near: { od: "", os: "", ao: "" } } });
   const [cl, setCl] = useState({ keratometry: { od: { k1:"", k2:"", axis:"" }, os: { k1:"", k2:"", axis:"" } }, trial: { od: { baseCurve:"", diameter:"", power:"", av:"", overRefraction:"" }, os: { baseCurve:"", diameter:"", power:"", av:"", overRefraction:"" }, notes: "" }, final: { design: "", brand: "", od: { baseCurve:"", diameter:"", power:"" }, os: { baseCurve:"", diameter:"", power:"" } } });
@@ -97,7 +106,13 @@ export default function EyeExamsPanel({ patientId, onSell }) {
   const refreshData = async () => {
       setLoading(true);
       try {
-          const data = await getExamsByPatient(patientId);
+          // 🧠 LÓGICA INTELIGENTE: Si hay consultationId, buscamos solo los de esa consulta
+          let data = [];
+          if (consultationId) {
+              data = await getExamsByConsultation(consultationId);
+          } else {
+              data = await getExamsByPatient(patientId);
+          }
           setAllExams(data);
       } catch (e) {
           console.error(e);
@@ -106,9 +121,11 @@ export default function EyeExamsPanel({ patientId, onSell }) {
       }
   };
 
-  useEffect(() => { refreshData(); }, [patientId]);
+  useEffect(() => { refreshData(); }, [patientId, consultationId]);
 
   const prevExam = useMemo(() => {
+      // Si estamos en consulta, quizás queramos ver el anterior HISTÓRICO del paciente, no de esta lista filtrada.
+      // Por simplicidad en la demo, comparamos con la lista actual.
       const history = allExams.filter(e => e.id !== editingId);
       return history.length > 0 ? history[0] : null;
   }, [allExams, editingId]);
@@ -137,8 +154,12 @@ export default function EyeExamsPanel({ patientId, onSell }) {
     if (!validation.isValid && (!cl.final.brand && !prelim.avsc.far.od)) {
        alert("Ingresa al menos Refracción, Preliminares o LC."); return;
     }
+    
+    // 🧠 VINCULACIÓN AUTOMÁTICA
     const payload = {
-      patientId, consultationId: null, examDate: formDate,
+      patientId, 
+      consultationId: consultationId || null, // Si existe el prop, lo vinculamos
+      examDate: formDate,
       preliminary: prelim, refraction: refraction, contactLens: cl, recommendations: recs, notes: notes
     };
     
@@ -154,6 +175,7 @@ export default function EyeExamsPanel({ patientId, onSell }) {
     setEditingId(exam.id);
     setFormDate(new Date(exam.examDate).toISOString().slice(0, 10));
     setNotes(exam.notes || "");
+    // ... (Carga de datos igual que antes) ...
     setPrelim({
         ...exam.preliminary,
         avsc: { far: exam.preliminary?.avsc?.far || {}, near: exam.preliminary?.avsc?.near || {} },
@@ -174,17 +196,24 @@ export default function EyeExamsPanel({ patientId, onSell }) {
       } 
   };
 
+  // Ajuste visual si está embebido en consulta
+  const containerStyle = consultationId 
+    ? { background: "#111", padding: 20, borderRadius: 12, border: "1px dashed #444" } // Estilo "embedded"
+    : { marginTop: 28, display: "grid", gap: 14, background: "#1a1a1a", padding: 20, borderRadius: 12, border: "1px solid #333" }; // Estilo panel completo
+
   return (
-    <section style={{ marginTop: 28, display: "grid", gap: 14, background: "#1a1a1a", padding: 20, borderRadius: 12, border: "1px solid #333" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <h2 style={{ margin: 0, fontSize: "1.2em", color: "#e5e7eb" }}>Exámenes de Vista ({allExams.length})</h2>
+    <section style={containerStyle}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: consultationId ? 15 : 0 }}>
+        <h2 style={{ margin: 0, fontSize: "1.2em", color: consultationId ? "#aaa" : "#e5e7eb" }}>
+            {consultationId ? "Examen de la Vista (Vinculado)" : `Exámenes de Vista (${allExams.length})`}
+        </h2>
         <button onClick={() => { resetForm(); setIsCreating(!isCreating); }} style={{ fontSize: "0.9em", background: isCreating ? "#333" : "#2563eb", color: "white", border: "none", padding: "6px 12px", borderRadius: 6, cursor: "pointer" }}>
           {isCreating ? "Cancelar" : "+ Nuevo Examen"}
         </button>
       </div>
 
       {isCreating && (
-        <div id="exam-form" style={{ background: "#111", borderRadius: 10, border: "1px solid #444", overflow: "hidden" }}>
+        <div id="exam-form" style={{ background: "#111", borderRadius: 10, border: "1px solid #444", overflow: "hidden", marginBottom: 20 }}>
            <div style={{ display: "flex", borderBottom: "1px solid #444" }}>
               <TabButton id={TABS.PRELIM} label="1. Preliminares" activeTab={activeTab} setActiveTab={setActiveTab} />
               <TabButton id={TABS.REFRACTION} label="2. Refracción" activeTab={activeTab} setActiveTab={setActiveTab} />
@@ -196,6 +225,8 @@ export default function EyeExamsPanel({ patientId, onSell }) {
                  <label style={{fontSize:12, color:"#aaa"}}>Fecha: <input type="date" value={formDate} onChange={e => setFormDate(e.target.value)} style={{...inputStyle, marginLeft:10, width:"auto"}} /></label>
               </div>
 
+              {/* ... (Renderizado de Tabs idéntico al original, no cambia lógica interna) ... */}
+              
               {activeTab === TABS.PRELIM && (
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
                    <div>
@@ -297,13 +328,14 @@ export default function EyeExamsPanel({ patientId, onSell }) {
 
       {loading ? <div style={{padding:20, color:"#666"}}>Cargando exámenes...</div> : (
           <div style={{ display: "grid", gap: 10 }}>
-            {paginated.length === 0 ? <p style={{ opacity: 0.6, fontSize: 13 }}>No hay registros.</p> : 
+            {paginated.length === 0 ? <p style={{ opacity: 0.6, fontSize: 13 }}>No hay registros en esta sección.</p> : 
             paginated.map(exam => (
-                <div key={exam.id} style={{ border: "1px solid #333", borderRadius: 10, padding: 12, background: "#111" }}>
+                <div key={exam.id} style={{ border: "1px solid #333", borderRadius: 10, padding: 12, background: "#111", borderLeft: exam.consultationId ? "4px solid #1e3a8a" : "4px solid #333" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
                     <div>
                     <strong style={{ color: "#fff" }}>{new Date(exam.examDate).toLocaleDateString()}</strong>
-                    <span style={{ marginLeft: 10, fontSize: 11, padding: "2px 6px", borderRadius: 4, background: exam.consultationId ? "#1e3a8a" : "#064e3b", color: "#ddd" }}>{exam.consultationId ? "Vinculado" : "Independiente"}</span>
+                    {/* Solo mostramos la etiqueta "Vinculado" si estamos en la vista de paciente general, para no redundar en consulta */}
+                    {!consultationId && <span style={{ marginLeft: 10, fontSize: 11, padding: "2px 6px", borderRadius: 4, background: exam.consultationId ? "#1e3a8a" : "#064e3b", color: "#ddd" }}>{exam.consultationId ? "Vinculado" : "Independiente"}</span>}
                     </div>
                     <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
                     <button onClick={() => onSell && onSell(exam)} style={{ background: "#16a34a", color: "white", border: "none", padding: "4px 8px", borderRadius: 4, cursor: "pointer", fontSize: "0.8em", fontWeight: "bold" }}>🛒 Vender</button>
