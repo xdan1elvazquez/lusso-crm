@@ -34,6 +34,68 @@ function calculateEvolution(dateStr) {
     return "Reciente (<1 mes)";
 }
 
+// --- MODAL DE DETALLES (NUEVO) ---
+const AnamnesisDetailModal = ({ data, onClose }) => {
+    const Section = ({ title, items, color, icon }) => {
+        const activeItems = Object.entries(items || {}).filter(([_, val]) => val.active);
+        if (activeItems.length === 0) return null;
+
+        return (
+            <div style={{ marginBottom: 20 }}>
+                <h4 style={{ color, borderBottom: `1px solid ${color}`, paddingBottom: 5, marginTop: 0, fontSize: "1em" }}>{icon} {title}</h4>
+                <div style={{ display: "grid", gap: 10 }}>
+                    {activeItems.map(([key, val]) => (
+                        <div key={key} style={{ background: "#222", padding: 10, borderRadius: 6 }}>
+                            <div style={{ fontWeight: "bold", color: "#eee" }}>{key}</div>
+                            {val.notes && <div style={{ fontSize: "0.9em", color: "#aaa", marginTop: 4 }}>{val.notes}</div>}
+                            
+                            {/* Detalles específicos si existen (Diabetes/HTA) */}
+                            {val.details && (
+                                <div style={{ marginTop: 8, padding: 8, background: "rgba(0,0,0,0.3)", borderRadius: 4, fontSize: "0.85em", display:"grid", gap:4 }}>
+                                    {val.details.diagnosisDate && <div>📅 Diagnóstico: {val.details.diagnosisDate} ({val.details.evolution})</div>}
+                                    {val.details.meds && val.details.meds.length > 0 && (
+                                        <div>💊 Tx: {val.details.meds.map(m => `${m.name} (${m.dose})`).join(", ")}</div>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                    ))}
+                </div>
+            </div>
+        );
+    };
+
+    return (
+        <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.85)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 300 }}>
+            <div style={{ background: "#1a1a1a", width: "90%", maxWidth: 600, maxHeight: "85vh", borderRadius: 12, border: "1px solid #444", display: "flex", flexDirection: "column" }}>
+                <div style={{ padding: 15, borderBottom: "1px solid #333", display: "flex", justifyContent: "space-between", alignItems: "center", background: "#111" }}>
+                    <h3 style={{ margin: 0, color: "#e5e7eb" }}>Detalle Anamnesis</h3>
+                    <button onClick={onClose} style={{ background: "none", border: "none", color: "#aaa", fontSize: 20, cursor: "pointer" }}>×</button>
+                </div>
+                <div style={{ padding: 20, overflowY: "auto", flex: 1 }}>
+                    <div style={{ marginBottom: 15, color: "#888", fontSize: "0.9em" }}>Fecha de registro: {new Date(data.createdAt).toLocaleDateString()} {new Date(data.createdAt).toLocaleTimeString()}</div>
+                    
+                    <Section title="Patológicos" items={data.systemic} color="#f87171" icon="🫀" />
+                    <Section title="No Patológicos" items={data.nonPathological} color="#34d399" icon="🥗" />
+                    <Section title="Oculares" items={data.ocular} color="#60a5fa" icon="👁️" />
+                    <Section title="Heredofamiliares" items={data.family} color="#fbbf24" icon="🧬" />
+
+                    {(data.allergies || data.medications || data.observations) && (
+                        <div style={{ marginTop: 20, paddingTop: 15, borderTop: "1px dashed #444" }}>
+                            {data.allergies && <div style={{ marginBottom: 10 }}><strong style={{ color: "#f87171" }}>⚠️ Alergias:</strong> {data.allergies}</div>}
+                            {data.medications && <div style={{ marginBottom: 10 }}><strong style={{ color: "#a78bfa" }}>💊 Otros Meds:</strong> {data.medications}</div>}
+                            {data.observations && <div><strong style={{ color: "#ccc" }}>📝 Notas:</strong> {data.observations}</div>}
+                        </div>
+                    )}
+                </div>
+                <div style={{ padding: 15, borderTop: "1px solid #333", textAlign: "right", background: "#111" }}>
+                    <button onClick={onClose} style={{ background: "#333", color: "white", border: "1px solid #555", padding: "8px 16px", borderRadius: 6, cursor: "pointer" }}>Cerrar</button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 const CatalogManager = ({ mode, onClose, catalog, onUpdate }) => {
     const [newItem, setNewItem] = useState("");
     if (!mode) return null;
@@ -163,6 +225,9 @@ export default function AnamnesisPanel({ patientId }) {
   const [historyList, setHistoryList] = useState([]);
   const [isCreating, setIsCreating] = useState(false);
   
+  // Estado para el modal de vista de detalles
+  const [viewAnamnesis, setViewAnamnesis] = useState(null);
+  
   const [catalogMode, setCatalogMode] = useState(null);
   const [diabetesCatalog, setDiabetesCatalog] = useState([]);
   const [hyperCatalog, setHyperCatalog] = useState([]);
@@ -275,6 +340,9 @@ export default function AnamnesisPanel({ patientId }) {
 
       <CatalogManager mode={catalogMode} onClose={() => setCatalogMode(null)} catalog={catalogMode === "DIABETES" ? diabetesCatalog : hyperCatalog} onUpdate={catalogMode === "DIABETES" ? setDiabetesCatalog : setHyperCatalog} />
       
+      {/* MODAL DE DETALLES */}
+      {viewAnamnesis && <AnamnesisDetailModal data={viewAnamnesis} onClose={() => setViewAnamnesis(null)} />}
+
       {isCreating && (
         <form onSubmit={onSubmit} style={{ display: "grid", gap: 20, background: "#111", padding: 20, borderRadius: 10, border: "1px dashed #555" }}>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))", gap: 30 }}>
@@ -310,7 +378,10 @@ export default function AnamnesisPanel({ patientId }) {
                 <div key={entry.id} style={{ border: "1px solid #333", borderRadius: 8, padding: 15, background: "#111" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8, borderBottom: "1px solid #222", paddingBottom: 5 }}>
                     <strong style={{color:"#ddd"}}>{new Date(entry.createdAt).toLocaleDateString()}</strong>
-                    <button onClick={() => onDelete(entry.id)} style={{ fontSize: 11, background: "none", border: "none", color: "#666", cursor: "pointer" }}>Eliminar</button>
+                    <div style={{display:"flex", gap:10}}>
+                        <button onClick={() => setViewAnamnesis(entry)} style={{ fontSize: 12, background: "#1e3a8a", border: "none", color: "#bfdbfe", cursor: "pointer", padding:"2px 8px", borderRadius:4 }}>Ver Detalles 👁️</button>
+                        <button onClick={() => onDelete(entry.id)} style={{ fontSize: 11, background: "none", border: "none", color: "#666", cursor: "pointer" }}>✕</button>
+                    </div>
                   </div>
                   <div style={{fontSize:"0.9em", color:"#ccc"}}>
                       {Object.entries(entry.systemic || {}).map(([k,v]) => <div key={k}>• {k} {v.notes ? `(${v.notes})` : ""}</div>)}
