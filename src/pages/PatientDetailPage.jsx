@@ -26,7 +26,6 @@ function formatDateTime(isoString) {
   return new Date(isoString).toLocaleString("es-MX", { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
-// Helper para edad
 function getPatientAge(dateString) {
   if (!dateString) return "Sin alta";
   const target = dateString.includes("T") ? new Date(dateString) : new Date(dateString + "T12:00:00");
@@ -36,6 +35,14 @@ function getPatientAge(dateString) {
   if (diffDays < 28) return `${diffDays} días`;
   return `${Math.floor(diffDays/365)} años`;
 }
+
+// ✅ CORRECCIÓN: El componente Field ahora está AFUERA
+const Field = ({ label, width="100%", children }) => (
+  <label style={{ display: "block", width }}>
+     <div style={{ fontSize: 11, color: "#666", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: 4, display: "block" }}>{label}</div>
+     {children}
+  </label>
+);
 
 export default function PatientDetailPage() {
   const { id } = useParams();
@@ -134,13 +141,6 @@ export default function PatientDetailPage() {
         if(salesElement) salesElement.scrollIntoView({ behavior: "smooth" });
       }, 100);
   };
-
-  const Field = ({ label, width="100%", children }) => (
-    <label style={{ display: "block", width }}>
-       <div style={{ fontSize: 11, color: "#666", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: 4, display: "block" }}>{label}</div>
-       {children}
-    </label>
-  );
 
   const inputStyle = { width: "100%", padding: "8px 10px", background: "#111", border: "1px solid #333", color: "white", borderRadius: 6, fontSize: "0.95em" };
 
