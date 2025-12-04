@@ -1,9 +1,8 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect } from "react";
 import { getCurrentShift, getShiftInProcess, openShift, preCloseShift, closeShift, getAllShifts } from "@/services/shiftsStorage";
-// Estos servicios siguen siendo síncronos (locales) por ahora, no afectan la UI async
 import { getSalesMetricsByShift } from "@/services/salesStorage"; 
 import { getExpensesByShift } from "@/services/expensesStorage";
-import { getEmployees } from "@/services/employeesStorage"; // 👈 Ahora usa Firebase
+import { getEmployees } from "@/services/employeesStorage";
 import { useNotify, useConfirm } from "@/context/UIContext";
 import LoadingState from "@/components/LoadingState";
 
@@ -15,7 +14,7 @@ export default function ShiftPage() {
   const [activeShift, setActiveShift] = useState(null);
   const [auditShift, setAuditShift] = useState(null);
   const [history, setHistory] = useState([]);
-  const [employees, setEmployees] = useState([]); // 👈 Lista dinámica desde Firebase
+  const [employees, setEmployees] = useState([]);
   
   // Modales de vista
   const [showHistoryModal, setShowHistoryModal] = useState(false);
@@ -26,11 +25,13 @@ export default function ShiftPage() {
   const [blindCount, setBlindCount] = useState({ cash: "", card: "", transfer: "" });
   const [auditNotes, setAuditNotes] = useState("");
 
+  // ✅ NUEVO: Estado para guardar métricas cargadas asíncronamente
+  const [metrics, setMetrics] = useState(null);
+
   // Función unificada para cargar todos los datos necesarios
   const refreshData = async () => {
       setLoading(true);
       try {
-          // Ejecutamos todas las peticiones a Firebase en paralelo
           const [current, process, all, emps] = await Promise.all([
               getCurrentShift(),
               getShiftInProcess(),
@@ -54,6 +55,39 @@ export default function ShiftPage() {
   useEffect(() => { 
       refreshData(); 
   }, []);
+
+  // ✅ CORRECCIÓN: Carga de métricas asíncrona usando useEffect en lugar de useMemo
+  useEffect(() => {
+      const targetShift = auditShift || activeShift;
+      
+      if (!targetShift) {
+          setMetrics(null);
+          return;
+      }
+
+      async function loadMetrics() {
+          try {
+              const [sales, expenses] = await Promise.all([
+                  getSalesMetricsByShift(targetShift.id),
+                  getExpensesByShift(targetShift.id)
+              ]);
+
+              const expectedCash = Number(targetShift.initialCash) + (sales.incomeByMethod.EFECTIVO || 0) - (expenses.byMethod.EFECTIVO || 0);
+              const expectedCard = (sales.incomeByMethod.TARJETA || 0);
+              const expectedTransfer = (sales.incomeByMethod.TRANSFERENCIA || 0) - (expenses.byMethod.TRANSFERENCIA || 0);
+
+              setMetrics({ 
+                  sales, 
+                  expenses, 
+                  expected: { cash: expectedCash, card: expectedCard, transfer: expectedTransfer } 
+              });
+          } catch (error) {
+              console.error("Error cargando métricas:", error);
+          }
+      }
+
+      loadMetrics();
+  }, [activeShift, auditShift]);
 
   const handleOpen = async () => {
       if (!openForm.user) return notify.error("Selecciona tu usuario");
@@ -85,26 +119,6 @@ export default function ShiftPage() {
           notify.error(e.message);
       }
   };
-
-  const metrics = useMemo(() => {
-      const targetShift = auditShift || activeShift;
-      if (!targetShift) return null;
-
-      // ⚠️ NOTA: salesStorage y expensesStorage aún leen de localStorage en esta fase.
-      // Cuando migres Ventas, esto deberá actualizarse.
-      const sales = getSalesMetricsByShift(targetShift.id);
-      const expenses = getExpensesByShift(targetShift.id);
-      
-      const expectedCash = Number(targetShift.initialCash) + (sales.incomeByMethod.EFECTIVO || 0) - (expenses.byMethod.EFECTIVO || 0);
-      const expectedCard = (sales.incomeByMethod.TARJETA || 0);
-      const expectedTransfer = (sales.incomeByMethod.TRANSFERENCIA || 0) - (expenses.byMethod.TRANSFERENCIA || 0);
-
-      return { 
-          sales, 
-          expenses, 
-          expected: { cash: expectedCash, card: expectedCard, transfer: expectedTransfer } 
-      };
-  }, [activeShift, auditShift]);
 
   const handleFinalClose = async () => {
       if (!metrics || !auditShift) return;

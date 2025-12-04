@@ -3,7 +3,7 @@ import { getAllWorkOrders, updateWorkOrder, nextStatus, prevStatus, applyWarrant
 import { getPatients } from "@/services/patientsStorage"; 
 import { getAllSales } from "@/services/salesStorage"; 
 import { getLabs } from "@/services/labStorage"; 
-import { getEmployees, ROLES } from "@/services/employeesStorage"; 
+import { getEmployees } from "@/services/employeesStorage"; 
 import { createExpense } from "@/services/expensesStorage";
 import LoadingState from "@/components/LoadingState";
 import SaleDetailModal from "@/components/SaleDetailModal";
@@ -30,7 +30,7 @@ export default function WorkOrdersPage() {
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
   
-  // Datos (Ahora usamos useState porque se cargan asíncronamente)
+  // Datos
   const [workOrders, setWorkOrders] = useState([]);
   const [patients, setPatients] = useState([]);
   const [sales, setSales] = useState([]);
@@ -48,20 +48,20 @@ export default function WorkOrdersPage() {
   const refreshData = async () => {
       setLoading(true);
       try {
-          const [woData, patData, empData, labData] = await Promise.all([
+          // ✅ CORRECCIÓN: getAllSales() ahora está DENTRO del Promise.all
+          const [woData, patData, empData, labData, salesData] = await Promise.all([
               getAllWorkOrders(),
               getPatients(),
               getEmployees(),
-              getLabs() 
+              getLabs(),
+              getAllSales() // 👈 Esto faltaba esperar
           ]);
-          // Sales sigue siendo local por ahora (se actualizará en el siguiente paso)
-          const salesData = getAllSales(); 
 
           setWorkOrders(woData);
           setPatients(patData);
           setEmployees(empData);
           setLabs(labData);
-          setSales(salesData);
+          setSales(salesData); // Ahora salesData es un array real
       } catch (error) {
           console.error(error);
       } finally {
@@ -72,8 +72,15 @@ export default function WorkOrdersPage() {
   useEffect(() => { refreshData(); }, []);
 
   // Mapas para búsqueda rápida
-  const patientMap = useMemo(() => patients.reduce((acc, p) => ({ ...acc, [p.id]: p }), {}), [patients]);
-  const salesMap = useMemo(() => sales.reduce((acc, s) => ({ ...acc, [s.id]: s }), {}), [sales]);
+  const patientMap = useMemo(() => {
+    if (!Array.isArray(patients)) return {};
+    return patients.reduce((acc, p) => ({ ...acc, [p.id]: p }), {});
+  }, [patients]);
+
+  const salesMap = useMemo(() => {
+    if (!Array.isArray(sales)) return {};
+    return sales.reduce((acc, s) => ({ ...acc, [s.id]: s }), {});
+  }, [sales]);
 
   const filtered = useMemo(() => {
     const q = query.toLowerCase();
@@ -82,7 +89,7 @@ export default function WorkOrdersPage() {
     )).sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
   }, [workOrders, statusFilter, query, patientMap]);
 
-  // Handlers Async (Estos cambian tick por refreshData)
+  // Handlers
   const handleDelete = async (id) => {
       if(confirm("¿Eliminar orden?")) {
           await deleteWorkOrder(id);
@@ -126,8 +133,6 @@ export default function WorkOrdersPage() {
       );
     } catch(e) { return <div>{rxNotes}</div>; }
   };
-
-  const handlePrintOrder = (order) => { alert("Imprimiendo orden..."); };
 
   const SendLabModal = ({ order, onClose }) => {
     const [courier, setCourier] = useState("");
@@ -207,7 +212,6 @@ export default function WorkOrdersPage() {
         <div style={modalOverlay}>
             <div style={{...modalContent, width: 600, border: "1px solid #a78bfa"}}>
                 <h3 style={{ marginTop: 0, color: "#a78bfa" }}>Recepción y Cálculo</h3>
-                {/* ... (Contenido del formulario simplificado para brevedad, lógica es igual) ... */}
                 <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:20}}>
                     <div>
                         <label style={{display:"block", marginBottom:10}}>
@@ -350,8 +354,17 @@ export default function WorkOrdersPage() {
                     <button onClick={() => handleDelete(o.id)} style={{background:"none", border:"1px solid #333", color:"#666", cursor:"pointer", padding:"6px", borderRadius:4}}>🗑️</button>
                  </div>
               </div>
-              {/* ... Resto del contenido de la tarjeta (Taller, Graduación) ... */}
-              {/* Para simplificar, la lógica de renderizado es la misma que ya tenías */}
+              
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, paddingLeft: 10, marginTop: 10, fontSize: "0.9em", color: "#ccc" }}>
+                  <div>
+                      <div style={{color:"#666", fontSize:11, textTransform:"uppercase"}}>Laboratorio</div>
+                      <div>{o.labName || "No asignado"}</div>
+                  </div>
+                  <div>
+                      <div style={{color:"#666", fontSize:11, textTransform:"uppercase"}}>Rx / Notas</div>
+                      <RxDisplay rxNotes={o.rxNotes} />
+                  </div>
+              </div>
             </div>
           );
         })}
