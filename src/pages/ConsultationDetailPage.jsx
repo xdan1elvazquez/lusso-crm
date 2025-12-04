@@ -173,8 +173,16 @@ const ODOSEditor = ({ title, dataOD, dataOS, options, onUpdate, onAddFile }) => 
 function PrescriptionBuilder({ onAdd }) {
   const [query, setQuery] = useState(""); const [selectedMed, setSelectedMed] = useState(null); const [manualName, setManualName] = useState("");
   const [type, setType] = useState("DROPS"); const [dose, setDose] = useState("1"); const [freq, setFreq] = useState("8"); const [duration, setDuration] = useState("7"); const [eye, setEye] = useState("AO"); 
-  const products = useMemo(() => getAllProducts().filter(p => p.category === "MEDICATION"), []);
-  const filteredMeds = useMemo(() => { if (!query) return []; const q = query.toLowerCase(); return products.filter(p => p.brand.toLowerCase().includes(q) || p.model.toLowerCase().includes(q)).slice(0, 5); }, [products, query]);
+  
+  const [products, setProducts] = useState([]);
+
+  // Carga de productos para el builder (async)
+  useEffect(() => {
+      getAllProducts().then(setProducts).catch(console.error);
+  }, []);
+
+  const filteredMeds = useMemo(() => { if (!query) return []; const q = query.toLowerCase(); return products.filter(p => p.category === "MEDICATION" && (p.brand.toLowerCase().includes(q) || p.model.toLowerCase().includes(q))).slice(0, 5); }, [products, query]);
+  
   const handleSelectMed = (prod) => { setSelectedMed(prod); setManualName(`${prod.brand} ${prod.model}`); setQuery(""); if (prod.tags?.presentation) setType(prod.tags.presentation); };
   const generateLine = () => {
     const name = selectedMed ? `${selectedMed.brand} ${selectedMed.model}` : manualName; if (!name) return;
@@ -326,6 +334,7 @@ export default function ConsultationDetailPage() {
   const [consultation, setConsultation] = useState(null);
   const [patient, setPatient] = useState(null); 
   const [form, setForm] = useState(null);
+  const [loading, setLoading] = useState(true);
 
   const [exams, setExams] = useState([]);
   const [tick, setTick] = useState(0);
@@ -333,56 +342,87 @@ export default function ConsultationDetailPage() {
   const [rxForm, setRxForm] = useState(normalizeRxValue());
   const [rxErrors, setRxErrors] = useState({});
 
-  // ESTADOS NUEVOS Y MANTENIDOS
   const [showIPAS, setShowIPAS] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
-  const auditLogs = useMemo(() => showHistory ? getAuditHistory(consultationId) : [], [showHistory, consultationId]);
+  
+  // Estado para auditoría (se carga solo si se abre el modal)
+  const [auditLogs, setAuditLogs] = useState([]);
 
-  // ESTADO PARA ADDENDUMS
+  // Estado para addendums
   const [addendumText, setAddendumText] = useState("");
 
+  // ✅ CORRECCIÓN PRINCIPAL: Carga asíncrona de datos
   useEffect(() => {
-    const c = getConsultationById(consultationId);
-    const p = getPatientById(patientId);
-    setPatient(p);
+    async function loadData() {
+        try {
+            setLoading(true);
+            const [c, p] = await Promise.all([
+                getConsultationById(consultationId),
+                getPatientById(patientId)
+            ]);
 
-    if (c && c.patientId === patientId) {
-      setConsultation(c);
-      setForm({
-        visitDate: toDateInput(c.visitDate), 
-        type: c.type, 
-        reason: c.reason, 
-        history: c.history, 
-        systemsReview: { ...getEmptySystems(), ...(c.systemsReview || {}) },
-        vitalSigns: { ...c.vitalSigns },
-        exam: { 
-            anterior: { od: {...c.exam.anterior.od}, os: {...c.exam.anterior.os}, notes: c.exam.anterior.notes },
-            tonometry: { ...c.exam.tonometry },
-            posterior: { od: {...c.exam.posterior.od}, os: {...c.exam.posterior.os}, notes: c.exam.posterior.notes },
-            motility: c.exam.motility, gonioscopy: c.exam.gonioscopy
-        },
-        diagnoses: c.diagnoses || [],
-        diagnosis: c.diagnosis, 
-        interconsultation: c.interconsultation || { required: false, to: "", reason: "", urgency: "NORMAL", status: "PENDING" },
-        treatment: c.treatment, prescribedMeds: c.prescribedMeds, prognosis: c.prognosis, notes: c.notes
-      });
+            setPatient(p);
+
+            // Validamos que la consulta exista y pertenezca al paciente
+            if (c && c.patientId === patientId) {
+                setConsultation(c);
+                // Inicializamos el formulario con los datos de Firebase
+                setForm({
+                    visitDate: toDateInput(c.visitDate), 
+                    type: c.type, 
+                    reason: c.reason, 
+                    history: c.history, 
+                    systemsReview: { ...getEmptySystems(), ...(c.systemsReview || {}) },
+                    vitalSigns: { ...c.vitalSigns },
+                    exam: { 
+                        anterior: { od: {...c.exam.anterior.od}, os: {...c.exam.anterior.os}, notes: c.exam.anterior.notes },
+                        tonometry: { ...c.exam.tonometry },
+                        posterior: { od: {...c.exam.posterior.od}, os: {...c.exam.posterior.os}, notes: c.exam.posterior.notes },
+                        motility: c.exam.motility, gonioscopy: c.exam.gonioscopy
+                    },
+                    diagnoses: c.diagnoses || [],
+                    diagnosis: c.diagnosis, 
+                    interconsultation: c.interconsultation || { required: false, to: "", reason: "", urgency: "NORMAL", status: "PENDING" },
+                    treatment: c.treatment, prescribedMeds: c.prescribedMeds, prognosis: c.prognosis, notes: c.notes
+                });
+            } else {
+                console.error("Consulta no encontrada o no coincide con paciente");
+            }
+        } catch (e) {
+            console.error(e);
+        } finally {
+            setLoading(false);
+        }
     }
+    loadData();
   }, [patientId, consultationId, tick]);
 
-  useEffect(() => { if (consultationId) setExams(getExamsByConsultation(consultationId)); }, [consultationId, tick]);
+  // ✅ CORRECCIÓN: Carga asíncrona de exámenes anexos
+  useEffect(() => {
+      if (consultationId) {
+          getExamsByConsultation(consultationId).then(setExams).catch(console.error);
+      }
+  }, [consultationId, tick]);
+
+  // Carga de auditoría bajo demanda
+  useEffect(() => {
+      if (showHistory) {
+          getAuditHistory(consultationId).then(setAuditLogs).catch(console.error);
+      }
+  }, [showHistory, consultationId]);
 
   // --- CÁLCULO DE BLOQUEO (24 Horas) ---
   const isLocked = useMemo(() => {
       if (!consultation) return false;
-      if (consultation.forceUnlock) return false; // Si está desbloqueada por gerente
+      if (consultation.forceUnlock) return false; 
 
       const created = new Date(consultation.createdAt).getTime();
       const now = Date.now();
       const hours = (now - created) / (1000 * 60 * 60);
-      return hours > 24; // Más de 24h = Bloqueado
+      return hours > 24; 
   }, [consultation, tick]);
 
-  const onSaveConsultation = () => { 
+  const onSaveConsultation = async () => { 
       try {
           const reason = prompt("¿Motivo de la actualización?", "Actualización de nota clínica");
           if (reason === null) return;
@@ -390,18 +430,18 @@ export default function ConsultationDetailPage() {
           const dxText = form.diagnoses.map(d => `${d.code} ${d.name}`).join(", ");
           const finalForm = { ...form, diagnosis: dxText || form.diagnosis };
           
-          updateConsultation(consultationId, { ...finalForm, visitDate: form.visitDate || new Date().toISOString() }, reason); 
+          await updateConsultation(consultationId, { ...finalForm, visitDate: form.visitDate || new Date().toISOString() }, reason); 
           alert("Nota guardada exitosamente.");
           setTick(t => t + 1); 
       } catch (error) {
-          alert(error.message); // Mostrar error de bloqueo
+          alert(error.message); 
       }
   };
   
-  const handleAddAddendum = () => {
+  const handleAddAddendum = async () => {
       if (!addendumText.trim()) return alert("Escribe una nota.");
       try {
-          addConsultationAddendum(consultationId, addendumText, "Usuario Actual");
+          await addConsultationAddendum(consultationId, addendumText, "Usuario Actual");
           setAddendumText("");
           setTick(t => t + 1);
           alert("Nota adicional registrada.");
@@ -410,12 +450,12 @@ export default function ConsultationDetailPage() {
       }
   };
 
-  const handleAdminUnlock = () => {
+  const handleAdminUnlock = async () => {
       const reason = prompt("⚠️ ACCIÓN ADMINISTRATIVA\n\nEstás por desbloquear una nota cerrada legalmente.\nIngresa el motivo obligatorio:");
       if (!reason) return;
       
       try {
-          unlockConsultation(consultationId, reason);
+          await unlockConsultation(consultationId, reason);
           alert("Consulta desbloqueada. Se ha registrado el evento en auditoría.");
           setTick(t => t + 1);
       } catch (e) {
@@ -432,8 +472,17 @@ export default function ConsultationDetailPage() {
   const applyHistoryTemplate = (e) => { const key = e.target.value; if (!key) return; const t = ALICIA_TEMPLATES[key]; setForm(f => ({ ...f, history: f.history ? f.history + "\n\n" + t : t })); e.target.value = ""; };
   const handleAddMed = (textLine, medObject) => { setForm(prev => ({ ...prev, treatment: (prev.treatment ? prev.treatment + "\n" : "") + textLine, prescribedMeds: medObject ? [...prev.prescribedMeds, medObject] : prev.prescribedMeds })); };
   const removeMedFromList = (i) => { setForm(prev => ({ ...prev, prescribedMeds: prev.prescribedMeds.filter((_, idx) => idx !== i) })); };
-  const onSaveExam = (e) => { e.preventDefault(); if (!validateRx(rxForm).isValid) { setRxErrors(validateRx(rxForm).errors); return; } createEyeExam({ patientId, consultationId, examDate: form.visitDate, rx: rxForm, notes: rxForm.notes }); setRxForm(normalizeRxValue()); setShowRxForm(false); setTick(t => t + 1); };
-  const onDeleteExam = (id) => { if (confirm("¿Borrar?")) { deleteEyeExam(id); setTick(t => t + 1); } };
+  
+  const onSaveExam = async (e) => { 
+      e.preventDefault(); 
+      if (!validateRx(rxForm).isValid) { setRxErrors(validateRx(rxForm).errors); return; } 
+      await createEyeExam({ patientId, consultationId, examDate: form.visitDate, rx: rxForm, notes: rxForm.notes }); 
+      setRxForm(normalizeRxValue()); setShowRxForm(false); setTick(t => t + 1); 
+  };
+  
+  const onDeleteExam = async (id) => { 
+      if (confirm("¿Borrar?")) { await deleteEyeExam(id); setTick(t => t + 1); } 
+  };
   
   const handleAddFile = (section, eye, fileUrl) => { setForm(f => ({ ...f, exam: { ...f.exam, [section]: { ...f.exam[section], [eye]: { ...f.exam[section][eye], files: [...(f.exam[section][eye].files || []), fileUrl] } } } })); alert("Archivo adjuntado: " + fileUrl); };
   const handleAllSystemsNormal = () => { if(confirm("¿Marcar todos los sistemas como NORMALES y limpiar detalles?")) { setForm(f => ({ ...f, systemsReview: getEmptySystems() })); } };
@@ -514,7 +563,8 @@ export default function ConsultationDetailPage() {
     win.document.close();
   };
 
-  if (!consultation || !form) return <div style={{padding:40, textAlign:"center"}}>Cargando...</div>;
+  if (loading) return <div style={{padding:40, textAlign:"center"}}>Cargando consulta...</div>;
+  if (!consultation || !form) return <div style={{padding:40, textAlign:"center"}}>No se encontró información de la consulta.</div>;
 
   return (
     <div style={{ paddingBottom: 80, width: "100%" }}>

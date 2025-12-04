@@ -24,6 +24,8 @@
 
   display: flex;              /* 👈 agrega */
   flex-direction: column;
+
+  overflow-y: auto;
 }
 
 .brand {
