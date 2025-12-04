@@ -2,15 +2,17 @@ import { db } from "@/firebase/config";
 import { 
   collection, addDoc, getDocs, doc, updateDoc, deleteDoc, query, where, orderBy, getDoc 
 } from "firebase/firestore";
+// 👇 IMPORTANTE: Importamos el servicio de auditoría
+import { logAuditAction } from "./auditStorage";
 
 const COLLECTION_NAME = "consultations";
 
-// Helpers para datos vacíos (Mismos que tenías)
+// Helpers para datos vacíos
 const emptyEyeData = { lids: "", conjunctiva: "", cornea: "", chamber: "", iris: "", lens: "", files: [] };
 const emptyFundusData = { vitreous: "", nerve: "", macula: "", vessels: "", retinaPeriphery: "", files: [] };
 const emptyPio = { od: "", os: "", time: "", meds: "" };
 
-// Normalizador para asegurar que siempre devolvemos la estructura completa a la UI
+// Normalizador
 function normalizeConsultation(docSnapshot) {
   const base = docSnapshot.data();
   const id = docSnapshot.id;
@@ -67,7 +69,7 @@ function normalizeConsultation(docSnapshot) {
     prescribedMeds: Array.isArray(base.prescribedMeds) ? base.prescribedMeds : [],
     prognosis: base.prognosis || "",
     notes: base.notes || "",
-    rx: base.rx || {}, // Rx simple dentro de consulta
+    rx: base.rx || {}, 
     
     createdAt: base.createdAt,
     updatedAt: base.updatedAt
@@ -85,7 +87,6 @@ export async function getConsultationsByPatient(patientId) {
   if (!patientId) return [];
   const q = query(collection(db, COLLECTION_NAME), where("patientId", "==", patientId));
   const snapshot = await getDocs(q);
-  // Ordenamos en cliente para evitar requerir índice compuesto inmediato
   return snapshot.docs
     .map(normalizeConsultation)
     .sort((a, b) => new Date(b.visitDate) - new Date(a.visitDate));
@@ -100,7 +101,6 @@ export async function getConsultationById(id) {
 
 // --- ESCRITURA ---
 export async function createConsultation(payload) {
-  // Preparamos el objeto plano para guardar
   const consultationData = {
     patientId: payload.patientId,
     visitDate: payload.visitDate || new Date().toISOString(),
@@ -115,7 +115,6 @@ export async function createConsultation(payload) {
     systemsReview: payload.systemsReview || {},
     vitalSigns: payload.vitalSigns || {},
     
-    // Guardamos examenes anidados. El normalizador se encarga de rellenar huecos al leer.
     exam: payload.exam || {}, 
     
     diagnoses: payload.diagnoses || [],
@@ -133,6 +132,18 @@ export async function createConsultation(payload) {
   };
 
   const docRef = await addDoc(collection(db, COLLECTION_NAME), consultationData);
+  
+  // ✅ LOG: Registramos la creación
+  await logAuditAction({
+      entityType: "CONSULTATION",
+      entityId: docRef.id,
+      action: "CREATE",
+      version: 1,
+      previousState: null,
+      reason: "Consulta inicial",
+      user: "Sistema"
+  });
+
   return { id: docRef.id, ...consultationData };
 }
 
@@ -153,6 +164,17 @@ export async function updateConsultation(id, payload, reason = "", user = "Usuar
           throw new Error("⛔ CONSULTA CERRADA: Han pasado más de 24 horas.");
       }
   }
+
+  // ✅ LOG: Aquí registramos el cambio en auditoría ANTES de guardar
+  await logAuditAction({
+      entityType: "CONSULTATION",
+      entityId: id,
+      action: "UPDATE",
+      version: current.version || 1,
+      previousState: current, // Guardamos cómo estaba antes
+      reason: reason,
+      user: user
+  });
 
   const nextVersion = (current.version || 1) + 1;
   
@@ -183,6 +205,18 @@ export async function addConsultationAddendum(id, text, user = "Usuario") {
 
 export async function unlockConsultation(id, reason, user = "Gerente") {
     const docRef = doc(db, COLLECTION_NAME, id);
+    
+    // ✅ LOG: Registramos el desbloqueo administrativo
+    await logAuditAction({
+        entityType: "CONSULTATION",
+        entityId: id,
+        action: "UNLOCK",
+        version: 0,
+        previousState: { locked: true },
+        reason: reason,
+        user: user
+    });
+
     await updateDoc(docRef, { forceUnlock: true });
 }
 
