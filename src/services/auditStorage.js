@@ -1,5 +1,6 @@
 import { db } from "@/firebase/config";
-import { collection, addDoc, getDocs, query, where, orderBy } from "firebase/firestore";
+// Quitamos 'orderBy' de los imports de Firestore para no usarlo en la query
+import { collection, addDoc, getDocs, query, where } from "firebase/firestore";
 
 const COLLECTION_NAME = "audit_logs";
 
@@ -12,14 +13,12 @@ export async function logAuditAction({ entityType, entityId, action, version, pr
     // Convertimos el estado previo a string para guardarlo como 'snapshot' ligero
     previousState: previousState ? JSON.stringify(previousState) : null,
     reason: reason || "",
-    user: user || "Desconocido", // Aquí idealmente conectarías el email del usuario actual
+    user: user || "Desconocido", 
     timestamp: new Date().toISOString()
   };
   
   try {
-      // "Fire and forget": No usamos await para no detener la interfaz del usuario
-      // mientras se guarda el log en segundo plano.
-      addDoc(collection(db, COLLECTION_NAME), entry);
+      await addDoc(collection(db, COLLECTION_NAME), entry);
   } catch (error) {
       console.error("Error guardando auditoría:", error);
   }
@@ -28,12 +27,23 @@ export async function logAuditAction({ entityType, entityId, action, version, pr
 export async function getAuditHistory(entityId) {
   if (!entityId) return [];
   
+  // 1. Quitamos el orderBy de la query de Firebase para evitar el error de "Missing Index"
   const q = query(
       collection(db, COLLECTION_NAME), 
-      where("entityId", "==", entityId), 
-      orderBy("timestamp", "desc")
+      where("entityId", "==", entityId)
   );
   
-  const snapshot = await getDocs(q);
-  return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+  try {
+      const snapshot = await getDocs(q);
+      
+      // 2. Ordenamos los resultados aquí en el cliente (JavaScript)
+      // Es igual de rápido para listas pequeñas como un historial clínico
+      return snapshot.docs
+        .map(doc => ({ id: doc.id, ...doc.data() }))
+        .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp)); // Orden descendente (más reciente primero)
+        
+  } catch (error) {
+      console.error("Error obteniendo historial:", error);
+      return [];
+  }
 }
