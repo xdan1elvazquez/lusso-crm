@@ -227,11 +227,29 @@ export default function SalesPanel({ patientId, prefillData, onClearPrefill }) {
 
     try {
         await createSale({
-            patientId, boxNumber, soldBy, discount: discountAmount, total: finalTotal, payments: paymentObj ? [paymentObj] : [],
+            patientId, 
+            boxNumber: boxNumber || "", // Blindaje
+            soldBy: soldBy || "",       // Blindaje
+            discount: discountAmount, 
+            total: finalTotal, 
+            payments: paymentObj ? [paymentObj] : [],
             items: cart.map(item => ({
-                kind: item.kind, description: item.description, qty: item.qty, unitPrice: item.unitPrice, cost: item.cost,
-                requiresLab: item.requiresLab, eyeExamId: item.eyeExamId, inventoryProductId: item.inventoryProductId,
-                rxSnapshot: item.rxSnapshot, labName: item.labName, dueDate: item.dueDate, taxable: item.taxable, specs: item.specs 
+                // Blindaje contra undefined en todos los campos
+                kind: item.kind || "OTHER",
+                description: item.description || "Item",
+                qty: Number(item.qty) || 1,
+                unitPrice: Number(item.unitPrice) || 0,
+                cost: Number(item.cost) || 0,
+                requiresLab: Boolean(item.requiresLab),
+                
+                // Campos opcionales con fallback a null o string vacío
+                eyeExamId: item.eyeExamId || null,
+                inventoryProductId: item.inventoryProductId || null,
+                rxSnapshot: item.rxSnapshot || null,
+                labName: item.labName || "",
+                dueDate: item.dueDate || null,
+                taxable: item.taxable !== undefined ? item.taxable : true,
+                specs: item.specs || null
             }))
         });
         
@@ -249,7 +267,8 @@ export default function SalesPanel({ patientId, prefillData, onClearPrefill }) {
             notify.success("Venta procesada exitosamente");
         }
     } catch(e) {
-        notify.error(e.message);
+        console.error("Error en checkout:", e);
+        notify.error("Error al procesar venta: " + e.message);
     } finally {
         setIsProcessing(false);
     }

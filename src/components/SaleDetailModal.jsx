@@ -1,6 +1,8 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { updateSaleLogistics, processReturn, updateSalePaymentMethod } from "@/services/salesStorage"; 
-import { getAllWorkOrders } from "@/services/workOrdersStorage";
+import { getAllWorkOrders, updateWorkOrder } from "@/services/workOrdersStorage";
+import { getLabs } from "@/services/labStorage"; 
+import { getEmployees } from "@/services/employeesStorage"; 
 
 const STATUS_LABELS = { 
   ON_HOLD: "En Espera", TO_PREPARE: "Por Preparar", SENT_TO_LAB: "En Laboratorio", 
@@ -22,34 +24,129 @@ export default function SaleDetailModal({ sale, patient, onClose, onUpdate }) {
   const [editingPaymentId, setEditingPaymentId] = useState(null); 
   const [tempMethod, setTempMethod] = useState("");
 
-  // Estado para las Work Orders (Ahora se cargan asíncronamente)
+  // Catálogos
+  const [labs, setLabs] = useState([]);
+  const [employees, setEmployees] = useState([]);
+
+  // Work Orders
   const [relatedWorkOrders, setRelatedWorkOrders] = useState([]);
+  
+  // --- ESTADO EDICIÓN WORK ORDER ---
+  const [editingWO, setEditingWO] = useState(null); 
+  const [woForm, setWoForm] = useState({}); 
 
   useEffect(() => {
-      async function loadWOs() {
+      async function loadData() {
           try {
-              // Solo cargamos las órdenes si estamos en la pestaña de LAB para ahorrar recursos
-              if (activeTab === "LAB") {
-                  const allWos = await getAllWorkOrders();
-                  setRelatedWorkOrders(allWos.filter(w => w.saleId === sale.id));
-              }
+              const [l, e] = await Promise.all([getLabs(), getEmployees()]);
+              setLabs(l);
+              setEmployees(e);
+              const allWos = await getAllWorkOrders();
+              setRelatedWorkOrders(allWos.filter(w => w.saleId === sale.id));
           } catch (error) {
-              console.error("Error cargando work orders:", error);
+              console.error("Error cargando datos:", error);
           }
       }
-      loadWOs();
-  }, [activeTab, sale.id]);
+      loadData();
+  }, [sale.id]);
 
+  // --- HELPER: OBTENER PRECIO DE SERVICIO ---
+  const getServicePrice = (labIdOrName, type) => {
+      if (!labIdOrName || labIdOrName === "INTERNAL" || labIdOrName === "Taller Interno") return 0;
+      // Buscamos por ID o por Nombre para compatibilidad
+      const lab = labs.find(l => l.id === labIdOrName || l.name === labIdOrName);
+      if (!lab) return 0;
+      const service = lab.services.find(s => s.type === type);
+      return service ? Number(service.price) : 0;
+  };
+
+  // --- HANDLERS WORK ORDERS ---
+  const handleEditWO = (wo) => {
+      setEditingWO(wo.id);
+      
+      // 🧠 Lógica inversa: Intentamos deducir el costo base restando los servicios
+      const currentTotal = Number(wo.labCost) || 0;
+      const biselCost = getServicePrice(wo.jobMadeBy, "BISEL");
+      const talladoCost = getServicePrice(wo.talladoBy, "TALLADO");
+      
+      // Si la resta da negativo, asumimos base 0 y que el total fue manual
+      const estimatedBase = Math.max(0, currentTotal - biselCost - talladoCost);
+
+      setWoForm({
+          courier: wo.courier || "",
+          receivedBy: wo.receivedBy || "",
+          jobMadeBy: wo.jobMadeBy || "", 
+          talladoBy: wo.talladoBy || "", 
+          baseCost: estimatedBase, // Campo virtual para edición
+          labCost: currentTotal    // Total real
+      });
+  };
+
+  // Recalcula el total cuando cambian los componentes
+  const recalculateTotal = (formState) => {
+      const base = Number(formState.baseCost) || 0;
+      const bisel = getServicePrice(formState.jobMadeBy, "BISEL");
+      const tallado = getServicePrice(formState.talladoBy, "TALLADO");
+      return base + bisel + tallado;
+  };
+
+  const handleWoChange = (field, value) => {
+      setWoForm(prev => {
+          const next = { ...prev, [field]: value };
+          // Si cambiamos labs o base, recalculamos el total automático
+          if (["baseCost", "jobMadeBy", "talladoBy"].includes(field)) {
+              next.labCost = recalculateTotal(next);
+          }
+          return next;
+      });
+  };
+
+  const handleCancelEditWO = () => {
+      setEditingWO(null);
+      setWoForm({});
+  };
+
+  const handleSaveWO = async () => {
+      if (!editingWO) return;
+      try {
+          // Convertimos nombres de laboratorio a IDs si es posible o guardamos nombre si es interno
+          const biselLabName = labs.find(l => l.id === woForm.jobMadeBy)?.name || (woForm.jobMadeBy === "INTERNAL" ? "Taller Interno" : woForm.jobMadeBy);
+          const talladoLabName = labs.find(l => l.id === woForm.talladoBy)?.name || (woForm.talladoBy === "INTERNAL" ? "Taller Interno" : woForm.talladoBy);
+          
+          // El Lab Principal suele ser el que talla, o si no, el que bisela
+          const mainLabId = (woForm.talladoBy && woForm.talladoBy !== "INTERNAL") ? woForm.talladoBy : 
+                            (woForm.jobMadeBy && woForm.jobMadeBy !== "INTERNAL") ? woForm.jobMadeBy : "";
+          const mainLabName = labs.find(l => l.id === mainLabId)?.name || "Taller Interno";
+
+          await updateWorkOrder(editingWO, {
+              courier: woForm.courier,
+              receivedBy: woForm.receivedBy,
+              jobMadeBy: biselLabName,
+              talladoBy: talladoLabName,
+              labId: mainLabId,
+              labName: mainLabName,
+              labCost: Number(woForm.labCost)
+          });
+          
+          const allWos = await getAllWorkOrders();
+          setRelatedWorkOrders(allWos.filter(w => w.saleId === sale.id));
+          
+          setEditingWO(null);
+          alert("Orden de trabajo y costos actualizados.");
+      } catch (e) {
+          alert("Error al guardar WO: " + e.message);
+      }
+  };
+
+  // --- HANDLERS VENTA ---
   const handleSave = async () => {
       await updateSaleLogistics(sale.id, { soldBy });
       alert("Vendedor actualizado");
       if (onUpdate) onUpdate();
   };
 
-  // Manejador para guardar corrección de pago
   const handleUpdatePayment = async (paymentId) => {
       if (!tempMethod) return;
-      
       const success = await updateSalePaymentMethod(sale.id, paymentId, tempMethod);
       if (success) {
           alert("Método de pago corregido.");
@@ -61,20 +158,15 @@ export default function SaleDetailModal({ sale, patient, onClose, onUpdate }) {
   };
   
   const handleReturnItem = async (item) => {
-      // 1. Preguntar cantidad
       const qty = prompt(`¿Cuántos "${item.description}" deseas devolver? (Máx: ${item.qty})`, 1);
       if (!qty) return;
-      
       const q = Number(qty);
       if (isNaN(q) || q <= 0 || q > item.qty) return alert("Cantidad inválida");
 
-      // 2. Confirmar acción financiera
-      const confirmMsg = `¿Confirmas la devolución de ${q} pieza(s)?\n\n⚠️ Acciones automáticas:\n1. Se regresará al inventario.\n2. Se registrará un egreso de caja (Devolución).\n3. Se actualizará la venta.`;
-      
-      if (confirm(confirmMsg)) {
+      if (confirm(`¿Confirmar devolución de ${q} pieza(s)? Se ajustará inventario y caja.`)) {
           try {
               await processReturn(sale.id, item.id, q);
-              alert("Devolución procesada correctamente.");
+              alert("Devolución procesada.");
               if (onUpdate) onUpdate();
               onClose(); 
           } catch (e) {
@@ -103,10 +195,10 @@ export default function SaleDetailModal({ sale, patient, onClose, onUpdate }) {
       <button onClick={() => setActiveTab(id)} style={{ flex: 1, padding: 12, background: activeTab===id ? "#2563eb" : "#333", color: "white", border: "none", borderBottom: activeTab===id ? "2px solid white" : "2px solid transparent", cursor: "pointer", fontWeight: "bold", fontSize:"0.9em" }}>{label}</button>
   );
 
-  // Estilos inline para mantener consistencia
   const labelStyle = { fontSize: 11, color: "#888", textTransform: "uppercase", marginBottom: 2 };
   const valStyle = { fontSize: 14, fontWeight: "bold", color: "white" };
   const inputStyle = { width: "100%", padding: "8px 10px", background: "#111", border: "1px solid #444", color: "white", borderRadius: 4 };
+  const selectStyle = { width: "100%", padding: "6px", background: "#111", border: "1px solid #60a5fa", color: "white", borderRadius: 4, fontSize: "0.9em" };
 
   return (
     <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.85)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 200 }}>
@@ -155,13 +247,7 @@ export default function SaleDetailModal({ sale, patient, onClose, onUpdate }) {
                                 </div>
                                 
                                 {item.qty > 0 && (
-                                    <button 
-                                        onClick={() => handleReturnItem(item)} 
-                                        style={{position:"absolute", top:15, right:120, fontSize:"0.75em", background:"#450a0a", color:"#f87171", border:"1px solid #f87171", padding:"4px 8px", borderRadius:4, cursor:"pointer"}}
-                                        title="Devolver producto y ajustar inventario"
-                                    >
-                                        ↩ Devolver
-                                    </button>
+                                    <button onClick={() => handleReturnItem(item)} style={{position:"absolute", top:15, right:120, fontSize:"0.75em", background:"#450a0a", color:"#f87171", border:"1px solid #f87171", padding:"4px 8px", borderRadius:4, cursor:"pointer"}}>↩ Devolver</button>
                                 )}
 
                                 {item.kind === "LENSES" || item.kind === "CONTACT_LENS" ? (
@@ -189,6 +275,7 @@ export default function SaleDetailModal({ sale, patient, onClose, onUpdate }) {
                     </div>
                 )}
 
+                {/* TAB 2: TALLER Y LOGÍSTICA */}
                 {activeTab === "LAB" && (
                     <div style={{ display: "grid", gap: 15 }}>
                         <h4 style={{ margin: "0", color: "#60a5fa", borderBottom: "1px solid #60a5fa", paddingBottom: 5 }}>Rastreo de Trabajos (Work Orders)</h4>
@@ -198,27 +285,94 @@ export default function SaleDetailModal({ sale, patient, onClose, onUpdate }) {
                         ) : (
                             relatedWorkOrders.map(wo => (
                                 <div key={wo.id} style={{background:"#222", padding:15, borderRadius:8, borderLeft: `4px solid ${STATUS_COLORS[wo.status]}`}}>
-                                    <div style={{display:"flex", justifyContent:"space-between", marginBottom:10}}>
+                                    
+                                    <div style={{display:"flex", justifyContent:"space-between", marginBottom:10, borderBottom:"1px solid #333", paddingBottom:10}}>
                                         <div>
                                             <div style={{fontWeight:"bold", color:"white"}}>{wo.type} - {wo.labName}</div>
                                             <div style={{fontSize:"0.8em", color:"#aaa"}}>ID: {wo.id.slice(0,8)}</div>
                                         </div>
                                         <div style={{textAlign:"right"}}>
                                             <div style={{fontWeight:"bold", color:STATUS_COLORS[wo.status]}}>{STATUS_LABELS[wo.status]}</div>
-                                            <div style={{fontSize:"0.8em", color:"#aaa"}}>{new Date(wo.updatedAt).toLocaleDateString()}</div>
+                                            {editingWO !== wo.id && (
+                                                <button onClick={() => handleEditWO(wo)} style={{marginTop:5, fontSize:11, color:"#60a5fa", background:"none", border:"1px solid #60a5fa", borderRadius:4, cursor:"pointer", padding:"2px 8px"}}>
+                                                    ✏️ Editar Datos
+                                                </button>
+                                            )}
                                         </div>
                                     </div>
 
-                                    <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, fontSize:"0.9em", background:"#1a1a1a", padding:10, borderRadius:6}}>
-                                        <div>
-                                            <div style={{fontSize:10, color:"#666", textTransform:"uppercase"}}>Mensajería</div>
-                                            <div style={{color: wo.courier ? "white" : "#444"}}>{wo.courier || "—"}</div>
+                                    {editingWO === wo.id ? (
+                                        <div style={{background:"#2a2a2a", padding:10, borderRadius:6, animation: "fadeIn 0.2s"}}>
+                                            <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:10}}>
+                                                <label style={labelStyle}>
+                                                    Quien Envía (Mensajería)
+                                                    <input value={woForm.courier} onChange={e => handleWoChange("courier", e.target.value)} style={selectStyle} />
+                                                </label>
+                                                <label style={labelStyle}>
+                                                    Quien Recibe (Óptica)
+                                                    <select value={woForm.receivedBy} onChange={e => handleWoChange("receivedBy", e.target.value)} style={selectStyle}>
+                                                        <option value="">-- Seleccionar --</option>
+                                                        {employees.map(emp => <option key={emp.id} value={emp.name}>{emp.name}</option>)}
+                                                    </select>
+                                                </label>
+                                                
+                                                {/* BISEL (Calcula costo) */}
+                                                <label style={labelStyle}>
+                                                    ¿Quién Biseló?
+                                                    <select value={woForm.jobMadeBy} onChange={e => handleWoChange("jobMadeBy", e.target.value)} style={selectStyle}>
+                                                        <option value="">-- Ninguno / Pendiente --</option>
+                                                        <option value="INTERNAL">Taller Interno ($0)</option>
+                                                        {labs.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+                                                    </select>
+                                                    <div style={{fontSize:9, color:"#aaa"}}>Costo: ${getServicePrice(woForm.jobMadeBy, "BISEL")}</div>
+                                                </label>
+
+                                                {/* TALLADO (Calcula costo) */}
+                                                <label style={labelStyle}>
+                                                    ¿Quién Talló?
+                                                    <select value={woForm.talladoBy} onChange={e => handleWoChange("talladoBy", e.target.value)} style={selectStyle}>
+                                                        <option value="">-- Ninguno / Pendiente --</option>
+                                                        <option value="INTERNAL">Taller Interno ($0)</option>
+                                                        {labs.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+                                                    </select>
+                                                    <div style={{fontSize:9, color:"#aaa"}}>Costo: ${getServicePrice(woForm.talladoBy, "TALLADO")}</div>
+                                                </label>
+                                            </div>
+
+                                            <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, borderTop:"1px dashed #555", paddingTop:10}}>
+                                                <label style={labelStyle}>
+                                                    Costo Base Mica ($)
+                                                    <input type="number" value={woForm.baseCost} onChange={e => handleWoChange("baseCost", e.target.value)} style={inputStyle} />
+                                                </label>
+                                                <label style={labelStyle}>
+                                                    COSTO TOTAL REPORTADO ($)
+                                                    <input type="number" value={woForm.labCost} onChange={e => handleWoChange("labCost", e.target.value)} style={{...inputStyle, borderColor: "#f87171", color:"#f87171", fontWeight:"bold"}} />
+                                                </label>
+                                            </div>
+                                            
+                                            <div style={{marginTop:15, display:"flex", gap:10, justifyContent:"flex-end"}}>
+                                                <button onClick={handleCancelEditWO} style={{background:"transparent", color:"#aaa", border:"none", cursor:"pointer"}}>Cancelar</button>
+                                                <button onClick={handleSaveWO} style={{background:"#60a5fa", color:"black", border:"none", borderRadius:4, padding:"6px 12px", fontWeight:"bold", cursor:"pointer"}}>Guardar Cambios</button>
+                                            </div>
                                         </div>
-                                        <div>
-                                            <div style={{fontSize:10, color:"#666", textTransform:"uppercase"}}>Recibido Por</div>
-                                            <div style={{color: wo.receivedBy ? "#a78bfa" : "#444"}}>{wo.receivedBy || "—"}</div>
+                                    ) : (
+                                        <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, fontSize:"0.9em", background:"#1a1a1a", padding:10, borderRadius:6}}>
+                                            <div>
+                                                <div style={{fontSize:10, color:"#666", textTransform:"uppercase"}}>Envíos</div>
+                                                <div style={{marginBottom:4}}>📤 <strong>Envia:</strong> {wo.courier || "—"}</div>
+                                                <div>📥 <strong>Recibe:</strong> {wo.receivedBy || "—"}</div>
+                                            </div>
+                                            <div>
+                                                <div style={{fontSize:10, color:"#666", textTransform:"uppercase"}}>Producción</div>
+                                                <div style={{marginBottom:4}}>🛠️ <strong>Bisel:</strong> {wo.jobMadeBy || "—"}</div>
+                                                <div>⚙️ <strong>Tallado:</strong> {wo.talladoBy || "—"}</div>
+                                            </div>
+                                            <div style={{gridColumn:"1 / -1", borderTop:"1px dashed #444", paddingTop:5, marginTop:5, display:"flex", justifyContent:"space-between", alignItems:"center"}}>
+                                                <span style={{color:"#aaa"}}>Costo Total Reportado:</span>
+                                                <span style={{color:"#f87171", fontWeight:"bold"}}>${(wo.labCost||0).toLocaleString()}</span>
+                                            </div>
                                         </div>
-                                    </div>
+                                    )}
                                 </div>
                             ))
                         )}
@@ -239,16 +393,9 @@ export default function SaleDetailModal({ sale, patient, onClose, onUpdate }) {
                                 {sale.payments.map((p, i) => (
                                     <tr key={i} style={{ borderBottom: "1px solid #333" }}>
                                         <td style={{ padding: 8 }}>{new Date(p.paidAt).toLocaleDateString()}</td>
-                                        
-                                        {/* CELDA EDITABLE */}
                                         <td style={{ padding: 8 }}>
                                             {editingPaymentId === p.id ? (
-                                                <select 
-                                                    autoFocus
-                                                    value={tempMethod} 
-                                                    onChange={e => setTempMethod(e.target.value)}
-                                                    style={{padding:4, borderRadius:4, background:"#444", color:"white", border:"1px solid #60a5fa"}}
-                                                >
+                                                <select autoFocus value={tempMethod} onChange={e => setTempMethod(e.target.value)} style={{padding:4, borderRadius:4, background:"#444", color:"white", border:"1px solid #60a5fa"}}>
                                                     <option value="EFECTIVO">EFECTIVO</option>
                                                     <option value="TARJETA">TARJETA</option>
                                                     <option value="TRANSFERENCIA">TRANSFERENCIA</option>
@@ -256,39 +403,24 @@ export default function SaleDetailModal({ sale, patient, onClose, onUpdate }) {
                                                     <option value="OTRO">OTRO</option>
                                                 </select>
                                             ) : (
-                                                <span>
-                                                    {p.method} 
-                                                    {p.terminal && <span style={{fontSize:"0.8em", color:"#888"}}> ({p.terminal})</span>}
-                                                </span>
+                                                <span>{p.method} {p.terminal && <span style={{fontSize:"0.8em", color:"#888"}}> ({p.terminal})</span>}</span>
                                             )}
                                         </td>
-                                        
                                         <td style={{ padding: 8, textAlign: "right", color: "#4ade80", fontWeight: "bold" }}>${p.amount.toLocaleString()}</td>
-                                        
-                                        {/* BOTONES DE ACCIÓN */}
                                         <td style={{ padding: 8, textAlign: "right" }}>
                                             {editingPaymentId === p.id ? (
                                                 <div style={{display:"flex", gap:5, justifyContent:"flex-end"}}>
-                                                    <button onClick={() => handleUpdatePayment(p.id)} style={{cursor:"pointer", border:"none", background:"none"}} title="Guardar">💾</button>
-                                                    <button onClick={() => setEditingPaymentId(null)} style={{cursor:"pointer", border:"none", background:"none"}} title="Cancelar">✕</button>
+                                                    <button onClick={() => handleUpdatePayment(p.id)} style={{cursor:"pointer", border:"none", background:"none"}}>💾</button>
+                                                    <button onClick={() => setEditingPaymentId(null)} style={{cursor:"pointer", border:"none", background:"none"}}>✕</button>
                                                 </div>
                                             ) : (
-                                                <button 
-                                                    onClick={() => { setEditingPaymentId(p.id); setTempMethod(p.method); }} 
-                                                    style={{cursor:"pointer", border:"none", background:"none", opacity:0.5}} 
-                                                    title="Corregir método de pago"
-                                                >
-                                                    ✏️
-                                                </button>
+                                                <button onClick={() => { setEditingPaymentId(p.id); setTempMethod(p.method); }} style={{cursor:"pointer", border:"none", background:"none", opacity:0.5}}>✏️</button>
                                             )}
                                         </td>
                                     </tr>
                                 ))}
                             </tbody>
                         </table>
-                        <div style={{marginTop:15, fontSize:"0.8em", color:"#666", fontStyle:"italic"}}>
-                            * Usa el botón de lápiz para corregir si cobraste con el método incorrecto. Esto ajustará el arqueo de caja automáticamente.
-                        </div>
                     </div>
                 )}
             </div>

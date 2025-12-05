@@ -48,20 +48,19 @@ export default function WorkOrdersPage() {
   const refreshData = async () => {
       setLoading(true);
       try {
-          // ✅ CORRECCIÓN: getAllSales() ahora está DENTRO del Promise.all
           const [woData, patData, empData, labData, salesData] = await Promise.all([
               getAllWorkOrders(),
               getPatients(),
               getEmployees(),
               getLabs(),
-              getAllSales() // 👈 Esto faltaba esperar
+              getAllSales()
           ]);
 
           setWorkOrders(woData);
           setPatients(patData);
           setEmployees(empData);
           setLabs(labData);
-          setSales(salesData); // Ahora salesData es un array real
+          setSales(salesData);
       } catch (error) {
           console.error(error);
       } finally {
@@ -99,6 +98,7 @@ export default function WorkOrdersPage() {
 
   const handleAdvance = async (order) => {
     const next = nextStatus(order.status);
+    // Interceptores para modales de logística
     if (order.status === "TO_PREPARE") return setSendLabModal(order);
     if (order.status === "SENT_TO_LAB") return setRevisionModal(order);
 
@@ -334,10 +334,15 @@ export default function WorkOrdersPage() {
           const patient = patientMap[o.patientId];
           const sale = salesMap[o.saleId];
           const item = sale?.items?.find(it => it.id === o.saleItemId);
+          const salePrice = item?.unitPrice || 0;
+          const totalCost = (o.labCost || 0);
+          const profit = salePrice - totalCost;
           
           return (
             <div key={o.id} style={{ background: "#1a1a1a", border: "1px solid #333", borderRadius: 10, padding: 16, display: "grid", gap: 12, position: "relative" }}>
               <div style={{ position: "absolute", left: 0, top: 10, bottom: 10, width: 4, background: STATUS_COLORS[o.status] || "#555", borderRadius: "0 4px 4px 0" }}></div>
+              
+              {/* CABECERA TARJETA */}
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start", paddingLeft: 10 }}>
                  <div>
                     <div style={{ fontSize: "1.1em", fontWeight: "bold" }}>{patient ? `${patient.firstName} ${patient.lastName}` : "Paciente"}</div>
@@ -348,20 +353,47 @@ export default function WorkOrdersPage() {
                     {o.status !== "CANCELLED" && o.status !== "DELIVERED" && (
                       <>
                         {o.status !== "ON_HOLD" && o.status !== "TO_PREPARE" && <button onClick={() => handleStatusChange(o.id, o.status, 'prev')} style={{ background: "transparent", border: "1px solid #555", color: "#aaa", padding: "6px 10px", borderRadius: 4, cursor: "pointer" }}>⬅</button>}
-                        <button onClick={() => handleStatusChange(o.id, o.status, 'next')} style={{ background: "#2563eb", border: "none", color: "white", padding: "6px 12px", borderRadius: 4, cursor: "pointer", fontWeight: "bold", fontSize: "0.9em" }}>Avanzar ➡</button>
+                        <button onClick={() => handleStatusChange(o.id, o.status, 'next')} style={{ background: "#2563eb", border: "none", color: "white", padding: "6px 12px", borderRadius: 4, cursor: "pointer", fontWeight: "bold", fontSize: "0.9em" }}>
+                            {o.status === "TO_PREPARE" ? "Enviar a Lab ➡" : o.status === "SENT_TO_LAB" ? "Recibir / Revisar ➡" : "Avanzar ➡"}
+                        </button>
                       </>
                     )}
+                    {o.status !== "CANCELLED" && <button onClick={() => setWarrantyModal(o)} style={{ background: "#450a0a", border: "1px solid #f87171", color: "#f87171", padding: "6px 10px", borderRadius: 4, cursor: "pointer", fontSize: "0.8em" }}>⚠️ Garantía</button>}
                     <button onClick={() => handleDelete(o.id)} style={{background:"none", border:"1px solid #333", color:"#666", cursor:"pointer", padding:"6px", borderRadius:4}}>🗑️</button>
                  </div>
               </div>
               
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, paddingLeft: 10, marginTop: 10, fontSize: "0.9em", color: "#ccc" }}>
+              {/* DETALLES FINOS (Lo que se había perdido) */}
+              <div style={{ paddingLeft: 10, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, fontSize: "0.9em", color: "#ccc", borderTop:"1px solid #333", paddingTop:10, marginTop:5 }}>
                   <div>
-                      <div style={{color:"#666", fontSize:11, textTransform:"uppercase"}}>Laboratorio</div>
-                      <div>{o.labName || "No asignado"}</div>
+                      <div style={{color:"#666", fontSize:11, textTransform:"uppercase", marginBottom:4}}>Logística y Finanzas</div>
+                      <div style={{display:"flex", flexDirection:"column", gap:4}}>
+                          <div>🏭 <strong>{o.labName || "Taller Interno"}</strong></div>
+                          {o.courier && <div>🚚 Enviado con: <span style={{color:"#fff"}}>{o.courier}</span></div>}
+                          {o.receivedBy && <div>📥 Recibido por: <span style={{color:"#a78bfa"}}>{o.receivedBy}</span></div>}
+                          
+                          <div style={{marginTop:5, display:"flex", gap:10, alignItems:"center"}}>
+                              <span style={{ color: profit >= 0 ? "#4ade80" : "#f87171", fontSize:11 }}>Utilidad: ${profit.toLocaleString()}</span>
+                              {/* BOTÓN PAGAR LAB */}
+                              {o.labCost > 0 && !o.isPaid && o.status !== "CANCELLED" && (
+                                  <button onClick={() => setPayLabModal(o)} style={{ background: "#064e3b", border: "1px solid #4ade80", color: "#4ade80", padding: "2px 8px", borderRadius: 4, cursor: "pointer", fontSize: "0.8em" }}>
+                                      💸 Pagar Costo ${o.labCost.toLocaleString()}
+                                  </button>
+                              )}
+                              {o.isPaid && <span style={{fontSize:10, color:"#4ade80", border:"1px solid #4ade80", padding:"1px 4px", borderRadius:3}}>✅ Costo Pagado</span>}
+                          </div>
+                          
+                          {/* LINK A VENTA */}
+                          {sale && (
+                            <div onClick={() => setViewSale(sale)} style={{ marginTop: 6, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6, color: "#60a5fa", fontSize:11 }}>
+                               <span>Ver Venta Relacionada 👁️</span>
+                               <span style={{ color: sale.balance > 0 ? "#f87171" : "#4ade80", fontWeight: "bold" }}>({sale.balance > 0 ? `Adeudo $${sale.balance}` : "Pagada"})</span>
+                            </div>
+                          )}
+                      </div>
                   </div>
                   <div>
-                      <div style={{color:"#666", fontSize:11, textTransform:"uppercase"}}>Rx / Notas</div>
+                      <div style={{color:"#666", fontSize:11, textTransform:"uppercase", marginBottom:4}}>Detalles Técnicos</div>
                       <RxDisplay rxNotes={o.rxNotes} />
                   </div>
               </div>
