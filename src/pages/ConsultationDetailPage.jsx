@@ -7,81 +7,22 @@ import {
   unlockConsultation 
 } from "@/services/consultationsStorage";
 import { getAuditHistory } from "@/services/auditStorage"; 
-import { getAllProducts } from "@/services/inventoryStorage"; 
 import { getPatientById } from "@/services/patientsStorage"; 
-import { searchDiagnosis } from "@/utils/cie10Catalog";
 
-// 📍 IMPORTAMOS LOS PANELES NECESARIOS
+// 📍 COMPONENTES REFACTORIZADOS
 import EyeExamsPanel from "@/components/EyeExamsPanel";
 import StudiesPanel from "@/components/StudiesPanel";
+import SystemAccordion from "@/components/consultation/SystemAccordion";
+import ODOSEditor from "@/components/consultation/ODOSEditor";
+import DiagnosisManager from "@/components/consultation/DiagnosisManager";
+import InterconsultationForm from "@/components/consultation/InterconsultationForm";
+import PrescriptionBuilder from "@/components/consultation/PrescriptionBuilder";
 
-// --- CONFIGURACIÓN DE SISTEMAS (IPAS) ---
-const SYSTEMS_CONFIG = [
-  { id: "endocrine", label: "Endocrino (Diabetes)", options: ["Poliuria", "Polidipsia", "Pérdida de Peso", "Intolerancia al calor/frío"] },
-  { id: "cardiovascular", label: "Cardiovascular (HTA)", options: ["Dolor Torácico", "Disnea", "Ortopnea", "Edema", "Palpitaciones"] },
-  { id: "respiratory", label: "Respiratorio", options: ["Tos", "Expectoración", "Disnea", "Sibilancias"] },
-  { id: "digestive", label: "Digestivo", options: ["Disfagia", "Pirosis", "Dolor Abdominal", "Náusea/Vómito", "Cambios hábito intestinal"] },
-  { id: "nervous", label: "Nervioso", options: ["Cefalea", "Mareo", "Pérdida de conciencia", "Alteraciones marcha", "Parestesias"] },
-  { id: "musculoskeletal", label: "Musculoesquelético", options: ["Artralgias", "Mialgias", "Rigidez matutina", "Limitación movimiento"] },
-  { id: "genitourinary", label: "Genitourinario", options: ["Disuria", "Hematuria", "Polaquiuria", "Incontinencia"] },
-  { id: "skin", label: "Piel y Tegumentos", options: ["Rash", "Prurito", "Cambios coloración", "Lesiones"] },
-  { id: "psychiatric", label: "Psiquiátrico", options: ["Ansiedad", "Depresión", "Insomnio", "Alteraciones memoria"] },
-  { id: "hemolymphatic", label: "Hemolinfático", options: ["Palidez", "Sangrado fácil", "Adenopatías"] }
-];
-
-const getEmptySystems = () => {
-    const state = {};
-    SYSTEMS_CONFIG.forEach(s => {
-        state[s.id] = { isNormal: true, selected: [], details: "" };
-    });
-    return state;
-};
-
-// --- DATOS RÁPIDOS (CHIPS) ---
-const QUICK_DATA = {
-  symptoms: ["Mala Visión Lejana", "Mala Visión Próxima", "Cefalea", "Ardor", "Lagrimeo", "Comezón", "Dolor Ocular", "Fotofobia", "Ojo Rojo", "Secreción", "Cuerpo Extraño", "Revisión Rutina"],
-  anterior: {
-    lids: ["Normales", "Blefaritis", "Meibomitis", "Chalazion", "Orzuelo", "Ptosis", "Ectropion", "Entropion"],
-    conjunctiva: ["Clara", "Hiperemia Leve", "Hiperemia Mod/Sev", "Quemosis", "Pterigión I", "Pterigión II/III", "Pinguecula", "Folículos", "Papilas"],
-    cornea: ["Transparente", "QPS", "Úlcera", "Leucoma", "Queratocono", "Edema", "Pannus"],
-    chamber: ["Formada", "Estrecha", "Tyndall (+)", "Hipopion", "Hifema"],
-    iris: ["Normal", "Sinequias", "Atrofia", "Rubeosis"],
-    lens: ["Transparente", "Facosclerosis", "Cat. Nuclear", "Cat. Cortical", "Cat. Subcapsular", "LIO Centrado"]
-  },
-  posterior: {
-    vitreous: ["Transparente", "DVP", "Miodesopsias", "Hemorragia"],
-    nerve: ["Bordes Netos", "Excavación 0.3", "Excavación 0.5", "Excavación 0.8", "Palidez"],
-    macula: ["Brillo Foveal", "Drusas", "Edema", "EPR Alterado"],
-    vessels: ["Normales", "Tortuosidad", "Cruces A/V", "Hemorragias", "Exudados"],
-    retinaPeriphery: ["Aplicada", "Desgarro", "Agujero", "Desprendimiento"]
-  }
-};
-
-const SEGMENTS_ANTERIOR = [
-  { key: "lids", label: "Párpados y Anexos" },
-  { key: "conjunctiva", label: "Conjuntiva" },
-  { key: "cornea", label: "Córnea" },
-  { key: "chamber", label: "Cámara Anterior" },
-  { key: "iris", label: "Iris y Pupila" },
-  { key: "lens", label: "Cristalino" }
-];
-
-const SEGMENTS_POSTERIOR = [
-  { key: "vitreous", label: "Vítreo" },
-  { key: "nerve", label: "Nervio Óptico (Papila)" },
-  { key: "macula", label: "Mácula" },
-  { key: "vessels", label: "Vasos y Arcadas" },
-  { key: "retinaPeriphery", label: "Retina Periférica" }
-];
-
-const ALICIA_TEMPLATES = {
-  "GLAUCOMA": "Padecimiento crónico. Disminución campo visual. AHF Glaucoma: [SI/NO]. Tx: [GOTAS].",
-  "OJO_SECO": "Sensación cuerpo extraño y ardor AO. Empeora tardes. Mejora lubricantes.",
-  "CONJUNTIVITIS": "Inicio agudo. Ojo rojo, secreción. Niega baja visual.",
-  "REFRACTIVO": "Mala visión lejana gradual. Mejora con estenopeico. Cefalea.",
-  "CATARATA": "Baja visual progresiva indolora. Deslumbramiento nocturno.",
-  "DIABETICA": "DM [X] años. Baja visual variable. Fondo de ojo."
-};
+// 📍 CONFIGURACIÓN EXTRACTADA
+import { 
+    SYSTEMS_CONFIG, getEmptySystems, QUICK_DATA, 
+    SEGMENTS_ANTERIOR, SEGMENTS_POSTERIOR, ALICIA_TEMPLATES 
+} from "@/utils/consultationConfig";
 
 function toDateInput(isoString) {
   if (!isoString) return "";
@@ -89,6 +30,7 @@ function toDateInput(isoString) {
   return Number.isNaN(date.getTime()) ? "" : date.toISOString().slice(0, 10);
 }
 
+// Estilos compartidos (aún necesarios para la estructura principal)
 const labelStyle = { color: "#ccc", fontSize: 13, display: "block", marginBottom: 4 };
 const inputStyle = { width: "100%", padding: 8, background: "#222", border: "1px solid #444", color: "white", borderRadius: 4 };
 const textareaStyle = { ...inputStyle, resize: "vertical" };
@@ -98,212 +40,6 @@ const QuickChip = ({ label, active, onClick }) => (
     {active ? "✓ " : "+ "}{label}
   </button>
 );
-
-// --- COMPONENTES AUXILIARES ---
-const SystemAccordion = ({ config, data, onChange }) => {
-    const [isOpen, setIsOpen] = useState(false);
-    
-    useEffect(() => {
-        if (config.id === "endocrine" || config.id === "cardiovascular" || !data.isNormal) {
-            setIsOpen(true);
-        }
-    }, []);
-
-    const toggleOption = (opt) => {
-        const currentSelected = data.selected || [];
-        const newSelected = currentSelected.includes(opt) 
-            ? currentSelected.filter(s => s !== opt)
-            : [...currentSelected, opt];
-        
-        onChange({ ...data, isNormal: false, selected: newSelected });
-    };
-
-    const handleDetails = (text) => { onChange({ ...data, isNormal: false, details: text }); };
-    const setNormal = (e) => { e.stopPropagation(); onChange({ isNormal: true, selected: [], details: "" }); };
-
-    return (
-        <div style={{ marginBottom: 8, border: "1px solid #444", borderRadius: 6, overflow: "hidden" }}>
-            <div onClick={() => setIsOpen(!isOpen)} style={{ padding: "8px 12px", background: "#222", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <div style={{ fontWeight: "bold", color: data.isNormal ? "#aaa" : "#fbbf24", fontSize: "0.95em" }}>{config.label}</div>
-                <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                    <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 4, background: data.isNormal ? "#064e3b" : "#450a0a", color: data.isNormal ? "#4ade80" : "#f87171", fontWeight: "bold" }}>{data.isNormal ? "NEGADO" : "ANORMAL"}</span>
-                    <span style={{ fontSize: 10, color: "#666" }}>{isOpen ? "▲" : "▼"}</span>
-                </div>
-            </div>
-            {isOpen && (
-                <div style={{ padding: 12, background: "#1a1a1a", borderTop: "1px solid #333" }}>
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 10 }}>
-                        {config.options.map(opt => (
-                            <button key={opt} type="button" onClick={() => toggleOption(opt)} style={{fontSize: 11, padding: "4px 8px", borderRadius: 12, border: "1px solid", cursor: "pointer", background: data.selected?.includes(opt) ? "rgba(251, 191, 36, 0.1)" : "transparent", borderColor: data.selected?.includes(opt) ? "#fbbf24" : "#444", color: data.selected?.includes(opt) ? "#fbbf24" : "#888"}}>{opt}</button>
-                        ))}
-                    </div>
-                    <textarea rows={2} placeholder={`Detalles para ${config.label}...`} value={data.details} onChange={e => handleDetails(e.target.value)} style={{ ...textareaStyle, fontSize: "0.9em" }} />
-                    {!data.isNormal && <button type="button" onClick={setNormal} style={{ marginTop: 8, fontSize: 11, color: "#4ade80", background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}>Marcar como Negado / Normal</button>}
-                </div>
-            )}
-        </div>
-    );
-};
-
-const EyeColumn = ({ eyeLabel, value, onChange, onChipClick, onFileClick, options }) => (
-    <div style={{flex:1}}>
-        <div style={{display:"flex", justifyContent:"space-between", marginBottom:5}}>
-            <div style={{fontWeight:"bold", color: eyeLabel==="OD"?"#60a5fa":"#4ade80"}}>{eyeLabel}</div>
-            <button type="button" onClick={onFileClick} style={{fontSize:16, cursor:"pointer", background:"none", border:"none"}} title="Adjuntar Foto/PDF">📎</button>
-        </div>
-        <textarea rows={2} value={value} onChange={e => onChange(e.target.value)} style={textareaStyle} placeholder={`Detalles ${eyeLabel}...`} />
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6 }}>{options && options.map(opt => (<button key={opt} type="button" onClick={() => onChipClick(opt)} style={{fontSize:"0.75em", padding:"2px 8px", background:"#333", border:"1px solid #444", color:"#ccc", borderRadius:10, cursor:"pointer"}}>+ {opt}</button>))}</div>
-    </div>
-);
-
-const ODOSEditor = ({ title, dataOD, dataOS, options, onUpdate, onAddFile }) => {
-    const appendText = (eye, text) => { const current = eye === 'od' ? dataOD : dataOS; onUpdate(eye, current ? `${current}, ${text}` : text); };
-    const handleFile = (eye) => { const fakeUrl = prompt("Simulación: Ingresa nombre del archivo o URL:", "foto.jpg"); if(fakeUrl) onAddFile(eye, fakeUrl); };
-    return (
-        <div style={{ background: "#222", padding: 12, borderRadius: 8, border: "1px solid #333" }}>
-            <div style={{fontSize:14, fontWeight:"bold", color:"#ddd", marginBottom:10}}>{title}</div>
-            <div style={{display:"flex", gap:15}}>
-                <EyeColumn eyeLabel="OD" value={dataOD} onChange={v => onUpdate('od', v)} onChipClick={t => appendText('od', t)} onFileClick={() => handleFile('od')} options={options} />
-                <EyeColumn eyeLabel="OS" value={dataOS} onChange={v => onUpdate('os', v)} onChipClick={t => appendText('os', t)} onFileClick={() => handleFile('os')} options={options} />
-            </div>
-        </div>
-    );
-};
-
-function PrescriptionBuilder({ onAdd }) {
-  const [query, setQuery] = useState(""); const [selectedMed, setSelectedMed] = useState(null); const [manualName, setManualName] = useState("");
-  const [type, setType] = useState("DROPS"); const [dose, setDose] = useState("1"); const [freq, setFreq] = useState("8"); const [duration, setDuration] = useState("7"); const [eye, setEye] = useState("AO"); 
-  const [products, setProducts] = useState([]);
-
-  useEffect(() => {
-      getAllProducts().then(setProducts).catch(console.error);
-  }, []);
-
-  const filteredMeds = useMemo(() => { if (!query) return []; const q = query.toLowerCase(); return products.filter(p => p.category === "MEDICATION" && (p.brand.toLowerCase().includes(q) || p.model.toLowerCase().includes(q))).slice(0, 5); }, [products, query]);
-  
-  const handleSelectMed = (prod) => { setSelectedMed(prod); setManualName(`${prod.brand} ${prod.model}`); setQuery(""); if (prod.tags?.presentation) setType(prod.tags.presentation); };
-  const generateLine = () => {
-    const name = selectedMed ? `${selectedMed.brand} ${selectedMed.model}` : manualName; if (!name) return;
-    let instruction = ""; if (type === "DROPS") instruction = `Aplicar ${dose} gota(s) en ${eye} cada ${freq} hrs por ${duration} días.`; else if (type === "OINTMENT") instruction = `Aplicar ${dose} cm en fondo de saco ${eye} cada ${freq} hrs por ${duration} días.`; else if (type === "ORAL") instruction = `Tomar ${dose} (tab/cap) cada ${freq} hrs por ${duration} días.`; else instruction = `Aplicar cada ${freq} hrs por ${duration} días.`;
-    onAdd(`• ${name}: ${instruction}`, selectedMed ? { productId: selectedMed.id, productName: `${selectedMed.brand} ${selectedMed.model}`, qty: 1, price: selectedMed.price, instructions: instruction } : null);
-    setManualName(""); setSelectedMed(null);
-  };
-  return (
-    <div style={{ background: "#222", border: "1px solid #444", borderRadius: 8, padding: 12, marginBottom: 10 }}>
-      <div style={{ fontSize: 12, color: "#60a5fa", fontWeight: "bold", marginBottom: 8 }}>⚡ Agregar Medicamento Rápido</div>
-      <div style={{ position: "relative", marginBottom: 10 }}>
-        <input placeholder="Buscar en farmacia o escribir nombre..." value={selectedMed ? `${selectedMed.brand} ${selectedMed.model}` : manualName || query} onChange={e => { setQuery(e.target.value); setManualName(e.target.value); setSelectedMed(null); }} style={{ width: "100%", padding: 8, borderRadius: 4, border: "1px solid #555", background: "#333", color: "white" }} />
-        {selectedMed && <span style={{ position: "absolute", right: 10, top: 8, fontSize: 11, color: Number(selectedMed.stock) > 0 ? "#4ade80" : "#f87171", fontWeight: "bold" }}>{Number(selectedMed.stock) > 0 ? `✅ Stock: ${selectedMed.stock}` : `⚠️ Stock: 0`}</span>}
-        {query && filteredMeds.length > 0 && !selectedMed && (<div style={{ position: "absolute", top: "100%", left: 0, right: 0, background: "#333", border: "1px solid #555", zIndex: 10, maxHeight: 150, overflowY: "auto" }}>{filteredMeds.map(p => (<div key={p.id} onClick={() => handleSelectMed(p)} style={{ padding: 8, borderBottom: "1px solid #444", cursor: "pointer", fontSize: 13, display: "flex", justifyContent: "space-between" }}><div>{p.brand} {p.model}</div><div style={{ fontSize: 11, color: Number(p.stock) > 0 ? "#4ade80" : "#f87171", fontWeight: "bold" }}>{Number(p.stock) > 0 ? `Stock: ${p.stock}` : "Agotado"}</div></div>))}</div>)}
-      </div>
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "end" }}>
-         <label style={{fontSize:11, color:"#aaa"}}>Tipo<select value={type} onChange={e => setType(e.target.value)} style={{display:"block", padding:5, borderRadius:4, background:"#333", color:"white", border:"1px solid #555"}}><option value="DROPS">Gotas</option><option value="OINTMENT">Ungüento</option><option value="ORAL">Oral</option><option value="OTHER">Otro</option></select></label>
-         {(type === "DROPS" || type === "OINTMENT") && <label style={{fontSize:11, color:"#aaa"}}>Ojo<select value={eye} onChange={e => setEye(e.target.value)} style={{display:"block", padding:5, borderRadius:4, background:"#333", color:"white", border:"1px solid #555"}}><option value="AO">AO</option><option value="OD">OD</option><option value="OI">OI</option></select></label>}
-         <input value={dose} onChange={e => setDose(e.target.value)} style={{display:"block", width:40, padding:5, borderRadius:4, background:"#333", color:"white", border:"1px solid #555"}} placeholder="Cant" />
-         <input value={freq} onChange={e => setFreq(e.target.value)} style={{display:"block", width:40, padding:5, borderRadius:4, background:"#333", color:"white", border:"1px solid #555"}} placeholder="Hrs" />
-         <input value={duration} onChange={e => setDuration(e.target.value)} style={{display:"block", width:40, padding:5, borderRadius:4, background:"#333", color:"white", border:"1px solid #555"}} placeholder="Días" />
-         <button onClick={(e) => { e.preventDefault(); generateLine(); }} style={{ marginBottom: 1, padding: "6px 12px", background: "#a78bfa", color: "#000", border: "none", borderRadius: 4, cursor: "pointer", fontWeight: "bold" }}>+ Agregar</button>
-      </div>
-    </div>
-  );
-}
-
-const DiagnosisManager = ({ diagnoses, onChange }) => {
-    const [query, setQuery] = useState("");
-    const [results, setResults] = useState([]);
-
-    const handleSearch = (e) => {
-        const val = e.target.value;
-        setQuery(val);
-        if (val.length > 1) setResults(searchDiagnosis(val));
-        else setResults([]);
-    };
-
-    const addDiagnosis = (item) => {
-        const exists = diagnoses.find(d => d.code === item.code);
-        if (exists) return setQuery("");
-        
-        const type = diagnoses.length === 0 ? "PRINCIPAL" : "SECONDARY";
-        const newDx = { code: item.code, name: item.name, type, notes: "" };
-        onChange([...diagnoses, newDx]);
-        setQuery("");
-        setResults([]);
-    };
-
-    const removeDiagnosis = (idx) => {
-        const next = diagnoses.filter((_, i) => i !== idx);
-        if (next.length > 0 && !next.find(d => d.type === "PRINCIPAL")) {
-            next[0].type = "PRINCIPAL";
-        }
-        onChange(next);
-    };
-
-    const setPrincipal = (idx) => {
-        const next = diagnoses.map((d, i) => ({
-            ...d,
-            type: i === idx ? "PRINCIPAL" : "SECONDARY"
-        }));
-        onChange(next);
-    };
-
-    return (
-        <div style={{ display: "grid", gap: 10 }}>
-            <div style={{ position: "relative" }}>
-                <input placeholder="🔍 Buscar CIE-10 (ej. Glaucoma, H40...)" value={query} onChange={handleSearch} style={{ width: "100%", padding: 10, background: "#222", border: "1px solid #444", color: "white", borderRadius: 6 }} />
-                {results.length > 0 && (
-                    <div style={{ position: "absolute", top: "100%", left: 0, right: 0, background: "#333", border: "1px solid #555", zIndex: 50, maxHeight: 200, overflowY: "auto", borderRadius: 6 }}>
-                        {results.map(r => (
-                            <div key={r.code} onClick={() => addDiagnosis(r)} style={{ padding: "8px 12px", borderBottom: "1px solid #444", cursor: "pointer", fontSize: "0.9em" }}>
-                                <strong style={{ color: "#60a5fa" }}>{r.code}</strong> {r.name}
-                            </div>
-                        ))}
-                    </div>
-                )}
-            </div>
-            <div style={{ display: "grid", gap: 8 }}>
-                {diagnoses.map((dx, i) => (
-                    <div key={dx.code} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: dx.type==="PRINCIPAL"?"rgba(16, 185, 129, 0.1)":"#222", border: dx.type==="PRINCIPAL"?"1px solid #10b981":"1px solid #444", borderRadius: 6, padding: 10 }}>
-                        <div>
-                            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                                <span style={{ fontWeight: "bold", color: "#fff" }}>{dx.code}</span>
-                                <span style={{ fontSize: "0.9em", color: "#ddd" }}>{dx.name}</span>
-                                {dx.type === "PRINCIPAL" && <span style={{ fontSize: 9, background: "#10b981", color: "black", padding: "2px 4px", borderRadius: 4, fontWeight: "bold" }}>PRINCIPAL</span>}
-                            </div>
-                        </div>
-                        <div style={{ display: "flex", gap: 8 }}>
-                            {dx.type !== "PRINCIPAL" && <button onClick={() => setPrincipal(i)} style={{ fontSize: 10, background: "transparent", border: "1px solid #aaa", color: "#aaa", cursor: "pointer", padding: "2px 6px", borderRadius: 4 }}>Hacer Principal</button>}
-                            <button onClick={() => removeDiagnosis(i)} style={{ color: "#f87171", background: "none", border: "none", cursor: "pointer", fontWeight: "bold" }}>✕</button>
-                        </div>
-                    </div>
-                ))}
-                {diagnoses.length === 0 && <div style={{ fontSize: 13, color: "#666", fontStyle: "italic", textAlign: "center", padding: 10 }}>Sin diagnósticos CIE-10 seleccionados.</div>}
-            </div>
-        </div>
-    );
-};
-
-const InterconsultationForm = ({ data, onChange }) => {
-    if (!data.required) {
-        return (
-            <button onClick={() => onChange({ ...data, required: true, createdAt: new Date().toISOString() })} style={{ background: "transparent", border: "1px dashed #60a5fa", color: "#60a5fa", padding: "8px", width: "100%", borderRadius: 6, cursor: "pointer" }}>+ Solicitar Interconsulta / Derivación</button>
-        );
-    }
-    return (
-        <div style={{ background: "rgba(30, 58, 138, 0.2)", border: "1px solid #1e40af", borderRadius: 8, padding: 15 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10 }}>
-                <h4 style={{ margin: 0, color: "#93c5fd" }}>Solicitud de Interconsulta</h4>
-                <button onClick={() => onChange({ ...data, required: false })} style={{ background: "none", border: "none", color: "#f87171", cursor: "pointer", fontSize: 12 }}>Cancelar</button>
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
-                <label style={{ fontSize: 12, color: "#aaa" }}>Especialidad / Profesional Destino <input value={data.to} onChange={e => onChange({ ...data, to: e.target.value })} style={{ width: "100%", padding: 8, background: "#111", border: "1px solid #1e40af", color: "white", borderRadius: 4 }} placeholder="Ej. Retina, Medicina Interna..." /></label>
-                <label style={{ fontSize: 12, color: "#aaa" }}>Urgencia <select value={data.urgency} onChange={e => onChange({ ...data, urgency: e.target.value })} style={{ width: "100%", padding: 8, background: "#111", border: "1px solid #1e40af", color: "white", borderRadius: 4 }}><option value="NORMAL">Normal / Ordinaria</option><option value="URGENTE">Urgente</option></select></label>
-            </div>
-            <label style={{ fontSize: 12, color: "#aaa", display: "block", marginBottom: 4 }}>Motivo de Envío</label>
-            <textarea rows={3} value={data.reason} onChange={e => onChange({ ...data, reason: e.target.value })} style={{ width: "100%", padding: 8, background: "#111", border: "1px solid #1e40af", color: "white", borderRadius: 4 }} placeholder="Describir hallazgo y motivo..." />
-            <div style={{ marginTop: 10, fontSize: 11, color: "#666" }}>Estado: <span style={{ color: "white" }}>{data.status}</span> · Solicitada: {new Date(data.createdAt).toLocaleDateString()}</div>
-        </div>
-    );
-};
 
 const HistoryModal = ({ logs, onClose }) => (
     <div style={{position:"fixed", top:0, left:0, right:0, bottom:0, background:"rgba(0,0,0,0.8)", zIndex:200, display:"flex", justifyContent:"center", alignItems:"center"}}>
@@ -351,10 +87,8 @@ export default function ConsultationDetailPage() {
 
             setPatient(p);
 
-            // Validamos que la consulta exista y pertenezca al paciente
             if (c && c.patientId === patientId) {
                 setConsultation(c);
-                // Inicializamos el formulario con los datos de Firebase
                 setForm({
                     visitDate: toDateInput(c.visitDate), 
                     type: c.type, 
@@ -385,25 +119,21 @@ export default function ConsultationDetailPage() {
     loadData();
   }, [patientId, consultationId, tick]);
 
-  // Carga de auditoría bajo demanda
   useEffect(() => {
       if (showHistory) {
           getAuditHistory(consultationId).then(setAuditLogs).catch(console.error);
       }
   }, [showHistory, consultationId]);
 
-  // Cálculo de bloqueo (24 Horas)
   const isLocked = useMemo(() => {
       if (!consultation) return false;
       if (consultation.forceUnlock) return false; 
-
       const created = new Date(consultation.createdAt).getTime();
       const now = Date.now();
       const hours = (now - created) / (1000 * 60 * 60);
       return hours > 24; 
   }, [consultation, tick]);
 
-  // --- HANDLERS ---
   const onSaveConsultation = async () => { 
       try {
           const reason = prompt("¿Motivo de la actualización?", "Actualización de nota clínica");
@@ -435,7 +165,6 @@ export default function ConsultationDetailPage() {
   const handleAdminUnlock = async () => {
       const reason = prompt("⚠️ ACCIÓN ADMINISTRATIVA\n\nEstás por desbloquear una nota cerrada legalmente.\nIngresa el motivo obligatorio:");
       if (!reason) return;
-      
       try {
           await unlockConsultation(consultationId, reason);
           alert("Consulta desbloqueada. Se ha registrado el evento en auditoría.");
@@ -452,16 +181,12 @@ export default function ConsultationDetailPage() {
   };
   
   const applyHistoryTemplate = (e) => { const key = e.target.value; if (!key) return; const t = ALICIA_TEMPLATES[key]; setForm(f => ({ ...f, history: f.history ? f.history + "\n\n" + t : t })); e.target.value = ""; };
-  
   const handleAddMed = (textLine, medObject) => { setForm(prev => ({ ...prev, treatment: (prev.treatment ? prev.treatment + "\n" : "") + textLine, prescribedMeds: medObject ? [...prev.prescribedMeds, medObject] : prev.prescribedMeds })); };
-  
   const removeMedFromList = (i) => { setForm(prev => ({ ...prev, prescribedMeds: prev.prescribedMeds.filter((_, idx) => idx !== i) })); };
-  
   const handleAddFile = (section, eye, fileUrl) => { setForm(f => ({ ...f, exam: { ...f.exam, [section]: { ...f.exam[section], [eye]: { ...f.exam[section][eye], files: [...(f.exam[section][eye].files || []), fileUrl] } } } })); alert("Archivo adjuntado: " + fileUrl); };
-  
   const handleAllSystemsNormal = () => { if(confirm("¿Marcar todos los sistemas como NORMALES y limpiar detalles?")) { setForm(f => ({ ...f, systemsReview: getEmptySystems() })); } };
 
-  // --- GENERACIÓN DE RESUMEN E IMPRESIÓN ---
+  // ... (Funciones de impresión y resumen se mantienen igual, solo referencias a constantes externas)
   const generateClinicalSummary = () => {
       const priorityKeys = ["endocrine", "cardiovascular"];
       const otherKeys = SYSTEMS_CONFIG.map(s => s.id).filter(k => !priorityKeys.includes(k));
@@ -551,7 +276,6 @@ export default function ConsultationDetailPage() {
         </div>
       </div>
 
-      {/* ⚠️ AVISO DE BLOQUEO DE 24H */}
       {isLocked && (
           <div style={{ background: "#451a03", border: "1px solid #f97316", color: "#fdba74", padding: "10px 15px", borderRadius: 8, marginBottom: 20, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <div style={{display:"flex", gap:10, alignItems:"center"}}>
@@ -570,7 +294,6 @@ export default function ConsultationDetailPage() {
       <div style={{ display: "grid", gap: 30 }}>
         <section style={{ background: "#1a1a1a", padding: 24, borderRadius: 12, border: "1px solid #333" }}>
           
-          {/* CABECERA DE FECHA Y BOTONES */}
           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 20, background:"#111", padding:10, borderRadius:8, border:"1px solid #333" }}>
              <label style={{ fontSize: 13, color: "#888" }}>Fecha Atención 
                 <input type="date" disabled={isLocked} value={form.visitDate} onChange={(e) => setForm(f => ({ ...f, visitDate: e.target.value }))} style={{ display:"block", marginTop:4, padding: "6px 10px", background: isLocked ? "#333" : "#222", border: "1px solid #444", color: isLocked ? "#aaa" : "white", borderRadius: 4 }} />
@@ -719,7 +442,7 @@ export default function ConsultationDetailPage() {
           </fieldset>
         </section>
 
-        {/* --- SECCIÓN DE ADDENDUMS (Siempre habilitada) --- */}
+        {/* --- SECCIÓN DE ADDENDUMS --- */}
         <section style={{ background: "#1a1a1a", padding: 20, borderRadius: 12, border: "1px solid #333" }}>
             <h3 style={{ margin: "0 0 15px 0", color: "#fbbf24", borderBottom: "1px solid #fbbf24", paddingBottom: 5 }}>
                 📝 Notas Adicionales (Addendums)
