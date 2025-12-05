@@ -1,5 +1,6 @@
 import React, { useState } from "react";
-import { searchDiagnosis } from "@/utils/cie10Catalog";
+// 🟢 CAMBIO: Importamos el nuevo catálogo CIE-11
+import { searchDiagnosis } from "@/utils/cie11Catalog";
 
 export default function DiagnosisManager({ diagnoses, onChange }) {
     const [query, setQuery] = useState("");
@@ -8,16 +9,23 @@ export default function DiagnosisManager({ diagnoses, onChange }) {
     const handleSearch = (e) => {
         const val = e.target.value;
         setQuery(val);
-        if (val.length > 1) setResults(searchDiagnosis(val));
-        else setResults([]);
+        // Buscamos si hay más de 1 caracter para agilizar
+        if (val.length > 1) {
+            setResults(searchDiagnosis(val));
+        } else {
+            setResults([]);
+        }
     };
 
     const addDiagnosis = (item) => {
+        // Evitar duplicados
         const exists = diagnoses.find(d => d.code === item.code);
         if (exists) return setQuery("");
         
+        // El primero siempre es PRINCIPAL, los demás SECONDARY
         const type = diagnoses.length === 0 ? "PRINCIPAL" : "SECONDARY";
         const newDx = { code: item.code, name: item.name, type, notes: "" };
+        
         onChange([...diagnoses, newDx]);
         setQuery("");
         setResults([]);
@@ -25,6 +33,7 @@ export default function DiagnosisManager({ diagnoses, onChange }) {
 
     const removeDiagnosis = (idx) => {
         const next = diagnoses.filter((_, i) => i !== idx);
+        // Si borramos el principal, el siguiente en la lista se vuelve principal
         if (next.length > 0 && !next.find(d => d.type === "PRINCIPAL")) {
             next[0].type = "PRINCIPAL";
         }
@@ -42,7 +51,14 @@ export default function DiagnosisManager({ diagnoses, onChange }) {
     return (
         <div style={{ display: "grid", gap: 10 }}>
             <div style={{ position: "relative" }}>
-                <input placeholder="🔍 Buscar CIE-10 (ej. Glaucoma, H40...)" value={query} onChange={handleSearch} style={{ width: "100%", padding: 10, background: "#222", border: "1px solid #444", color: "white", borderRadius: 6 }} />
+                {/* 🟢 CAMBIO: Placeholder actualizado para CIE-11 */}
+                <input 
+                    placeholder="🔍 Buscar CIE-11 (ej. Miopía, 9D00...)" 
+                    value={query} 
+                    onChange={handleSearch} 
+                    style={{ width: "100%", padding: 10, background: "#222", border: "1px solid #444", color: "white", borderRadius: 6 }} 
+                />
+                
                 {results.length > 0 && (
                     <div style={{ position: "absolute", top: "100%", left: 0, right: 0, background: "#333", border: "1px solid #555", zIndex: 50, maxHeight: 200, overflowY: "auto", borderRadius: 6 }}>
                         {results.map(r => (
@@ -53,6 +69,7 @@ export default function DiagnosisManager({ diagnoses, onChange }) {
                     </div>
                 )}
             </div>
+
             <div style={{ display: "grid", gap: 8 }}>
                 {diagnoses.map((dx, i) => (
                     <div key={dx.code} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: dx.type==="PRINCIPAL"?"rgba(16, 185, 129, 0.1)":"#222", border: dx.type==="PRINCIPAL"?"1px solid #10b981":"1px solid #444", borderRadius: 6, padding: 10 }}>
@@ -69,7 +86,12 @@ export default function DiagnosisManager({ diagnoses, onChange }) {
                         </div>
                     </div>
                 ))}
-                {diagnoses.length === 0 && <div style={{ fontSize: 13, color: "#666", fontStyle: "italic", textAlign: "center", padding: 10 }}>Sin diagnósticos CIE-10 seleccionados.</div>}
+                
+                {diagnoses.length === 0 && (
+                    <div style={{ fontSize: 13, color: "#666", fontStyle: "italic", textAlign: "center", padding: 10 }}>
+                        Sin diagnósticos CIE-11 seleccionados.
+                    </div>
+                )}
             </div>
         </div>
     );
