@@ -10,10 +10,12 @@ export default function CartList({ cart, onRemove }) {
                     <button onClick={() => onRemove(item._tempId)} style={{color:"red", background:"none", border:"none", cursor:"pointer"}}>✕</button>
                 </div>
                 
-                {/* Costo interno (visible solo para admin/demo) */}
-                {item.cost > 0 && <div style={{fontSize:10, color:"#f87171"}}>Costo Lab: ${item.cost}</div>}
+                {/* 🔴 CORRECCIÓN AQUÍ: Solo mostrar "Costo Lab" si el item es de tipo Lab */}
+                {item.requiresLab && item.cost > 0 && (
+                    <div style={{fontSize:10, color:"#f87171"}}>Costo Lab: ${item.cost}</div>
+                )}
                 
-                {/* Detalles de servicios */}
+                {/* Detalles de servicios (Bisel/Tallado) */}
                 {item.specs && (item.specs.requiresBisel || item.specs.requiresTallado) && (
                     <div style={{fontSize:10, color:"#bfdbfe", marginTop:2}}>
                         Servicios: {item.specs.requiresBisel && "🛠️ Bisel "} {item.specs.requiresTallado && "⚙️ Tallado"}
