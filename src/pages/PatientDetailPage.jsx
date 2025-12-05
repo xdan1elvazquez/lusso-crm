@@ -26,17 +26,21 @@ function formatDateTime(isoString) {
   return new Date(isoString).toLocaleString("es-MX", { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
+// Función robusta para edad
 function getPatientAge(dateString) {
-  if (!dateString) return "Sin alta";
+  if (!dateString) return null;
   const target = dateString.includes("T") ? new Date(dateString) : new Date(dateString + "T12:00:00");
   const now = new Date();
-  const diffTime = now.setHours(0,0,0,0) - target.setHours(0,0,0,0);
-  const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-  if (diffDays < 28) return `${diffDays} días`;
-  return `${Math.floor(diffDays/365)} años`;
+  if (isNaN(target.getTime())) return null;
+
+  let age = now.getFullYear() - target.getFullYear();
+  const m = now.getMonth() - target.getMonth();
+  if (m < 0 || (m === 0 && now.getDate() < target.getDate())) {
+      age--;
+  }
+  return age;
 }
 
-// ✅ CORRECCIÓN: El componente Field ahora está AFUERA
 const Field = ({ label, width="100%", children }) => (
   <label style={{ display: "block", width }}>
      <div style={{ fontSize: 11, color: "#666", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: 4, display: "block" }}>{label}</div>
@@ -57,6 +61,9 @@ export default function PatientDetailPage() {
   const [form, setForm] = useState({});
   const [sources, setSources] = useState([]);
 
+  // Edad calculada dinámicamente del formulario (para que se actualice si editan la fecha)
+  const calculatedAge = getPatientAge(form.dob);
+
   useEffect(() => {
     async function loadData() {
         setLoading(true);
@@ -73,10 +80,25 @@ export default function PatientDetailPage() {
                 touchPatientView(id);
 
                 setForm({ 
-                    firstName: p.firstName, lastName: p.lastName, phone: p.phone, email: p.email,
-                    dob: p.dob || "", sex: p.sex || "NO_ESPECIFICADO", occupation: p.occupation || "",
+                    firstName: p.firstName, lastName: p.lastName, email: p.email,
+                    
+                    // Teléfonos
+                    phone: p.phone, // Móvil
+                    homePhone: p.homePhone || "", // Casa
+
+                    // Demográficos Expandidos
+                    dob: p.dob || "", 
+                    assignedSex: p.assignedSex || p.sex || "NO_ESPECIFICADO", // Migración suave
+                    genderExpression: p.genderExpression || "",
+                    maritalStatus: p.maritalStatus || "SOLTERO",
+                    religion: p.religion || "",
+                    reliability: p.reliability || "BUENA",
+
+                    occupation: p.occupation || "",
                     referralSource: p.referralSource || "",
                     createdAt: toDateInput(p.createdAt),
+                    
+                    // Fiscal y Dirección
                     rfc: p.taxData?.rfc || "",
                     razonSocial: p.taxData?.razonSocial || "",
                     regimen: p.taxData?.regimen || "",
@@ -159,9 +181,17 @@ export default function PatientDetailPage() {
          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
              <div>
                 <h1 style={{ margin: 0, fontSize: "2.2rem", color: "white" }}>{patient.firstName} {patient.lastName}</h1>
-                <div style={{ display: "flex", gap: 15, marginTop: 8, color: "#bfdbfe", fontSize: "0.95em" }}>
+                <div style={{ display: "flex", gap: 20, marginTop: 8, color: "#bfdbfe", fontSize: "0.95em", alignItems: "center" }}>
+                    
+                    {/* EDAD EN GRANDE */}
+                    {calculatedAge !== null && (
+                        <span style={{ fontSize: "1.2em", fontWeight: "bold", background: "rgba(255,255,255,0.1)", padding: "4px 10px", borderRadius: "6px", color: "#fff" }}>
+                            {calculatedAge} Años
+                        </span>
+                    )}
+                    
                     <span>🎂 {form.dob || "Sin fecha"}</span>
-                    <span>📞 {patient.phone}</span>
+                    <span>📱 {patient.phone}</span>
                     <span style={{ color: "#fbbf24", fontWeight: "bold", background: "rgba(251, 191, 36, 0.1)", padding: "0 8px", borderRadius: "4px" }}>
                        💎 {patient.points || 0} Puntos
                     </span>
@@ -178,7 +208,7 @@ export default function PatientDetailPage() {
          <div style={{ borderTop: "1px solid rgba(255,255,255,0.1)", paddingTop: 10, marginTop: 5, display: "flex", gap: 20, fontSize: "0.8em", color: "#9ca3af" }}>
             <span>🕒 <strong>Último acceso:</strong> {formatDateTime(patient.lastViewed)}</span>
             <span>📝 <strong>Última edición:</strong> {formatDateTime(patient.updatedAt)}</span>
-            <span>📅 <strong>Alta:</strong> {new Date(patient.createdAt).toLocaleDateString()} <span style={{ opacity: 0.7, marginLeft: 6, fontSize: "0.9em" }}>({getPatientAge(patient.createdAt)})</span></span>
+            <span>📅 <strong>Alta:</strong> {new Date(patient.createdAt).toLocaleDateString()}</span>
          </div>
       </div>
 
@@ -197,14 +227,67 @@ export default function PatientDetailPage() {
 
         {isIdentityOpen && (
             <div style={{ animation: "fadeIn 0.3s ease-in-out" }}>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 20 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 20, marginBottom: 20 }}>
                     <Field label="Nombre"><input value={form.firstName} onChange={e => setForm({...form, firstName: e.target.value})} style={inputStyle} /></Field>
                     <Field label="Apellidos"><input value={form.lastName} onChange={e => setForm({...form, lastName: e.target.value})} style={inputStyle} /></Field>
-                    <Field label="Teléfono"><input type="tel" maxLength={10} value={form.phone} onChange={e => setForm({...form, phone: handlePhoneInput(e.target.value)})} style={inputStyle} /></Field>
+                    
+                    {/* TELÉFONOS */}
+                    <Field label="Teléfono Móvil (10 dígitos)">
+                        <input type="tel" maxLength={10} value={form.phone} onChange={e => setForm({...form, phone: handlePhoneInput(e.target.value)})} style={{...inputStyle, borderColor: "#60a5fa"}} placeholder="Principal" />
+                    </Field>
+                    <Field label="Teléfono Casa">
+                        <input type="tel" maxLength={10} value={form.homePhone} onChange={e => setForm({...form, homePhone: handlePhoneInput(e.target.value)})} style={inputStyle} placeholder="Opcional" />
+                    </Field>
+                    
                     <Field label="Email"><input value={form.email} onChange={e => setForm({...form, email: e.target.value})} style={inputStyle} /></Field>
                     <Field label="Fecha Nacimiento"><input type="date" value={form.dob} onChange={e => setForm({...form, dob: e.target.value})} style={inputStyle} /></Field>
-                    <Field label="Sexo"><select value={form.sex} onChange={e => setForm({...form, sex: e.target.value})} style={inputStyle}><option value="NO_ESPECIFICADO">No especificado</option><option value="MUJER">Mujer</option><option value="HOMBRE">Hombre</option></select></Field>
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 20, marginBottom: 20, background: "#111", padding: 15, borderRadius: 8 }}>
+                    {/* GÉNERO Y SEXO */}
+                    <Field label="Sexo Asignado al Nacer">
+                        <select value={form.assignedSex} onChange={e => setForm({...form, assignedSex: e.target.value})} style={inputStyle}>
+                            <option value="NO_ESPECIFICADO">-- Seleccionar --</option>
+                            <option value="MUJER">Mujer</option>
+                            <option value="HOMBRE">Hombre</option>
+                            <option value="INTERSEXUAL">Intersexual</option>
+                        </select>
+                    </Field>
+                    <Field label="Expresión de Género / Identidad">
+                        <input list="gender-options" value={form.genderExpression} onChange={e => setForm({...form, genderExpression: e.target.value})} style={inputStyle} placeholder="Ej. Femenino, No Binario..." />
+                        <datalist id="gender-options">
+                            <option value="Masculino" />
+                            <option value="Femenino" />
+                            <option value="No Binario" />
+                            <option value="Fluido" />
+                        </datalist>
+                    </Field>
+
+                    <Field label="Estado Civil">
+                        <select value={form.maritalStatus} onChange={e => setForm({...form, maritalStatus: e.target.value})} style={inputStyle}>
+                            <option value="SOLTERO">Soltero(a)</option>
+                            <option value="CASADO">Casado(a)</option>
+                            <option value="UNION_LIBRE">Unión Libre</option>
+                            <option value="DIVORCIADO">Divorciado(a)</option>
+                            <option value="VIUDO">Viudo(a)</option>
+                        </select>
+                    </Field>
+                    <Field label="Religión">
+                        <input value={form.religion} onChange={e => setForm({...form, religion: e.target.value})} style={inputStyle} placeholder="Opcional" />
+                    </Field>
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 20 }}>
                     <Field label="Ocupación"><input value={form.occupation} onChange={e => setForm({...form, occupation: e.target.value})} style={inputStyle} /></Field>
+                    <Field label="Fiabilidad del Informante">
+                        <select value={form.reliability} onChange={e => setForm({...form, reliability: e.target.value})} style={inputStyle}>
+                            <option value="BUENA">Buena</option>
+                            <option value="REGULAR">Regular</option>
+                            <option value="MALA">Mala</option>
+                            <option value="NO_VALORADA">No Valorada</option>
+                        </select>
+                    </Field>
+
                     <div style={{ gridColumn: "span 1", background: "#111", padding: 10, borderRadius: 8, border: "1px dashed #444" }}>
                         <Field label="Marketing / Origen"><select value={form.referralSource} onChange={e => setForm({...form, referralSource: e.target.value})} style={{ ...inputStyle, border: "none", background: "transparent", padding: 0, color: "#4ade80", fontWeight: "bold" }}>{sources.map(s => <option key={s} value={s}>{s}</option>)}</select></Field>
                         {referrerName && <div style={{ fontSize: "0.8em", color: "#aaa", marginTop: 5 }}>Recomendado por: <Link to={`/patients/${patient.referredBy}`} style={{color: "#60a5fa"}}>{referrerName}</Link></div>}

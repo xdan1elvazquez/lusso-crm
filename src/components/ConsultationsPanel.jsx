@@ -70,7 +70,8 @@ export default function ConsultationsPanel({ patientId }) {
   return (
     <section style={{ background: "#1a1a1a", padding: 20, borderRadius: 12, border: "1px solid #333" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 15 }}>
-        <h2 style={{ margin: 0, fontSize: "1.2em", color: "#e5e7eb" }}>Historia Clínica ({allConsultations.length})</h2>
+        {/* 🟢 CAMBIO: Título actualizado de "Historia Clínica" a "Exploración" */}
+        <h2 style={{ margin: 0, fontSize: "1.2em", color: "#e5e7eb" }}>Exploración ({allConsultations.length})</h2>
         <button 
           onClick={() => setIsCreating(!isCreating)} 
           style={{ background: isCreating ? "#333" : "#2563eb", color: "white", border: "none", padding: "6px 12px", borderRadius: 6, cursor: "pointer", fontSize: "0.9em" }}

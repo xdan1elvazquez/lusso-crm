@@ -43,11 +43,23 @@ export async function createPatient(data) {
   const newPatient = {
     firstName: data.firstName?.trim() || "", 
     lastName: data.lastName?.trim() || "",
+    
+    // Contacto (Teléfono principal es Móvil)
     phone: data.phone?.trim() || "", 
+    homePhone: data.homePhone?.trim() || "",
     email: data.email?.trim() || "",
+    
+    // Demográficos Nuevos
     dob: data.dob || "", 
-    sex: data.sex || "NO_ESPECIFICADO", 
+    assignedSex: data.assignedSex || "NO_ESPECIFICADO", // Sexo al nacer
+    genderExpression: data.genderExpression || "",       // Identidad/Expresión
+    maritalStatus: data.maritalStatus || "",
+    religion: data.religion || "",
+    reliability: data.reliability || "NO_VALORADA",      // Fiabilidad informante
+
     occupation: data.occupation?.trim() || "",
+    
+    // Marketing
     referralSource: data.referralSource || "Otro", 
     referredBy: data.referredBy || null, 
     points: 0,
@@ -83,23 +95,20 @@ export async function updatePatient(id, data) {
   const now = new Date().toISOString();
   
   const updatePayload = { ...data, updatedAt: now };
-  delete updatePayload.id; // Evitar duplicar ID
+  delete updatePayload.id; 
 
   await updateDoc(docRef, updatePayload);
   return { id, ...updatePayload };
 }
 
-// 👇 ESTA ES LA FUNCIÓN QUE FALTABA Y CAUSABA EL ERROR
 export async function adjustPatientPoints(id, amount) {
   if (!id) return;
   const docRef = doc(db, COLLECTION_NAME, id);
-  // Usamos 'increment' de Firebase para sumar/restar atómicamente
   await updateDoc(docRef, {
     points: increment(Number(amount))
   });
 }
 
-// 👇 ESTA TAMBIÉN FALTABA
 export async function touchPatientView(id) {
   if (!id) return;
   const docRef = doc(db, COLLECTION_NAME, id);
@@ -110,7 +119,6 @@ export async function deletePatient(id) {
   await deleteDoc(doc(db, COLLECTION_NAME, id));
 }
 
-// --- UTILIDADES ---
 export async function seedPatientsIfEmpty() {
   const patients = await getPatients();
   if (patients.length > 0) return;
@@ -119,7 +127,7 @@ export async function seedPatientsIfEmpty() {
   await createPatient({
       firstName: "Cristian", lastName: "Demo (Nube)", 
       phone: "5512345678", email: "demo@lusso.mx",
-      dob: "1990-01-01", sex: "HOMBRE", occupation: "Tester"
+      dob: "1990-01-01", assignedSex: "HOMBRE", occupation: "Tester"
   });
   window.location.reload();
 }
