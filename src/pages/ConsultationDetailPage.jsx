@@ -9,20 +9,23 @@ import {
 import { getAuditHistory } from "@/services/auditStorage"; 
 import { getPatientById } from "@/services/patientsStorage"; 
 
-// 📍 COMPONENTES REFACTORIZADOS
+// 📍 COMPONENTES
 import EyeExamsPanel from "@/components/EyeExamsPanel";
 import StudiesPanel from "@/components/StudiesPanel";
-import SystemAccordion from "@/components/consultation/SystemAccordion";
 import ODOSEditor from "@/components/consultation/ODOSEditor";
 import DiagnosisManager from "@/components/consultation/DiagnosisManager";
 import InterconsultationForm from "@/components/consultation/InterconsultationForm";
 import PrescriptionBuilder from "@/components/consultation/PrescriptionBuilder";
+import IPASNervousVisualForm from "@/components/consultation/IPASNervousVisualForm";
+import IPASBlockForm from "@/components/consultation/IPASBlockForm";
 
-// 📍 CONFIGURACIÓN EXTRACTADA
+// 📍 CONFIGURACIÓN
 import { 
-    SYSTEMS_CONFIG, getEmptySystems, QUICK_DATA, 
+    getEmptySystems, QUICK_DATA, 
     SEGMENTS_ANTERIOR, SEGMENTS_POSTERIOR, ALICIA_TEMPLATES 
 } from "@/utils/consultationConfig";
+import { IPAS_NV_CONFIG } from "@/utils/ipasNervousVisualConfig";
+import { IPAS_EXTENDED_CONFIG } from "@/utils/ipasExtendedConfig";
 
 function toDateInput(isoString) {
   if (!isoString) return "";
@@ -30,7 +33,7 @@ function toDateInput(isoString) {
   return Number.isNaN(date.getTime()) ? "" : date.toISOString().slice(0, 10);
 }
 
-// Estilos compartidos (aún necesarios para la estructura principal)
+// Estilos compartidos
 const labelStyle = { color: "#ccc", fontSize: 13, display: "block", marginBottom: 4 };
 const inputStyle = { width: "100%", padding: 8, background: "#222", border: "1px solid #444", color: "white", borderRadius: 4 };
 const textareaStyle = { ...inputStyle, resize: "vertical" };
@@ -68,14 +71,12 @@ export default function ConsultationDetailPage() {
   const [form, setForm] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // Estados para refrescar datos
   const [tick, setTick] = useState(0);
-  const [showIPAS, setShowIPAS] = useState(false);
+  const [showIPAS, setShowIPAS] = useState(true); 
   const [showHistory, setShowHistory] = useState(false);
   const [auditLogs, setAuditLogs] = useState([]);
   const [addendumText, setAddendumText] = useState("");
 
-  // Carga inicial de datos
   useEffect(() => {
     async function loadData() {
         try {
@@ -94,7 +95,13 @@ export default function ConsultationDetailPage() {
                     type: c.type, 
                     reason: c.reason, 
                     history: c.history, 
-                    systemsReview: { ...getEmptySystems(), ...(c.systemsReview || {}) },
+                    // Aseguramos la existencia de los nuevos objetos en systemsReview
+                    systemsReview: { 
+                        ...getEmptySystems(), 
+                        nervousVisual: {}, 
+                        extended: {}, 
+                        ...(c.systemsReview || {}) 
+                    },
                     vitalSigns: { ...c.vitalSigns },
                     exam: { 
                         anterior: { od: {...c.exam.anterior.od}, os: {...c.exam.anterior.os}, notes: c.exam.anterior.notes },
@@ -184,29 +191,74 @@ export default function ConsultationDetailPage() {
   const handleAddMed = (textLine, medObject) => { setForm(prev => ({ ...prev, treatment: (prev.treatment ? prev.treatment + "\n" : "") + textLine, prescribedMeds: medObject ? [...prev.prescribedMeds, medObject] : prev.prescribedMeds })); };
   const removeMedFromList = (i) => { setForm(prev => ({ ...prev, prescribedMeds: prev.prescribedMeds.filter((_, idx) => idx !== i) })); };
   const handleAddFile = (section, eye, fileUrl) => { setForm(f => ({ ...f, exam: { ...f.exam, [section]: { ...f.exam[section], [eye]: { ...f.exam[section][eye], files: [...(f.exam[section][eye].files || []), fileUrl] } } } })); alert("Archivo adjuntado: " + fileUrl); };
-  const handleAllSystemsNormal = () => { if(confirm("¿Marcar todos los sistemas como NORMALES y limpiar detalles?")) { setForm(f => ({ ...f, systemsReview: getEmptySystems() })); } };
+  const handleAllSystemsNormal = () => { if(confirm("¿Marcar todos los sistemas como NORMALES y limpiar detalles?")) { setForm(f => ({ ...f, systemsReview: { ...getEmptySystems(), nervousVisual: {}, extended: {} } })); } };
 
-  // ... (Funciones de impresión y resumen se mantienen igual, solo referencias a constantes externas)
+  // 📝 GENERADOR DE RESUMEN CLÍNICO (Narrativa)
   const generateClinicalSummary = () => {
-      const priorityKeys = ["endocrine", "cardiovascular"];
-      const otherKeys = SYSTEMS_CONFIG.map(s => s.id).filter(k => !priorityKeys.includes(k));
-      const sortedKeys = [...priorityKeys, ...otherKeys];
       let summaryLines = [];
       summaryLines.push("INTERROGATORIO POR APARATOS Y SISTEMAS:");
-      sortedKeys.forEach(key => {
-          const config = SYSTEMS_CONFIG.find(c => c.id === key);
-          const data = form.systemsReview[key] || { isNormal: true, selected: [], details: "" };
-          const label = config ? config.label : key; 
-          if (data.isNormal) { summaryLines.push(`- Sistema ${label}: Interrogado y negado.`); } 
-          else {
-              const selectionText = (data.selected || []).join(", ");
-              const detailsText = data.details || "";
-              let fullDetails = "";
-              if (selectionText && detailsText) fullDetails = `${selectionText}. ${detailsText}`;
-              else fullDetails = selectionText || detailsText;
-              summaryLines.push(`- Sistema ${label}: Se refiere ${fullDetails || "patología sin especificar"}.`);
+
+      // A. Módulo Nervioso y Visual
+      const nv = form.systemsReview.nervousVisual || {};
+      Object.values(IPAS_NV_CONFIG).forEach(block => {
+          const symptoms = nv[block.id] || {};
+          const actives = Object.entries(symptoms).filter(([_, val]) => val.present);
+          if (actives.length > 0) {
+              const details = actives.map(([k, val]) => {
+                  const symConfig = block.symptoms.find(s => s.id === k);
+                  const label = symConfig?.label || k;
+                  let parts = [];
+                  if (val.intensity) parts.push(`Int: ${val.intensity}`);
+                  if (val.munk) parts.push(`Munk: ${val.munk}`);
+                  if (val.zone) parts.push(`Zona: ${val.zone}`);
+                  if (val.condition) parts.push(val.condition);
+                  if (val.duration) parts.push(val.duration);
+                  // Especiales
+                  if (val.color) parts.push(`Color: ${val.color}`);
+                  if (val.consistency) parts.push(`Cons: ${val.consistency}`);
+                  if (val.shape) parts.push(`Forma: ${val.shape}`);
+                  return `${label} (${parts.join(", ")})`;
+              });
+              summaryLines.push(`${block.title}: Se refiere ${details.join("; ")}.`);
+          } else {
+              summaryLines.push(`${block.title}: Negado.`);
           }
       });
+
+      // B. Módulo Extendido (NUEVO)
+      const ext = form.systemsReview.extended || {};
+      Object.values(IPAS_EXTENDED_CONFIG).forEach(block => {
+          const blockData = ext[block.id] || {};
+          // 1. Datos de cabecera (Gineco)
+          let headerText = [];
+          if (block.headerFields) {
+              block.headerFields.forEach(f => {
+                  const val = blockData[f.id];
+                  if (val) headerText.push(`${f.label}: ${val}`);
+              });
+          }
+          
+          // 2. Síntomas
+          const actives = block.symptoms.filter(sym => blockData[sym.id]?.present).map(sym => {
+              const val = blockData[sym.id];
+              let parts = [];
+              if (val.zone) parts.push(val.zone);
+              if (val.intensity) parts.push(val.intensity);
+              if (val.duration) parts.push(val.duration);
+              if (val.condition) parts.push(val.condition);
+              return `${sym.label} (${parts.join(", ")})`;
+          });
+
+          if (headerText.length > 0 || actives.length > 0) {
+              let text = `${block.title}:`;
+              if (headerText.length > 0) text += " " + headerText.join(", ") + ".";
+              if (actives.length > 0) text += " Refiere: " + actives.join("; ") + ".";
+              summaryLines.push(text);
+          } else {
+              summaryLines.push(`${block.title}: Negado.`);
+          }
+      });
+
       summaryLines.push(""); summaryLines.push("EXPLORACIÓN FÍSICA GENERAL:"); summaryLines.push("Cráneo: normocefálico. Cuello cilíndrico sin adenomegalias palpables."); 
       return summaryLines.join("\n");
   };
@@ -243,7 +295,7 @@ export default function ConsultationDetailPage() {
     const date = new Date().toLocaleDateString();
     const win = window.open('', '', 'width=800,height=600');
     const MARGIN_TOP_PX = 180; 
-    const ipasText = Object.entries(form.systemsReview || {}).filter(([_, val]) => !val.isNormal).map(([key, val]) => { const label = SYSTEMS_CONFIG.find(c => c.id === key)?.label || key; const content = [...(val.selected || []), val.details].filter(Boolean).join(", "); return `${label}: ${content}`; }).join(". ");
+    const ipasText = "Ver nota clínica completa para detalle de IPAS."; 
 
     win.document.write(`
       <html>
@@ -336,23 +388,26 @@ export default function ConsultationDetailPage() {
                         </div>
                     </div>
                     {showIPAS && (
-                        <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(300px, 1fr))", gap:10, animation:"fadeIn 0.2s"}}>
-                            {SYSTEMS_CONFIG.map(sys => (
-                                <SystemAccordion 
-                                    key={sys.id} 
-                                    config={sys} 
-                                    data={form.systemsReview[sys.id] || { isNormal: true, selected: [], details: "" }} 
-                                    onChange={(val) => setForm(prev => ({ 
-                                        ...prev, 
-                                        systemsReview: { ...prev.systemsReview, [sys.id]: val } 
-                                    }))}
-                                />
-                            ))}
-                        </div>
-                    )}
-                    {!showIPAS && (
-                        <div style={{fontSize:"0.85em", color:"#666", fontStyle:"italic"}}>
-                            Click para desplegar. Los sistemas anormales se mostrarán en rojo.
+                        <div style={{animation:"fadeIn 0.2s"}}>
+                            {/* 1. MÓDULO NERVIOSO Y VISUAL (Anterior) */}
+                            <IPASNervousVisualForm 
+                                data={form.systemsReview.nervousVisual || {}} 
+                                onChange={(val) => setForm(prev => ({ 
+                                    ...prev, 
+                                    systemsReview: { ...prev.systemsReview, nervousVisual: val } 
+                                }))}
+                            />
+
+                            {/* 2. MÓDULO EXTENDIDO (Nuevo: Respiratorio, Digestivo, etc) */}
+                            <IPASBlockForm 
+                                title="📋 Otros Sistemas: Respiratorio, Digestivo, Gineco..."
+                                config={IPAS_EXTENDED_CONFIG}
+                                data={form.systemsReview.extended || {}}
+                                onChange={(val) => setForm(prev => ({ 
+                                    ...prev, 
+                                    systemsReview: { ...prev.systemsReview, extended: val } 
+                                }))}
+                            />
                         </div>
                     )}
                 </div>
@@ -368,11 +423,8 @@ export default function ConsultationDetailPage() {
                   </div>
                 </div>
 
-                {/* 📍 A) MÓDULO EXAMEN DE LA VISTA (RX COMPLETO) */}
-                <EyeExamsPanel 
-                    patientId={patientId} 
-                    consultationId={consultationId} 
-                />
+                {/* 📍 A) MÓDULO EXAMEN DE LA VISTA */}
+                <EyeExamsPanel patientId={patientId} consultationId={consultationId} />
 
                 {/* 3. BIOMICROSCOPÍA */}
                 <div>
@@ -482,11 +534,8 @@ export default function ConsultationDetailPage() {
             </div>
         </section>
 
-        {/* 📍 B) ESTUDIOS / GABINETE (RESTAURADO) */}
-        <StudiesPanel 
-            patientId={patientId} 
-            consultationId={consultationId} 
-        />
+        {/* 📍 B) ESTUDIOS / GABINETE */}
+        <StudiesPanel patientId={patientId} consultationId={consultationId} />
 
       </div>
 
