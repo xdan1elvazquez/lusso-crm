@@ -8,24 +8,42 @@ import { createExpense } from "@/services/expensesStorage";
 import LoadingState from "@/components/LoadingState";
 import SaleDetailModal from "@/components/SaleDetailModal";
 
+// 👇 UI Kit & Context
+import ModalWrapper from "@/components/ui/ModalWrapper";
+import Button from "@/components/ui/Button";
+import Input from "@/components/ui/Input";
+import Select from "@/components/ui/Select";
+import Card from "@/components/ui/Card";
+import Badge from "@/components/ui/Badge";
+import { useConfirm, useNotify } from "@/context/UIContext";
+
 const STATUS_LABELS = { 
-  ON_HOLD: "En Espera (Anticipo)",
+  ON_HOLD: "En Espera",
   TO_PREPARE: "Por Preparar", 
   SENT_TO_LAB: "En Laboratorio", 
-  QUALITY_CHECK: "Revisión / Calidad",
-  READY: "Listo para Entregar", 
+  QUALITY_CHECK: "Control Calidad",
+  READY: "Listo Entrega", 
   DELIVERED: "Entregado", 
   CANCELLED: "Cancelado" 
 };
 
-const STATUS_COLORS = { 
-  ON_HOLD: "#fca5a5", TO_PREPARE: "#facc15", SENT_TO_LAB: "#60a5fa", 
-  QUALITY_CHECK: "#a78bfa", READY: "#4ade80", DELIVERED: "#9ca3af", CANCELLED: "#f87171" 
+// Mapeo de estados de negocio a colores del Badge
+const STATUS_BADGE_COLOR = { 
+  ON_HOLD: "gray", 
+  TO_PREPARE: "yellow", 
+  SENT_TO_LAB: "blue", 
+  QUALITY_CHECK: "purple", 
+  READY: "green", 
+  DELIVERED: "gray", 
+  CANCELLED: "red" 
 };
 
 const STATUS_TABS = ["ALL", "ON_HOLD", "TO_PREPARE", "SENT_TO_LAB", "QUALITY_CHECK", "READY", "DELIVERED"];
 
 export default function WorkOrdersPage() {
+  const confirm = useConfirm();
+  const notify = useNotify();
+
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
@@ -44,33 +62,18 @@ export default function WorkOrdersPage() {
   const [payLabModal, setPayLabModal] = useState(null);
   const [viewSale, setViewSale] = useState(null); 
 
-  // Función unificada para cargar datos
   const refreshData = async () => {
       setLoading(true);
       try {
           const [woData, patData, empData, labData, salesData] = await Promise.all([
-              getAllWorkOrders(),
-              getPatients(),
-              getEmployees(),
-              getLabs(),
-              getAllSales()
+              getAllWorkOrders(), getPatients(), getEmployees(), getLabs(), getAllSales()
           ]);
-
-          setWorkOrders(woData);
-          setPatients(patData);
-          setEmployees(empData);
-          setLabs(labData);
-          setSales(salesData);
-      } catch (error) {
-          console.error(error);
-      } finally {
-          setLoading(false);
-      }
+          setWorkOrders(woData); setPatients(patData); setEmployees(empData); setLabs(labData); setSales(salesData);
+      } catch (error) { console.error(error); } finally { setLoading(false); }
   };
 
   useEffect(() => { refreshData(); }, []);
 
-  // Mapas para búsqueda rápida
   const patientMap = useMemo(() => {
     if (!Array.isArray(patients)) return {};
     return patients.reduce((acc, p) => ({ ...acc, [p.id]: p }), {});
@@ -90,15 +93,16 @@ export default function WorkOrdersPage() {
 
   // Handlers
   const handleDelete = async (id) => {
-      if(confirm("¿Eliminar orden?")) {
+      const ok = await confirm({ title: "Eliminar Orden", message: "¿Borrar esta orden de trabajo permanentemente?", confirmText: "Sí, Borrar" });
+      if(ok) {
           await deleteWorkOrder(id);
+          notify.success("Orden eliminada");
           refreshData();
       }
   };
 
   const handleAdvance = async (order) => {
     const next = nextStatus(order.status);
-    // Interceptores para modales de logística
     if (order.status === "TO_PREPARE") return setSendLabModal(order);
     if (order.status === "SENT_TO_LAB") return setRevisionModal(order);
 
@@ -117,162 +121,105 @@ export default function WorkOrdersPage() {
     }
   };
 
-  const RxDisplay = ({ rxNotes }) => {
-    if (!rxNotes) return null;
-    if (!rxNotes.trim().startsWith("{")) return <div style={{ whiteSpace: "pre-wrap", fontSize: "0.9em" }}>{rxNotes}</div>;
-    try {
-      const rx = JSON.parse(rxNotes);
-      return (
-        <div style={{ background: "rgba(255,255,255,0.05)", padding: 10, borderRadius: 6, fontSize: "0.9em", border: "1px solid rgba(255,255,255,0.1)" }}>
-          <div style={{ display: "grid", gap: 5 }}>
-             <div><strong style={{color:"#60a5fa"}}>OD:</strong> {rx.od?.sph} / {rx.od?.cyl} x {rx.od?.axis}° {rx.od?.add && <span>Add: {rx.od.add}</span>}</div>
-             <div><strong style={{color:"#60a5fa"}}>OI:</strong> {rx.os?.sph} / {rx.os?.cyl} x {rx.os?.axis}° {rx.os?.add && <span>Add: {rx.os.add}</span>}</div>
-          </div>
-          {rx.notes && <div style={{marginTop:5, fontStyle:"italic", opacity:0.7, borderTop:"1px solid #444", paddingTop:4}}>"{rx.notes}"</div>}
-        </div>
-      );
-    } catch(e) { return <div>{rxNotes}</div>; }
-  };
+  // --- COMPONENTE INTERNO PARA FORMATEAR LA RX (Visualizador JSON) ---
+  const RxDisplay = ({ notes }) => {
+    if (!notes) return <span className="text-gray-500 italic text-xs">Sin datos Rx</span>;
 
-  const SendLabModal = ({ order, onClose }) => {
-    const [courier, setCourier] = useState("");
-    return (
-      <div style={modalOverlay}>
-        <div style={modalContent}>
-          <h3 style={{ marginTop: 0, color: "#60a5fa" }}>Enviar a Laboratorio</h3>
-          <select value={courier} onChange={e => setCourier(e.target.value)} style={selectStyle}>
-              <option value="">-- Mensajero --</option>
-              {employees.map(e => <option key={e.id} value={e.name}>{e.name}</option>)}
-              <option value="Externo">Servicio Externo</option>
-          </select>
-          <div style={actionsStyle}>
-             <button onClick={onClose} style={cancelBtn}>Cancelar</button>
-             <button onClick={async () => { await updateWorkOrder(order.id, { status: "SENT_TO_LAB", courier }); refreshData(); onClose(); }} style={confirmBtn}>Confirmar</button>
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  const RevisionModal = ({ order, salesMap, onClose }) => {
-      const [receivedBy, setReceivedBy] = useState("");
-      const [baseMicaCost, setBaseMicaCost] = useState(order.labCost || 0);
-      const [biselCost, setBiselCost] = useState(0);
-      const [talladoCost, setTalladoCost] = useState(0);
-      const [jobMadeBy, setJobMadeBy] = useState(""); 
-      const [talladoBy, setTalladoBy] = useState(""); 
-      const [frameCondition, setFrameCondition] = useState("Llega en buen estado");
-
-      const sale = salesMap[order.saleId];
-      const saleItem = sale?.items?.find(i => i.id === order.saleItemId);
-      const specs = saleItem?.specs || {};
-
-      const handleBiselLabChange = (e) => {
-          const id = e.target.value;
-          setJobMadeBy(id);
-          if (id === "INTERNAL" || !id) { setBiselCost(0); return; }
-          const lab = labs.find(l => l.id === id);
-          const service = lab?.services.find(s => s.type === "BISEL");
-          setBiselCost(service ? Number(service.price) : 0);
-      };
-
-      const handleTalladoLabChange = (e) => {
-          const id = e.target.value;
-          setTalladoBy(id);
-          if (id === "INTERNAL" || !id) { setTalladoCost(0); return; }
-          const lab = labs.find(l => l.id === id);
-          const service = lab?.services.find(s => s.type === "TALLADO");
-          setTalladoCost(service ? Number(service.price) : 0);
-      };
-
-      const finalTotal = Number(baseMicaCost) + Number(biselCost) + Number(talladoCost);
-
-      const handleConfirm = async () => {
-          if(!receivedBy) return alert("Indica quién recibe.");
-          const biselLabName = labs.find(l => l.id === jobMadeBy)?.name || (jobMadeBy === "INTERNAL" ? "Taller Interno" : "");
-          const talladoLabName = labs.find(l => l.id === talladoBy)?.name || (talladoBy === "INTERNAL" ? "Taller Interno" : "");
-          const mainLabId = talladoBy !== "INTERNAL" ? talladoBy : jobMadeBy !== "INTERNAL" ? jobMadeBy : "";
-          const mainLabName = labs.find(l => l.id === mainLabId)?.name || "Taller Interno";
-
-          await updateWorkOrder(order.id, {
-              status: "READY", 
-              receivedBy,
-              labId: mainLabId,
-              labName: mainLabName,
-              labCost: finalTotal,
-              jobMadeBy: biselLabName,
-              talladoBy: talladoLabName,
-              frameCondition
-          });
-          refreshData();
-          onClose();
-      };
-
-      return (
-        <div style={modalOverlay}>
-            <div style={{...modalContent, width: 600, border: "1px solid #a78bfa"}}>
-                <h3 style={{ marginTop: 0, color: "#a78bfa" }}>Recepción y Cálculo</h3>
-                <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:20}}>
-                    <div>
-                        <label style={{display:"block", marginBottom:10}}>
-                            <span style={{fontSize:11, color:"#aaa"}}>Costo Base</span>
-                            <input type="number" value={baseMicaCost} onChange={e => setBaseMicaCost(e.target.value)} style={inputStyle} />
-                        </label>
-                        {specs.requiresBisel && (
-                            <label style={{display:"block", marginBottom:10}}>
-                                <span style={{fontSize:11, color:"#aaa"}}>Biseló</span>
-                                <select value={jobMadeBy} onChange={handleBiselLabChange} style={inputStyle}>
-                                    <option value="">-- Seleccionar --</option>
-                                    <option value="INTERNAL">Taller Interno</option>
-                                    {labs.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
-                                </select>
-                            </label>
-                        )}
-                    </div>
-                    <div>
-                        <label style={{display:"block", marginBottom:10}}>
-                            <span style={{fontSize:11, color:"#aaa"}}>Recibió</span>
-                            <select value={receivedBy} onChange={e => setReceivedBy(e.target.value)} style={inputStyle}>
-                                <option value="">-- Seleccionar --</option>
-                                {employees.map(e => <option key={e.id} value={e.name}>{e.name}</option>)}
-                            </select>
-                        </label>
-                        <div style={{fontSize:20, fontWeight:"bold", color:"#f87171", textAlign:"right", marginTop:20}}>
-                            Total: ${finalTotal.toLocaleString()}
+    // Intentamos detectar si es JSON
+    if (notes.trim().startsWith("{")) {
+        try {
+            const rx = JSON.parse(notes);
+            return (
+                <div className="bg-slate-950 p-3 rounded border border-slate-800 text-xs mt-2 font-mono">
+                    <div className="grid gap-1">
+                        <div className="flex gap-2">
+                            <span className="text-blue-400 font-bold w-6">OD:</span> 
+                            <span className="text-gray-300">
+                                {rx.od?.sph} / {rx.od?.cyl} x {rx.od?.axis}° 
+                                {rx.od?.add && <span className="text-gray-500 ml-2">Add: {rx.od.add}</span>}
+                            </span>
+                        </div>
+                        <div className="flex gap-2">
+                            <span className="text-blue-400 font-bold w-6">OI:</span> 
+                            <span className="text-gray-300">
+                                {rx.os?.sph} / {rx.os?.cyl} x {rx.os?.axis}° 
+                                {rx.os?.add && <span className="text-gray-500 ml-2">Add: {rx.os.add}</span>}
+                            </span>
                         </div>
                     </div>
+                    {rx.notes && (
+                        <div className="mt-2 pt-2 border-t border-slate-800 text-gray-500 italic">
+                            "{rx.notes}"
+                        </div>
+                    )}
                 </div>
-                <div style={actionsStyle}>
-                    <button onClick={onClose} style={cancelBtn}>Cancelar</button>
-                    <button onClick={handleConfirm} style={confirmBtn}>Guardar</button>
-                </div>
-            </div>
-        </div>
-      );
+            );
+        } catch (e) {
+            // Si falla el parseo, mostramos texto plano
+            return <div className="mt-2 bg-slate-950 p-2 rounded text-xs text-gray-400 border border-slate-800 font-mono truncate">{notes}</div>;
+        }
+    }
+    // Texto normal
+    return <div className="mt-2 bg-slate-950 p-2 rounded text-xs text-gray-400 border border-slate-800 font-mono truncate">{notes}</div>;
   };
 
-  const WarrantyModal = ({ order, onClose }) => {
-    const [reason, setReason] = useState("");
-    const [extraCost, setExtraCost] = useState("");
+  // --- SUB-COMPONENTES DE MODAL ---
+
+  const SendLabModalContent = ({ order, onClose }) => {
+    const [courier, setCourier] = useState("");
+    const handleSend = async () => {
+        await updateWorkOrder(order.id, { status: "SENT_TO_LAB", courier });
+        notify.success("Orden enviada a laboratorio");
+        refreshData(); onClose();
+    };
     return (
-      <div style={modalOverlay}>
-        <div style={{...modalContent, border: "1px solid #f87171"}}>
-          <h3 style={{ marginTop: 0, color: "#f87171" }}>Reportar Garantía</h3>
-          <textarea placeholder="Razón..." value={reason} onChange={e => setReason(e.target.value)} rows={3} style={{...inputStyle, height:"auto"}} />
-          <input type="number" value={extraCost} onChange={e => setExtraCost(e.target.value)} placeholder="Costo Extra ($)" style={{...inputStyle, marginTop:10}} />
-          <div style={actionsStyle}>
-             <button onClick={onClose} style={cancelBtn}>Cancelar</button>
-             <button onClick={async () => { if(!reason) return alert("Escribe razón"); await applyWarranty(order.id, reason, extraCost); refreshData(); onClose(); }} style={{...confirmBtn, background:"#f87171"}}>Aplicar</button>
+      <div className="space-y-4">
+          <Select label="Selecciona Mensajero / Servicio" value={courier} onChange={e => setCourier(e.target.value)}>
+              <option value="">-- Seleccionar --</option>
+              {employees.map(e => <option key={e.id} value={e.name}>{e.name}</option>)}
+              <option value="Externo">Servicio Externo / Paquetería</option>
+          </Select>
+          <div className="flex justify-end gap-3 mt-4">
+             <Button variant="ghost" onClick={onClose}>Cancelar</Button>
+             <Button onClick={handleSend}>Confirmar Envío</Button>
           </div>
-        </div>
       </div>
     );
   };
 
-  const PayLabModal = ({ order, onClose }) => {
+  const WarrantyModalContent = ({ order, onClose }) => {
+    const [reason, setReason] = useState("");
+    const [extraCost, setExtraCost] = useState("");
+    const handleApply = async () => {
+        if(!reason) return notify.info("Escribe una razón para la garantía");
+        await applyWarranty(order.id, reason, extraCost);
+        notify.success("Garantía aplicada. Orden reiniciada.");
+        refreshData(); onClose();
+    };
+    return (
+      <div className="space-y-4">
+          <label className="block w-full">
+             <span className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-1.5">Motivo de Garantía</span>
+             <textarea 
+                className="w-full px-3 py-2.5 bg-slate-900 border border-slate-700 rounded-lg text-white placeholder-gray-500 text-sm focus:outline-none focus:border-blue-500 resize-none"
+                placeholder="Descripción del defecto..." 
+                value={reason} 
+                onChange={e => setReason(e.target.value)} 
+                rows={3} 
+             />
+          </label>
+          <Input label="Costo Extra ($)" type="number" value={extraCost} onChange={e => setExtraCost(e.target.value)} placeholder="Opcional" />
+          <div className="flex justify-end gap-3 mt-4">
+             <Button variant="ghost" onClick={onClose}>Cancelar</Button>
+             <Button variant="danger" onClick={handleApply}>Aplicar Garantía</Button>
+          </div>
+      </div>
+    );
+  };
+
+  const PayLabModalContent = ({ order, onClose }) => {
       const [method, setMethod] = useState("EFECTIVO");
       const handlePay = async () => {
-          if (!order.labCost || order.labCost <= 0) return alert("No hay costo.");
           await createExpense({
               description: `Pago Lab: ${order.labName} (P: ${patientMap[order.patientId]?.lastName})`,
               amount: order.labCost,
@@ -281,123 +228,203 @@ export default function WorkOrdersPage() {
               date: new Date().toISOString()
           });
           await updateWorkOrder(order.id, { isPaid: true });
-          refreshData();
-          onClose();
+          notify.success(`Pago de $${order.labCost} registrado`);
+          refreshData(); onClose();
       };
       return (
-        <div style={modalOverlay}>
-            <div style={{...modalContent, width:350, border: "1px solid #4ade80"}}>
-                <h3 style={{ marginTop: 0, color: "#4ade80" }}>Pagar a Proveedor</h3>
-                <p>Monto: <strong>${order.labCost?.toLocaleString()}</strong></p>
-                <select value={method} onChange={e => setMethod(e.target.value)} style={inputStyle}>
-                    <option value="EFECTIVO">Efectivo</option>
-                    <option value="TRANSFERENCIA">Transferencia</option>
-                </select>
-                <div style={actionsStyle}>
-                    <button onClick={onClose} style={cancelBtn}>Cancelar</button>
-                    <button onClick={handlePay} style={{...confirmBtn, background:"#4ade80", color:"black"}}>Pagar</button>
-                </div>
+        <div className="space-y-4">
+            <div className="bg-slate-900 p-4 rounded-lg text-center border border-slate-800">
+                <div className="text-sm text-gray-400">Monto a Pagar</div>
+                <div className="text-2xl font-bold text-emerald-400">${order.labCost?.toLocaleString()}</div>
+            </div>
+            <Select label="Método de Pago" value={method} onChange={e => setMethod(e.target.value)}>
+                <option value="EFECTIVO">Efectivo</option>
+                <option value="TRANSFERENCIA">Transferencia</option>
+                <option value="TARJETA">Tarjeta</option>
+            </Select> 
+            <div className="flex justify-end gap-3 mt-4">
+                <Button variant="ghost" onClick={onClose}>Cancelar</Button>
+                <Button variant="primary" onClick={handlePay} className="bg-emerald-600 hover:bg-emerald-700">Registrar Pago</Button>
             </div>
         </div>
       );
   };
 
-  const modalOverlay = {position:"fixed", top:0, left:0, right:0, bottom:0, background:"rgba(0,0,0,0.8)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:100};
-  const modalContent = {background:"#1a1a1a", padding:20, borderRadius:10, width:400, border:"1px solid #60a5fa"};
-  const inputStyle = {width:"100%", padding:8, background:"#222", color:"white", border:"1px solid #444", borderRadius:4};
-  const selectStyle = {width:"100%", padding:8, background:"#222", color:"white", border:"1px solid #444", marginTop:10, marginBottom:20};
-  const actionsStyle = {display:"flex", justifyContent:"flex-end", gap:10, marginTop:20};
-  const cancelBtn = {background:"transparent", color:"#aaa", border:"none", cursor:"pointer"};
-  const confirmBtn = {background:"#60a5fa", color:"black", padding:"8px 16px", border:"none", borderRadius:4, fontWeight:"bold", cursor:"pointer"};
+  const RevisionModalContent = ({ order, onClose }) => {
+      const [receivedBy, setReceivedBy] = useState("");
+      const [baseMicaCost, setBaseMicaCost] = useState(order.labCost || 0);
+      
+      const handleConfirm = async () => {
+          if(!receivedBy) return notify.info("Indica quién recibe el trabajo");
+          await updateWorkOrder(order.id, {
+              status: "READY", receivedBy, labCost: baseMicaCost, frameCondition: "Buen estado"
+          });
+          notify.success("Trabajo recibido y listo");
+          refreshData(); onClose();
+      };
+
+      return (
+        <div className="space-y-4">
+            <Input label="Costo Final Lab ($)" type="number" value={baseMicaCost} onChange={e => setBaseMicaCost(e.target.value)} />
+            <Select label="Recibido por (Sucursal)" value={receivedBy} onChange={e => setReceivedBy(e.target.value)}>
+                <option value="">-- Seleccionar --</option>
+                {employees.map(e => <option key={e.id} value={e.name}>{e.name}</option>)}
+            </Select>
+            <div className="flex justify-end gap-3 mt-4">
+                <Button variant="ghost" onClick={onClose}>Cancelar</Button>
+                <Button variant="primary" onClick={handleConfirm} className="bg-purple-600 hover:bg-purple-700">Confirmar Recepción</Button>
+            </div>
+        </div>
+      );
+  };
 
   if (loading && workOrders.length === 0) return <LoadingState />;
 
   return (
-    <div style={{ width: "100%", paddingBottom: 40 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-        <h1>Work Orders (Nube)</h1>
-        <button onClick={refreshData} style={{ background: "#333", color: "white", border: "1px solid #555", padding: "6px 12px", borderRadius: 6, cursor: "pointer" }}>Actualizar</button>
+    <div className="page-container">
+      <div className="flex justify-between items-center mb-6">
+        <h1 className="text-3xl font-bold text-white">Work Orders</h1>
+        <Button variant="outline" onClick={refreshData}>🔄 Actualizar</Button>
       </div>
       
-      {sendLabModal && <SendLabModal order={sendLabModal} onClose={() => setSendLabModal(null)} />}
-      {revisionModal && <RevisionModal order={revisionModal} salesMap={salesMap} onClose={() => setRevisionModal(null)} />}
-      {warrantyModal && <WarrantyModal order={warrantyModal} onClose={() => setWarrantyModal(null)} />}
-      {payLabModal && <PayLabModal order={payLabModal} onClose={() => setPayLabModal(null)} />}
+      {/* MODALES */}
+      {sendLabModal && (
+          <ModalWrapper title="Enviar a Laboratorio" onClose={() => setSendLabModal(null)} width="400px">
+              <SendLabModalContent order={sendLabModal} onClose={() => setSendLabModal(null)} />
+          </ModalWrapper>
+      )}
+      {warrantyModal && (
+          <ModalWrapper title="Reportar Garantía" onClose={() => setWarrantyModal(null)} width="400px">
+              <WarrantyModalContent order={warrantyModal} onClose={() => setWarrantyModal(null)} />
+          </ModalWrapper>
+      )}
+      {payLabModal && (
+          <ModalWrapper title="Pagar Proveedor" onClose={() => setPayLabModal(null)} width="350px">
+              <PayLabModalContent order={payLabModal} onClose={() => setPayLabModal(null)} />
+          </ModalWrapper>
+      )}
+      {revisionModal && (
+          <ModalWrapper title="Recepción de Trabajo" onClose={() => setRevisionModal(null)} width="450px">
+              <RevisionModalContent order={revisionModal} onClose={() => setRevisionModal(null)} />
+          </ModalWrapper>
+      )}
       {viewSale && <SaleDetailModal sale={viewSale} patient={patientMap[viewSale.patientId]} onClose={() => setViewSale(null)} onUpdate={refreshData} />}
 
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 20 }}>
-        {STATUS_TABS.map((tab) => <button key={tab} onClick={() => setStatusFilter(tab)} style={{ padding: "6px 12px", borderRadius: 20, border: statusFilter === tab ? `1px solid ${STATUS_COLORS[tab]}` : "1px solid #333", background: statusFilter === tab ? "rgba(255,255,255,0.1)" : "transparent", color: statusFilter === tab ? "white" : "#888", cursor: "pointer", fontSize: "0.9em" }}>{STATUS_LABELS[tab] || "Todos"}</button>)}
+      {/* FILTROS */}
+      <div className="flex flex-col md:flex-row gap-4 mb-6">
+          <Input 
+            placeholder="Buscar por paciente, folio o laboratorio..." 
+            value={query} 
+            onChange={e => setQuery(e.target.value)} 
+            className="md:w-1/3"
+          />
+          <div className="flex gap-2 overflow-x-auto pb-2 md:pb-0 custom-scrollbar">
+            {STATUS_TABS.map((tab) => (
+              <button
+                key={tab}
+                onClick={() => setStatusFilter(tab)}
+                className={`
+                  px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-colors border
+                  ${statusFilter === tab 
+                    ? "bg-slate-700 text-white border-slate-500" 
+                    : "bg-transparent text-gray-500 border-slate-800 hover:border-slate-600 hover:text-gray-300"}
+                `}
+              >
+                {STATUS_LABELS[tab] || "Todos"}
+              </button>
+            ))}
+          </div>
       </div>
       
-      <div style={{ display: "grid", gap: 15 }}>
+      {/* GRID */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {filtered.map((o) => {
           const patient = patientMap[o.patientId];
           const sale = salesMap[o.saleId];
           const item = sale?.items?.find(it => it.id === o.saleItemId);
-          const salePrice = item?.unitPrice || 0;
-          const totalCost = (o.labCost || 0);
-          const profit = salePrice - totalCost;
+          const profit = (item?.unitPrice || 0) - (o.labCost || 0);
           
           return (
-            <div key={o.id} style={{ background: "#1a1a1a", border: "1px solid #333", borderRadius: 10, padding: 16, display: "grid", gap: 12, position: "relative" }}>
-              <div style={{ position: "absolute", left: 0, top: 10, bottom: 10, width: 4, background: STATUS_COLORS[o.status] || "#555", borderRadius: "0 4px 4px 0" }}></div>
+            <Card key={o.id} className="relative group hover:border-slate-600 transition-colors" noPadding>
+              {/* Barra de estado lateral */}
+              <div className={`absolute left-0 top-0 bottom-0 w-1 ${
+                  o.status === "READY" ? "bg-emerald-500" : 
+                  o.status === "SENT_TO_LAB" ? "bg-blue-500" : 
+                  o.status === "TO_PREPARE" ? "bg-amber-500" : "bg-slate-700"
+              }`}></div>
               
-              {/* CABECERA TARJETA */}
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start", paddingLeft: 10 }}>
-                 <div>
-                    <div style={{ fontSize: "1.1em", fontWeight: "bold" }}>{patient ? `${patient.firstName} ${patient.lastName}` : "Paciente"}</div>
-                    <div style={{ fontSize: "0.85em", color: "#888" }}>{item?.description || o.type}</div>
-                    <div style={{ fontSize: "0.8em", color: STATUS_COLORS[o.status], marginTop:4, fontWeight:"bold" }}>{STATUS_LABELS[o.status]}</div>
-                 </div>
-                 <div style={{ display: "flex", gap: 8 }}>
-                    {o.status !== "CANCELLED" && o.status !== "DELIVERED" && (
-                      <>
-                        {o.status !== "ON_HOLD" && o.status !== "TO_PREPARE" && <button onClick={() => handleStatusChange(o.id, o.status, 'prev')} style={{ background: "transparent", border: "1px solid #555", color: "#aaa", padding: "6px 10px", borderRadius: 4, cursor: "pointer" }}>⬅</button>}
-                        <button onClick={() => handleStatusChange(o.id, o.status, 'next')} style={{ background: "#2563eb", border: "none", color: "white", padding: "6px 12px", borderRadius: 4, cursor: "pointer", fontWeight: "bold", fontSize: "0.9em" }}>
-                            {o.status === "TO_PREPARE" ? "Enviar a Lab ➡" : o.status === "SENT_TO_LAB" ? "Recibir / Revisar ➡" : "Avanzar ➡"}
-                        </button>
-                      </>
-                    )}
-                    {o.status !== "CANCELLED" && <button onClick={() => setWarrantyModal(o)} style={{ background: "#450a0a", border: "1px solid #f87171", color: "#f87171", padding: "6px 10px", borderRadius: 4, cursor: "pointer", fontSize: "0.8em" }}>⚠️ Garantía</button>}
-                    <button onClick={() => handleDelete(o.id)} style={{background:"none", border:"1px solid #333", color:"#666", cursor:"pointer", padding:"6px", borderRadius:4}}>🗑️</button>
-                 </div>
-              </div>
-              
-              {/* DETALLES FINOS (Lo que se había perdido) */}
-              <div style={{ paddingLeft: 10, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, fontSize: "0.9em", color: "#ccc", borderTop:"1px solid #333", paddingTop:10, marginTop:5 }}>
-                  <div>
-                      <div style={{color:"#666", fontSize:11, textTransform:"uppercase", marginBottom:4}}>Logística y Finanzas</div>
-                      <div style={{display:"flex", flexDirection:"column", gap:4}}>
-                          <div>🏭 <strong>{o.labName || "Taller Interno"}</strong></div>
-                          {o.courier && <div>🚚 Enviado con: <span style={{color:"#fff"}}>{o.courier}</span></div>}
-                          {o.receivedBy && <div>📥 Recibido por: <span style={{color:"#a78bfa"}}>{o.receivedBy}</span></div>}
-                          
-                          <div style={{marginTop:5, display:"flex", gap:10, alignItems:"center"}}>
-                              <span style={{ color: profit >= 0 ? "#4ade80" : "#f87171", fontSize:11 }}>Utilidad: ${profit.toLocaleString()}</span>
-                              {/* BOTÓN PAGAR LAB */}
-                              {o.labCost > 0 && !o.isPaid && o.status !== "CANCELLED" && (
-                                  <button onClick={() => setPayLabModal(o)} style={{ background: "#064e3b", border: "1px solid #4ade80", color: "#4ade80", padding: "2px 8px", borderRadius: 4, cursor: "pointer", fontSize: "0.8em" }}>
-                                      💸 Pagar Costo ${o.labCost.toLocaleString()}
-                                  </button>
-                              )}
-                              {o.isPaid && <span style={{fontSize:10, color:"#4ade80", border:"1px solid #4ade80", padding:"1px 4px", borderRadius:3}}>✅ Costo Pagado</span>}
+              <div className="p-4 pl-6">
+                  {/* Header */}
+                  <div className="flex justify-between items-start mb-3">
+                     <div>
+                        <div className="font-bold text-white text-lg truncate w-48" title={`${patient?.firstName} ${patient?.lastName}`}>
+                            {patient ? `${patient.firstName} ${patient.lastName}` : "Paciente"}
+                        </div>
+                        <div className="text-sm text-gray-400">{item?.description || o.type}</div>
+                        <div className="mt-2">
+                            <Badge color={STATUS_BADGE_COLOR[o.status]}>{STATUS_LABELS[o.status]}</Badge>
+                        </div>
+                     </div>
+                     
+                     <div className="flex flex-col gap-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
+                        {o.status !== "CANCELLED" && o.status !== "DELIVERED" && (
+                          <div className="flex gap-1">
+                            {o.status !== "ON_HOLD" && o.status !== "TO_PREPARE" && (
+                                <button onClick={() => handleStatusChange(o.id, o.status, 'prev')} className="p-1.5 text-gray-500 hover:text-white bg-slate-800 rounded hover:bg-slate-700" title="Regresar Estado">⬅</button>
+                            )}
+                            <button onClick={() => handleStatusChange(o.id, o.status, 'next')} className="p-1.5 text-blue-400 hover:text-white bg-slate-800 rounded hover:bg-blue-600" title="Avanzar Estado">➡</button>
                           </div>
+                        )}
+                        {o.status !== "CANCELLED" && (
+                            <button onClick={() => setWarrantyModal(o)} className="text-xs text-red-400 hover:underline text-right">Garantía</button>
+                        )}
+                     </div>
+                  </div>
+                  
+                  {/* Detalles */}
+                  <div className="border-t border-slate-800 pt-3 mt-2 grid grid-cols-2 gap-4 text-sm">
+                      <div>
+                          <div className="text-xs text-gray-500 uppercase font-bold mb-1">Logística</div>
+                          <div className="text-gray-300">🏭 {o.labName || "Interno"}</div>
+                          {o.courier && <div className="text-gray-400 text-xs mt-1">🚚 {o.courier}</div>}
                           
-                          {/* LINK A VENTA */}
                           {sale && (
-                            <div onClick={() => setViewSale(sale)} style={{ marginTop: 6, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6, color: "#60a5fa", fontSize:11 }}>
-                               <span>Ver Venta Relacionada 👁️</span>
-                               <span style={{ color: sale.balance > 0 ? "#f87171" : "#4ade80", fontWeight: "bold" }}>({sale.balance > 0 ? `Adeudo $${sale.balance}` : "Pagada"})</span>
+                            <div 
+                                onClick={() => setViewSale(sale)} 
+                                className={`mt-2 cursor-pointer text-xs font-bold flex items-center gap-1 ${sale.balance > 0 ? "text-red-400" : "text-emerald-400"}`}
+                            >
+                                {sale.balance > 0 ? `Debe $${sale.balance}` : "Venta Pagada"} ↗
                             </div>
                           )}
                       </div>
+                      <div>
+                          <div className="text-xs text-gray-500 uppercase font-bold mb-1">Finanzas</div>
+                          <div className={profit >= 0 ? "text-emerald-400" : "text-red-400"}>
+                              Util: ${profit.toLocaleString()}
+                          </div>
+                          
+                          {o.labCost > 0 && !o.isPaid && o.status !== "CANCELLED" && (
+                              <button 
+                                  onClick={() => setPayLabModal(o)} 
+                                  className="mt-2 text-xs bg-emerald-900/30 text-emerald-400 border border-emerald-800 px-2 py-1 rounded hover:bg-emerald-900/50 w-full"
+                              >
+                                  Pagar ${o.labCost}
+                              </button>
+                          )}
+                          {o.isPaid && <div className="mt-2 text-xs text-gray-500 flex items-center gap-1">✅ Lab Pagado</div>}
+                      </div>
                   </div>
-                  <div>
-                      <div style={{color:"#666", fontSize:11, textTransform:"uppercase", marginBottom:4}}>Detalles Técnicos</div>
-                      <RxDisplay rxNotes={o.rxNotes} />
+
+                  {/* Notas Técnicas / Rx (RESTAURADO CON ESTILOS) */}
+                  <div className="mt-3">
+                      <RxDisplay notes={o.rxNotes} />
+                  </div>
+                  
+                  <div className="mt-2 text-right">
+                      <button onClick={() => handleDelete(o.id)} className="text-xs text-gray-600 hover:text-red-500 transition-colors">Eliminar Orden</button>
                   </div>
               </div>
-            </div>
+            </Card>
           );
         })}
       </div>

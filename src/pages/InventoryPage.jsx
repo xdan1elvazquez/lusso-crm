@@ -1,12 +1,13 @@
 import { useMemo, useState, useEffect } from "react";
 import { useInventory } from "@/hooks/useInventory";
 import { getAlertSettings, updateAlertSettings } from "@/services/settingsStorage";
-// 👇 CORRECCIÓN: Separamos los imports correctamente
 import { recalculateInventoryStats } from "@/services/inventoryStorage";
 import { getLogsByProductId } from "@/services/inventoryLogStorage";
-// -----------------------------------------------------------
 import { preventNegativeKey, sanitizeMoney, formatMoneyBlur } from "@/utils/inputHandlers";
 import LoadingState from "@/components/LoadingState";
+// 👇 IMPORTACIONES NUEVAS PARA UI/UX
+import { useConfirm, useNotify } from "@/context/UIContext";
+import ModalWrapper from "@/components/ui/ModalWrapper";
 
 const CATEGORIES = [
   { id: "FRAMES", label: "Armazones" },
@@ -28,6 +29,10 @@ const PRESENTATIONS = [
 ];
 
 export default function InventoryPage() {
+  // 👇 Hooks de UI
+  const confirm = useConfirm();
+  const notify = useNotify();
+
   const { products, stats, loading, error, add, edit, remove, refresh } = useInventory();
   
   const [query, setQuery] = useState("");
@@ -52,12 +57,18 @@ export default function InventoryPage() {
       loadSettings();
   }, [isConfiguring]);
 
-  // Botón de pánico para arreglar contadores
+  // ⚡ REFACTOR: Uso de confirm modal y notify
   const handleRecalculate = async () => {
-      if(!confirm("Esto recalculará el valor total y conteos leyendo todo el inventario. ¿Continuar?")) return;
+      const ok = await confirm({
+          title: "Sincronizar Inventario",
+          message: "Esto recalculará el valor total y conteos leyendo todo el inventario.\n\n¿Deseas continuar?",
+          confirmText: "Sincronizar"
+      });
+      if(!ok) return;
+
       await recalculateInventoryStats();
       refresh(); 
-      alert("Estadísticas sincronizadas con éxito.");
+      notify.success("Estadísticas sincronizadas con éxito.");
   };
 
   const filtered = useMemo(() => {
@@ -80,8 +91,13 @@ export default function InventoryPage() {
   
   const handleSubmitProduct = async (e) => {
     e.preventDefault();
-    if (form.id) await edit(form.id, form); else await add(form);
-    handleCancel();
+    try {
+        if (form.id) await edit(form.id, form); else await add(form);
+        notify.success(form.id ? "Producto actualizado" : "Producto creado");
+        handleCancel();
+    } catch (e) {
+        notify.error("Error al guardar: " + e.message);
+    }
   };
 
   const handleEdit = (product) => {
@@ -96,14 +112,29 @@ export default function InventoryPage() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const handleDelete = async (id) => { if (confirm("¿Borrar permanentemente?")) { await remove(id); } };
+  // ⚡ REFACTOR: Uso de confirm modal seguro
+  const handleDelete = async (id) => { 
+      const ok = await confirm({
+          title: "Eliminar Producto",
+          message: "¿Estás seguro de borrar este producto permanentemente? Esta acción no se puede deshacer.",
+          confirmText: "Sí, Borrar",
+          cancelText: "Cancelar"
+      });
+
+      if (ok) { 
+          await remove(id); 
+          notify.success("Producto eliminado del inventario");
+      } 
+  };
   
   const handleSaveConfig = async (e) => { 
       e.preventDefault(); 
       await updateAlertSettings(alerts); 
       setIsConfiguring(false); 
+      notify.success("Alertas actualizadas");
   };
 
+  // ⚡ REFACTOR: Componente interno ahora usa ModalWrapper
   const HistoryModal = ({ product, onClose }) => {
       const [logs, setLogs] = useState([]);
       const [isLoadingLogs, setIsLoadingLogs] = useState(true);
@@ -116,31 +147,25 @@ export default function InventoryPage() {
       }, [product.id]);
 
       return (
-        <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.8)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 200 }}>
-            <div style={{ background: "#1a1a1a", padding: 25, borderRadius: 12, border: "1px solid #333", width: "90%", maxWidth: 600, maxHeight:"80vh", overflowY:"auto" }}>
-                <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20}}>
-                    <h3 style={{ margin: 0, color: "#60a5fa" }}>Kardex: {product.brand} {product.model}</h3>
-                    <button onClick={onClose} style={{background:"none", border:"none", color:"#aaa", fontSize:"1.5em", cursor:"pointer"}}>×</button>
-                </div>
-                {isLoadingLogs ? <p style={{color:"#aaa", textAlign:"center"}}>Cargando movimientos...</p> : (
-                  <table style={{width:"100%", borderCollapse:"collapse", fontSize:"0.9em"}}>
-                      <thead><tr style={{borderBottom:"1px solid #444", color:"#888", textAlign:"left"}}><th style={{padding:8}}>Fecha</th><th style={{padding:8}}>Movimiento</th><th style={{padding:8}}>Cant</th><th style={{padding:8}}>Saldo</th><th style={{padding:8}}>Ref.</th></tr></thead>
-                      <tbody>
-                          {logs.map(log => (
-                              <tr key={log.id} style={{borderBottom:"1px solid #222"}}>
-                                  <td style={{padding:8}}>{new Date(log.date).toLocaleDateString()}</td>
-                                  <td style={{padding:8}}><span style={{fontSize:"0.8em", padding:"2px 6px", borderRadius:4, background: log.type==="SALE"?"#450a0a": log.type==="PURCHASE"?"#064e3b": "#333", color: log.type==="SALE"?"#f87171": log.type==="PURCHASE"?"#4ade80": "#ccc"}}>{log.type}</span></td>
-                                  <td style={{padding:8, fontWeight:"bold", color: log.quantity < 0 ? "#f87171" : "#4ade80"}}>{log.quantity > 0 ? "+" : ""}{log.quantity}</td>
-                                  <td style={{padding:8, color:"#ddd"}}>{log.finalStock}</td>
-                                  <td style={{padding:8, color:"#888", fontSize:"0.85em"}}>{log.reference}</td>
-                              </tr>
-                          ))}
-                      </tbody>
-                  </table>
-                )}
-                {!isLoadingLogs && logs.length === 0 && <p style={{opacity:0.5, textAlign:"center", marginTop:20}}>Sin movimientos registrados.</p>}
-            </div>
-        </div>
+        <ModalWrapper title={`Kardex: ${product.brand} ${product.model}`} onClose={onClose} width="650px">
+            {isLoadingLogs ? <p style={{color:"#aaa", textAlign:"center", padding: 20}}>Cargando movimientos...</p> : (
+              <table style={{width:"100%", borderCollapse:"collapse", fontSize:"0.9em"}}>
+                  <thead><tr style={{borderBottom:"1px solid #444", color:"#888", textAlign:"left"}}><th style={{padding:8}}>Fecha</th><th style={{padding:8}}>Movimiento</th><th style={{padding:8}}>Cant</th><th style={{padding:8}}>Saldo</th><th style={{padding:8}}>Ref.</th></tr></thead>
+                  <tbody>
+                      {logs.map(log => (
+                          <tr key={log.id} style={{borderBottom:"1px solid #222"}}>
+                              <td style={{padding:8}}>{new Date(log.date).toLocaleDateString()}</td>
+                              <td style={{padding:8}}><span style={{fontSize:"0.8em", padding:"2px 6px", borderRadius:4, background: log.type==="SALE"?"#450a0a": log.type==="PURCHASE"?"#064e3b": "#333", color: log.type==="SALE"?"#f87171": log.type==="PURCHASE"?"#4ade80": "#ccc"}}>{log.type}</span></td>
+                              <td style={{padding:8, fontWeight:"bold", color: log.quantity < 0 ? "#f87171" : "#4ade80"}}>{log.quantity > 0 ? "+" : ""}{log.quantity}</td>
+                              <td style={{padding:8, color:"#ddd"}}>{log.finalStock}</td>
+                              <td style={{padding:8, color:"#888", fontSize:"0.85em"}}>{log.reference}</td>
+                          </tr>
+                      ))}
+                  </tbody>
+              </table>
+            )}
+            {!isLoadingLogs && logs.length === 0 && <p style={{opacity:0.5, textAlign:"center", marginTop:20}}>Sin movimientos registrados.</p>}
+        </ModalWrapper>
       );
   };
 
@@ -164,14 +189,14 @@ export default function InventoryPage() {
   if (error) return <div style={{padding:40, textAlign:"center", color:"#f87171"}}>{error}</div>;
 
   return (
-    <div style={{ paddingBottom: 40, width: "100%" }}>
+    // ⚡ REFACTOR: Clase contenedora estándar
+    <div className="page-container">
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
         <h1 style={{ margin: 0 }}>Inventario (Nube)</h1>
         <div style={{ display: "flex", gap: 10 }}>
-          {/* Botón de pánico para arreglar los números si se desvían */}
           <button onClick={handleRecalculate} style={{ background: "#451a03", color: "#fbbf24", border: "1px solid #fbbf24", padding: "10px", borderRadius: 6, cursor: "pointer" }} title="Sincronizar Totales">🧮</button>
           
-          <button onClick={() => refresh()} style={{ background: "transparent", border: "1px solid #555", color: "#aaa", padding: "10px", borderRadius: 6, cursor: "pointer" }}>🔄</button>
+          <button onClick={() => { refresh(); notify.info("Inventario actualizado"); }} style={{ background: "transparent", border: "1px solid #555", color: "#aaa", padding: "10px", borderRadius: 6, cursor: "pointer" }}>🔄</button>
           <button onClick={() => setIsConfiguring(true)} style={{ background: "#333", color: "#ddd", border: "1px solid #555", padding: "10px 15px", borderRadius: 6, cursor: "pointer" }}>⚙️ Alertas</button>
           <button onClick={handleNewProduct} style={{ background: "#2563eb", color: "white", border: "none", padding: "10px 20px", borderRadius: 6, cursor: "pointer", fontWeight: "bold" }}>+ Nuevo Producto</button>
         </div>
@@ -185,20 +210,18 @@ export default function InventoryPage() {
       </div>
 
       {isConfiguring && (
-        <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.8)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 200 }}>
-          <form onSubmit={handleSaveConfig} style={{ background: "#1a1a1a", padding: 25, borderRadius: 12, border: "1px solid #333", width: "100%", maxWidth: 400 }}>
-            <h3 style={{ marginTop: 0, color: "#e5e7eb" }}>Metas de Inventario</h3>
-            <div style={{ display: "grid", gap: 15 }}>
+        // ⚡ REFACTOR: Modal de Configuración usando ModalWrapper
+        <ModalWrapper title="Metas de Inventario" onClose={() => setIsConfiguring(false)} width="400px">
+          <form onSubmit={handleSaveConfig} style={{ display: "grid", gap: 15 }}>
               <label style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: "#ccc", fontSize: 13 }}>Total Armazones</span><input type="number" value={alerts.minTotalFrames} onChange={e => setAlerts({...alerts, minTotalFrames: e.target.value})} style={{ width: 80, padding: 6, background: "#222", border: "1px solid #444", color: "white", borderRadius: 4 }} /></label>
               <label style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: "#ccc", fontSize: 13 }}>Mínimo Hombres</span><input type="number" value={alerts.minMen} onChange={e => setAlerts({...alerts, minMen: e.target.value})} style={{ width: 80, padding: 6, background: "#222", border: "1px solid #444", color: "white", borderRadius: 4 }} /></label>
               <label style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: "#ccc", fontSize: 13 }}>Mínimo Mujeres</span><input type="number" value={alerts.minWomen} onChange={e => setAlerts({...alerts, minWomen: e.target.value})} style={{ width: 80, padding: 6, background: "#222", border: "1px solid #444", color: "white", borderRadius: 4 }} /></label>
-              <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+              <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 10 }}>
                 <button type="button" onClick={() => setIsConfiguring(false)} style={{ background: "transparent", color: "#aaa", border: "none", cursor: "pointer" }}>Cancelar</button>
                 <button type="submit" style={{ background: "#2563eb", color: "white", border: "none", padding: "8px 16px", borderRadius: 6, cursor: "pointer" }}>Guardar</button>
               </div>
-            </div>
           </form>
-        </div>
+        </ModalWrapper>
       )}
 
       {historyProduct && <HistoryModal product={historyProduct} onClose={() => setHistoryProduct(null)} />}
@@ -207,6 +230,8 @@ export default function InventoryPage() {
         <section style={{ background: "#1a1a1a", padding: 20, borderRadius: 12, border: "1px solid #333", marginBottom: 30 }}>
           <h3 style={{ marginTop: 0, color: "#e5e7eb" }}>{form.id ? "Editar Producto" : "Nuevo Producto"}</h3>
           <form onSubmit={handleSubmitProduct} style={{ display: "grid", gap: 20 }}>
+            {/* ... (El contenido del formulario se mantiene igual, no cambia la lógica) ... */}
+            {/* COPIAR EL CONTENIDO DEL FORMULARIO ORIGINAL AQUÍ, SOLO SE CAMBIA EL CONTENEDOR */}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 15 }}>
               <label style={{ display: "grid", gap: 4 }}><span style={{ fontSize: 12, color: "#aaa" }}>Categoría</span><select value={form.category} onChange={e => setForm({...form, category: e.target.value})} style={{ padding: 8, background: "#222", border: "1px solid #444", color: "white", borderRadius: 4 }}>{CATEGORIES.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}</select></label>
               <label style={{ display: "grid", gap: 4 }}><span style={{ fontSize: 12, color: "#aaa" }}>Marca</span><input required placeholder="Ej. RayBan" value={form.brand} onChange={e => setForm({...form, brand: e.target.value})} style={{ padding: 8, background: "#222", border: "1px solid #444", color: "white", borderRadius: 4 }} /></label>

@@ -1,20 +1,24 @@
 import React, { useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
-import { useAuth } from "../context/AuthContext"; // 👈 Usar el hook real
+import { useAuth } from "../context/AuthContext";
+import Input from "@/components/ui/Input"; // 👈 Usamos el componente
+import Button from "@/components/ui/Button"; // 👈 Usamos el componente
+import Card from "@/components/ui/Card"; // 👈 Usamos el componente
 
 export default function LoginPage() {
   const navigate = useNavigate();
-  const { login, user } = useAuth(); // 👈 Acceder a Firebase
+  const { login, user } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false); // Estado local de carga
 
-  // Si ya está logueado, redirigir
   if (user) return <Navigate to="/dashboard" replace />;
 
   async function onSubmit(e) {
     e.preventDefault();
     setError("");
+    setLoading(true);
     
     try {
       await login(email, password);
@@ -22,39 +26,54 @@ export default function LoginPage() {
     } catch (err) {
       console.error(err);
       setError("Credenciales incorrectas o error de conexión.");
+      setLoading(false);
     }
   }
 
   return (
-    <div style={{ minHeight: "100vh", display: "grid", placeItems: "center", padding: 24 }}>
-      <form onSubmit={onSubmit} style={{ width: 360, display: "grid", gap: 12 }}>
-        <h1 style={{ margin: 0 }}>Lusso CRM</h1>
-        <p style={{ margin: 0, opacity: 0.7 }}>Inicia sesión (Firebase)</p>
+    <div className="min-h-screen flex items-center justify-center p-6 bg-[#020617]">
+      <Card className="w-full max-w-md bg-[#0f172a] border-slate-800">
+        <div className="text-center mb-8">
+          <h1 className="text-3xl font-bold text-white mb-2">Lusso CRM</h1>
+          <p className="text-slate-400 text-sm">Sistema de Gestión Clínica</p>
+        </div>
 
-        {error && <div style={{color: "red", fontSize: "0.9em"}}>{error}</div>}
+        {error && (
+          <div className="mb-6 p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-red-400 text-sm text-center">
+            {error}
+          </div>
+        )}
 
-        <input
-          type="email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          placeholder="admin@lusso.mx"
-          required
-          style={{ padding: 10, borderRadius: 10, border: "1px solid #ddd" }}
-        />
-        
-        <input
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          placeholder="Contraseña"
-          required
-          style={{ padding: 10, borderRadius: 10, border: "1px solid #ddd" }}
-        />
+        <form onSubmit={onSubmit} className="space-y-5">
+          <Input
+            label="Correo Electrónico"
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="admin@lusso.mx"
+            required
+            autoFocus
+          />
+          
+          <Input
+            label="Contraseña"
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="••••••••"
+            required
+          />
 
-        <button type="submit" style={{ padding: 10, borderRadius: 10, cursor: "pointer" }}>
-          Entrar
-        </button>
-      </form>
+          <Button 
+            type="submit" 
+            variant="primary" 
+            className="w-full h-11 text-base mt-2"
+            disabled={loading}
+          >
+            {loading ? "Iniciando sesión..." : "Entrar al Sistema"}
+          </Button>
+        </form>
+      </Card>
     </div>
   );
 }

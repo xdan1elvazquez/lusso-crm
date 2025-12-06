@@ -4,6 +4,9 @@ import { getAllConsultations } from "@/services/consultationsStorage";
 import { getAllSales } from "@/services/salesStorage";
 import { getAllWorkOrders } from "@/services/workOrdersStorage";
 import LoadingState from "@/components/LoadingState";
+// 👇 UI Kit
+import Card from "@/components/ui/Card";
+import Badge from "@/components/ui/Badge";
 
 export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
@@ -21,33 +24,23 @@ export default function DashboardPage() {
     async function loadDashboard() {
         setLoading(true);
         try {
-            // Carga paralela de todas las colecciones necesarias
             const [patients, consultations, sales, workOrders] = await Promise.all([
-                getPatients(),
-                getAllConsultations(),
-                getAllSales(),
-                getAllWorkOrders()
+                getPatients(), getAllConsultations(), getAllSales(), getAllWorkOrders()
             ]);
 
-            // 1. Procesar Consultas
             const sortedConsultations = [...consultations].sort(
               (a, b) => new Date(b.visitDate || b.createdAt).getTime() - new Date(a.visitDate || a.createdAt).getTime()
             );
 
-            // 2. Procesar Ventas Pendientes
             const pendingSales = sales
               .map((s) => {
-                const paidAmount = s.paidAmount ?? 
-                  (Array.isArray(s.payments) ? s.payments.reduce((acc, p) => acc + (Number(p.amount) || 0), 0) : 0);
+                const paidAmount = s.paidAmount ?? (Array.isArray(s.payments) ? s.payments.reduce((acc, p) => acc + (Number(p.amount) || 0), 0) : 0);
                 const balance = s.balance ?? Math.max((Number(s.total) || 0) - paidAmount, 0);
                 return { ...s, paidAmount, balance };
               })
-              .filter((s) => s.balance > 0.01) // Filtro de saldos reales
+              .filter((s) => s.balance > 0.01)
               .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
-            const pendingBalanceSum = pendingSales.reduce((acc, s) => acc + (Number(s.balance) || 0), 0);
-
-            // 3. Procesar Work Orders
             const workOrdersByStatus = workOrders.reduce((acc, w) => {
               const key = w.status || "UNKNOWN";
               acc[key] = (acc[key] || 0) + 1;
@@ -59,7 +52,7 @@ export default function DashboardPage() {
               totalConsultations: consultations.length,
               lastConsultations: sortedConsultations.slice(0, 5),
               pendingSalesCount: pendingSales.length,
-              pendingSalesBalance: pendingBalanceSum,
+              pendingSalesBalance: pendingSales.reduce((acc, s) => acc + (Number(s.balance) || 0), 0),
               lastPendingSales: pendingSales.slice(0, 5),
               workOrdersByStatus,
             });
@@ -70,103 +63,118 @@ export default function DashboardPage() {
             setLoading(false);
         }
     }
-
     loadDashboard();
   }, []);
 
   if (loading) return <LoadingState />;
 
   return (
-    <div style={{ color: "white" }}>
-      <h1 style={{ fontSize: 32, marginBottom: 16 }}>Dashboard</h1>
+    <div className="page-container">
+      <h1 className="text-3xl font-bold text-white mb-6">Dashboard</h1>
 
-      <div style={{ display: "flex", gap: 16, marginBottom: 24, flexWrap: "wrap" }}>
-        <StatCard label="Pacientes registrados" value={stats.totalPatients} />
-        <StatCard label="Consultas realizadas" value={stats.totalConsultations} />
-        <StatCard label="Ventas con saldo pendiente" value={stats.pendingSalesCount} />
-        <StatCard label="Monto por cobrar" value={formatCurrency(stats.pendingSalesBalance)} color="#f87171" />
+      {/* KPIs */}
+      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4 mb-8">
+        <StatCard label="Pacientes" value={stats.totalPatients} />
+        <StatCard label="Consultas" value={stats.totalConsultations} />
+        <StatCard label="Ventas Pendientes" value={stats.pendingSalesCount} />
+        <StatCard label="Por Cobrar" value={formatCurrency(stats.pendingSalesBalance)} color="text-red-400" border="border-red-500/30" />
         <StatCard
-          label="Trabajos en proceso"
+          label="Trabajos Activos"
           value={
             (stats.workOrdersByStatus.TO_PREPARE || 0) +
             (stats.workOrdersByStatus.SENT_TO_LAB || 0) +
             (stats.workOrdersByStatus.READY || 0)
           }
-          color="#fbbf24"
+          color="text-amber-400"
+          border="border-amber-500/30"
         />
       </div>
 
-      <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:30}}>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          {/* CONSULTAS RECIENTES */}
           <section>
-            <h2 style={{ fontSize: 20, marginBottom: 12, color: "#60a5fa" }}>Últimas Consultas</h2>
+            <h2 className="text-lg font-semibold text-blue-400 mb-4 flex items-center gap-2">
+               🩺 Últimas Consultas
+            </h2>
             {stats.lastConsultations.length === 0 ? (
-              <p style={{ opacity: 0.7 }}>Sin actividad reciente.</p>
+              <p className="text-gray-500 italic">Sin actividad reciente.</p>
             ) : (
-              <ul style={{ display: "grid", gap: 8, padding: 0, listStyle: "none" }}>
+              <div className="space-y-3">
                 {stats.lastConsultations.map((c) => (
-                    <li key={c.id} style={{ padding: 12, borderRadius: 8, background: "#1a1a1a", border: "1px solid #333" }}>
-                      <div style={{ fontSize: 14, opacity: 0.7 }}>{new Date(c.visitDate).toLocaleDateString()}</div>
-                      <div style={{ fontWeight: 600 }}>{c.reason || "Revisión General"}</div>
-                      <div style={{ fontSize: 14, opacity: 0.8, color:"#a78bfa" }}>{c.diagnosis || "Sin diagnóstico"}</div>
-                    </li>
+                    <Card key={c.id} className="flex justify-between items-center py-3 px-4" noPadding>
+                      <div>
+                        <div className="text-xs text-gray-500 mb-1">{new Date(c.visitDate).toLocaleDateString()}</div>
+                        <div className="font-semibold text-white">{c.reason || "Revisión General"}</div>
+                      </div>
+                      <Badge color={c.type === "OPHTHALMO" ? "blue" : "green"}>
+                        {c.type === "OPHTHALMO" ? "Médica" : "Optometría"}
+                      </Badge>
+                    </Card>
                 ))}
-              </ul>
+              </div>
             )}
           </section>
 
+          {/* COBRANZA */}
           <section>
-            <h2 style={{ fontSize: 20, marginBottom: 12, color: "#f87171" }}>Cobranza Pendiente</h2>
+            <h2 className="text-lg font-semibold text-red-400 mb-4 flex items-center gap-2">
+               💳 Cobranza Pendiente
+            </h2>
             {stats.lastPendingSales.length === 0 ? (
-              <p style={{ opacity: 0.7 }}>Todo al corriente.</p>
+              <p className="text-gray-500 italic">Todo al corriente.</p>
             ) : (
-              <ul style={{ display: "grid", gap: 8, padding: 0, listStyle: "none" }}>
+              <div className="space-y-3">
                 {stats.lastPendingSales.map((s) => (
-                    <li key={s.id} style={{ padding: 12, borderRadius: 8, background: "#1a1a1a", border: "1px solid #333" }}>
-                      <div style={{ display:"flex", justifyContent:"space-between" }}>
-                          <span style={{ fontSize: 14, opacity: 0.7 }}>{new Date(s.createdAt).toLocaleDateString()}</span>
-                          <span style={{color:"#f87171", fontWeight:"bold"}}>{formatCurrency(s.balance)}</span>
+                    <Card key={s.id} className="flex justify-between items-center py-3 px-4" noPadding>
+                      <div>
+                          <div className="text-xs text-gray-500 mb-1">{new Date(s.createdAt).toLocaleDateString()}</div>
+                          <div className="font-semibold text-white">{s.patientName || "Cliente Mostrador"}</div>
                       </div>
-                      <div style={{ fontWeight: 600 }}>{s.description || "Venta"}</div>
-                    </li>
+                      <div className="text-right">
+                          <div className="text-red-400 font-bold">{formatCurrency(s.balance)}</div>
+                          <div className="text-xs text-gray-600">Debe</div>
+                      </div>
+                    </Card>
                 ))}
-              </ul>
+              </div>
             )}
           </section>
       </div>
 
-      <section style={{ marginTop: 24, padding: 20, background: "#1a1a1a", borderRadius: 12, border: "1px solid #333" }}>
-        <h2 style={{ fontSize: 20, marginBottom: 12, marginTop: 0 }}>Estado del Taller</h2>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 15 }}>
-          <Metric label="Por preparar" value={stats.workOrdersByStatus.TO_PREPARE || 0} color="#fbbf24" />
-          <Metric label="En laboratorio" value={stats.workOrdersByStatus.SENT_TO_LAB || 0} color="#60a5fa" />
-          <Metric label="Control Calidad" value={stats.workOrdersByStatus.QUALITY_CHECK || 0} color="#a78bfa" />
-          <Metric label="Listos para entrega" value={stats.workOrdersByStatus.READY || 0} color="#4ade80" />
-          <Metric label="Entregados (Histórico)" value={stats.workOrdersByStatus.DELIVERED || 0} color="#9ca3af" />
+      {/* ESTADO DEL TALLER */}
+      <section className="mt-8">
+        <h2 className="text-lg font-semibold text-white mb-4">Estado del Taller</h2>
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+          <Metric label="Por Preparar" value={stats.workOrdersByStatus.TO_PREPARE} color="text-amber-400" />
+          <Metric label="En Lab" value={stats.workOrdersByStatus.SENT_TO_LAB} color="text-blue-400" />
+          <Metric label="Calidad" value={stats.workOrdersByStatus.QUALITY_CHECK} color="text-purple-400" />
+          <Metric label="Listos" value={stats.workOrdersByStatus.READY} color="text-emerald-400" />
+          <Metric label="Entregados" value={stats.workOrdersByStatus.DELIVERED} color="text-gray-500" />
         </div>
       </section>
     </div>
   );
 }
 
-function StatCard({ label, value, color = "white" }) {
+// Componentes internos (reemplazados por versiones con Tailwind limpio)
+function StatCard({ label, value, color = "text-white", border = "border-[#333]" }) {
   return (
-    <div style={{ minWidth: 180, padding: 16, borderRadius: 10, background: "#1a1a1a", border: "1px solid #333" }}>
-      <div style={{ fontSize: 13, opacity: 0.7, marginBottom: 5 }}>{label}</div>
-      <div style={{ fontSize: 28, fontWeight: 700, color }}>{value}</div>
+    <div className={`bg-[#1a1a1a] border ${border} rounded-xl p-4 flex flex-col justify-between h-24`}>
+      <span className="text-xs text-gray-400 uppercase tracking-wider">{label}</span>
+      <span className={`text-2xl font-bold ${color}`}>{value || 0}</span>
     </div>
   );
 }
 
-function Metric({ label, value, color = "white" }) {
+function Metric({ label, value, color = "text-white" }) {
   return (
-    <div style={{ textAlign: "center", padding: 10, background: "#111", borderRadius: 8 }}>
-      <div style={{ fontSize: 13, opacity: 0.7, marginBottom: 5 }}>{label}</div>
-      <div style={{ fontWeight: 700, fontSize: "1.5em", color }}>{value}</div>
+    <div className="bg-[#111] rounded-lg p-3 text-center border border-[#222]">
+      <div className="text-xs text-gray-500 mb-1">{label}</div>
+      <div className={`text-xl font-bold ${color}`}>{value || 0}</div>
     </div>
   );
 }
 
 function formatCurrency(value) {
-  const num = Number(value) || 0;
-  return num.toLocaleString("es-MX", { style: "currency", currency: "MXN", maximumFractionDigits: 2 });
+  return Number(value || 0).toLocaleString("es-MX", { style: "currency", currency: "MXN" });
 }
