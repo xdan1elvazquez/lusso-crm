@@ -1,7 +1,6 @@
 import React from "react";
 
 export default function Badge({ children, color = "gray", className = "" }) {
-  // Mapeo de colores simples a clases de Tailwind
   const colors = {
     green: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
     red: "bg-red-500/10 text-red-400 border-red-500/20",
@@ -11,10 +10,8 @@ export default function Badge({ children, color = "gray", className = "" }) {
     purple: "bg-purple-500/10 text-purple-400 border-purple-500/20",
   };
 
-  const selectedColor = colors[color] || colors.gray;
-
   return (
-    <span className={`inline-flex items-center px-2.5 py-0.5 rounded text-xs font-medium border ${selectedColor} ${className}`}>
+    <span className={`inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium border ${colors[color] || colors.gray} ${className}`}>
       {children}
     </span>
   );
