@@ -1,15 +1,22 @@
 import { db } from "@/firebase/config";
 import { 
-  collection, addDoc, getDocs, getDoc, doc, updateDoc, deleteDoc, query, where, orderBy 
+  collection, doc, runTransaction, getDocs, getDoc, updateDoc, deleteDoc, query, where, orderBy, addDoc 
 } from "firebase/firestore";
-
-import { createWorkOrder, deleteWorkOrdersBySaleId } from "./workOrdersStorage";
-import { adjustStock } from "./inventoryStorage";
-import { adjustPatientPoints, getPatientById } from "./patientsStorage"; 
-import { getCurrentShift } from "./shiftsStorage";
 import { getLoyaltySettings } from "./settingsStorage"; 
+import { getCurrentShift } from "./shiftsStorage"; 
+import { createWorkOrder, deleteWorkOrdersBySaleId } from "./workOrdersStorage";
+import { adjustStock } from "./inventoryStorage"; // Usada solo para devoluciones/cancelaciones
+import { adjustPatientPoints } from "./patientsStorage"; 
+import { createExpense } from "./expensesStorage";
 
 const COLLECTION_NAME = "sales";
+const COLLECTION_PRODUCTS = "products";
+const COLLECTION_PATIENTS = "patients";
+const COLLECTION_LOGS = "inventory_logs";
+
+// ==========================================
+// 1. FUNCIONES DE LECTURA
+// ==========================================
 
 export async function getAllSales() {
   const q = query(collection(db, COLLECTION_NAME), orderBy("createdAt", "desc"));
@@ -25,28 +32,57 @@ export async function getSalesByPatientId(id) {
     .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 }
 
-async function ensureWorkOrdersForSale(sale, saleId) {
-  const total = Number(sale.total) || 0;
-  const paid = Number(sale.paidAmount) || 0;
-  const ratio = total > 0 ? paid / total : 1;
-  const initialStatus = ratio >= 0.5 ? "TO_PREPARE" : "ON_HOLD";
+export async function getSalesMetricsByShift(shiftId) {
+    if (!shiftId) return { totalIncome: 0, incomeByMethod: {} };
+    const q = query(collection(db, COLLECTION_NAME), where("shiftId", "==", shiftId));
+    const snapshot = await getDocs(q);
+    let totalIncome = 0;
+    const incomeByMethod = { EFECTIVO: 0, TARJETA: 0, TRANSFERENCIA: 0, CHEQUE: 0, OTRO: 0 };
+    snapshot.forEach(doc => {
+        const sale = doc.data();
+        sale.payments.forEach(pay => {
+            if (pay.shiftId === shiftId) {
+                totalIncome += pay.amount;
+                const m = (pay.method || "OTRO").toUpperCase();
+                if (incomeByMethod[m] !== undefined) incomeByMethod[m] += pay.amount;
+            }
+        });
+    });
+    return { totalIncome, incomeByMethod };
+}
 
-  for (const item of sale.items) {
-    if (item.requiresLab) {
-      await createWorkOrder({
-        patientId: sale.patientId,
-        saleId: saleId,
-        saleItemId: item.id,
-        type: item.kind === "CONTACT_LENS" ? "LC" : "LENTES",
-        status: initialStatus,
-        labName: item.labName || "",
-        labCost: item.cost || 0,
-        rxNotes: item.rxSnapshot ? JSON.stringify(item.rxSnapshot) : "",
-        dueDate: item.dueDate || null,
-        createdAt: sale.createdAt,
-      });
+// Reportes financieros simples (placeholders para compatibilidad)
+export async function getFinancialReport(startDate, endDate) { return { totalSales: 0, totalIncome: 0, totalReceivable: 0, incomeByMethod: {} }; }
+export async function getProfitabilityReport(startDate, endDate) { return { global: {}, byCategory: {} }; }
+
+
+// ==========================================
+// 2. FUNCIÓN DE CREACIÓN (Transacción Segura)
+// ==========================================
+
+// Helper interno para Work Orders (se ejecuta POST-transacción)
+async function ensureWorkOrdersForSale(sale, saleId) {
+    const total = Number(sale.total) || 0;
+    const paid = Number(sale.paidAmount) || 0;
+    const ratio = total > 0 ? paid / total : 1;
+    const initialStatus = ratio >= 0.5 ? "TO_PREPARE" : "ON_HOLD";
+
+    for (const item of sale.items) {
+        if (item.requiresLab) {
+            await createWorkOrder({
+                patientId: sale.patientId,
+                saleId: saleId,
+                saleItemId: item.id,
+                type: item.kind === "CONTACT_LENS" ? "LC" : "LENTES",
+                status: initialStatus,
+                labName: item.labName || "",
+                labCost: item.cost || 0,
+                rxNotes: item.rxSnapshot ? JSON.stringify(item.rxSnapshot) : "",
+                dueDate: item.dueDate || null,
+                createdAt: sale.createdAt,
+            });
+        }
     }
-  }
 }
 
 export async function createSale(payload) {
@@ -55,81 +91,129 @@ export async function createSale(payload) {
   const currentShift = await getCurrentShift();
   if (!currentShift) throw new Error("⛔ CAJA CERRADA: No hay un turno abierto.");
 
-  const now = new Date().toISOString();
-  const loyalty = getLoyaltySettings();
-
-  const paymentsWithShift = (payload.payments || []).map(p => ({
-      ...p,
-      shiftId: currentShift.id
-  }));
-
-  // 🧠 LÓGICA DE TIPO DE VENTA
-  const hasLabItems = payload.items.some(i => i.requiresLab === true);
-  const saleType = hasLabItems ? "LAB" : "SIMPLE";
-
-  let pointsToAward = 0;
-  if (loyalty.enabled) {
-      const method = payload.payments?.[0]?.method || "EFECTIVO";
-      const rate = loyalty.earningRates[method] !== undefined ? loyalty.earningRates[method] : loyalty.earningRates["GLOBAL"];
-      pointsToAward = Math.floor((payload.total * rate) / 100);
-  }
-
-  const newSale = {
-    patientId: payload.patientId,
-    boxNumber: payload.boxNumber || "",
-    soldBy: payload.soldBy || "",
-    kind: payload.items[0]?.kind || "OTHER",
-    saleType: saleType, // 👈 GUARDAMOS EL TIPO
-    description: payload.description || (saleType === "LAB" ? "Venta Óptica" : "Venta Mostrador"),
-    
-    subtotalGross: Number(payload.subtotalGross) || 0,
-    discount: Number(payload.discount) || 0,
-    total: Number(payload.total) || 0,
-    paidAmount: paymentsWithShift.reduce((sum, p) => sum + Number(p.amount), 0),
-    balance: Math.max(0, payload.total - paymentsWithShift.reduce((sum, p) => sum + Number(p.amount), 0)),
-    
-    items: payload.items,
-    payments: paymentsWithShift,
-    
-    shiftId: currentShift.id,
-    createdAt: now,
-    updatedAt: now,
-    pointsAwarded: pointsToAward,
-    status: "PENDING"
-  };
+  const loyalty = await getLoyaltySettings(); 
   
-  if (newSale.balance <= 0.01) newSale.status = "PAID";
+  // TRANSACCIÓN ATÓMICA
+  const saleResult = await runTransaction(db, async (transaction) => {
+    
+    // --- A. LECTURAS ---
+    const patientRef = doc(db, COLLECTION_PATIENTS, payload.patientId);
+    const patientSnap = await transaction.get(patientRef);
+    if (!patientSnap.exists()) throw new Error("Paciente no encontrado");
+    const patientData = patientSnap.data();
 
-  const docRef = await addDoc(collection(db, COLLECTION_NAME), newSale);
-  const saleId = docRef.id;
-
-  // Efectos secundarios
-  const tasks = [];
-  payload.items.forEach(item => {
-    if (item.inventoryProductId) {
-        tasks.push(adjustStock(item.inventoryProductId, -item.qty, `Venta #${saleId.slice(0,6)}`));
+    let referrerRef = null;
+    let referrerSnap = null;
+    if (loyalty.enabled && patientData.referredBy) {
+        referrerRef = doc(db, COLLECTION_PATIENTS, patientData.referredBy);
+        referrerSnap = await transaction.get(referrerRef);
     }
+
+    const inventoryUpdates = [];
+    for (const item of payload.items) {
+        if (item.inventoryProductId) {
+            const prodRef = doc(db, COLLECTION_PRODUCTS, item.inventoryProductId);
+            const prodSnap = await transaction.get(prodRef);
+            
+            if (!prodSnap.exists()) throw new Error(`Producto no encontrado: ${item.description}`);
+            
+            const prodData = prodSnap.data();
+            
+            // Validación Stock
+            if (!prodData.isOnDemand && (prodData.stock || 0) < item.qty) {
+                throw new Error(`Stock insuficiente para: ${prodData.brand} ${prodData.model}`);
+            }
+
+            inventoryUpdates.push({ 
+                ref: prodRef, 
+                newStock: (Number(prodData.stock) || 0) - item.qty,
+                qty: item.qty
+            });
+        }
+    }
+
+    // --- B. LÓGICA ---
+    const now = new Date().toISOString();
+    const hasLabItems = payload.items.some(i => i.requiresLab === true);
+    
+    let pointsToAward = 0;
+    if (loyalty.enabled) {
+        const method = payload.payments?.[0]?.method || "EFECTIVO";
+        const rate = loyalty.earningRates[method] !== undefined ? loyalty.earningRates[method] : loyalty.earningRates["GLOBAL"];
+        pointsToAward = Math.floor((payload.total * rate) / 100);
+    }
+
+    const paymentsWithShift = (payload.payments || []).map(p => ({ ...p, shiftId: currentShift.id }));
+    const paidAmount = paymentsWithShift.reduce((sum, p) => sum + Number(p.amount), 0);
+
+    const newSaleRef = doc(collection(db, COLLECTION_NAME));
+    const newSale = {
+        patientId: payload.patientId,
+        // ⚡ OPTIMIZACIÓN: Guardamos nombre para no buscarlo después
+        patientName: `${patientData.firstName} ${patientData.lastName}`.trim(),
+        
+        boxNumber: payload.boxNumber || "",
+        soldBy: payload.soldBy || "",
+        kind: payload.items[0]?.kind || "OTHER",
+        saleType: hasLabItems ? "LAB" : "SIMPLE",
+        description: payload.description || (hasLabItems ? "Venta Óptica" : "Venta Mostrador"),
+        subtotalGross: Number(payload.subtotalGross) || 0,
+        discount: Number(payload.discount) || 0,
+        total: Number(payload.total) || 0,
+        paidAmount: paidAmount,
+        balance: Math.max(0, payload.total - paidAmount),
+        items: payload.items,
+        payments: paymentsWithShift,
+        shiftId: currentShift.id,
+        createdAt: now,
+        updatedAt: now,
+        pointsAwarded: pointsToAward,
+        status: "PENDING"
+    };
+    if (newSale.balance <= 0.01) newSale.status = "PAID";
+
+    // --- C. ESCRITURAS ---
+    transaction.set(newSaleRef, newSale);
+
+    inventoryUpdates.forEach(update => {
+        transaction.update(update.ref, { stock: update.newStock });
+        
+        const logRef = doc(collection(db, COLLECTION_LOGS));
+        transaction.set(logRef, {
+            productId: update.ref.id,
+            type: "SALE",
+            quantity: -update.qty,
+            finalStock: update.newStock,
+            reference: `Venta #${newSaleRef.id.slice(0,6)}`,
+            date: now
+        });
+    });
+
+    if (pointsToAward > 0) {
+        transaction.update(patientRef, { points: (patientData.points || 0) + pointsToAward });
+    }
+
+    if (referrerSnap && referrerSnap.exists()) {
+        const refPoints = Math.floor((payload.total * loyalty.referralBonusPercent) / 100);
+        if (refPoints > 0) {
+            transaction.update(referrerRef, { points: (referrerSnap.data().points || 0) + refPoints });
+        }
+    }
+
+    return { id: newSaleRef.id, ...newSale };
   });
 
-  if (pointsToAward > 0) tasks.push(adjustPatientPoints(payload.patientId, pointsToAward));
-  
-  if (loyalty.enabled) {
-      const patient = await getPatientById(payload.patientId);
-      if (patient && patient.referredBy) {
-          const referralPoints = Math.floor((payload.total * loyalty.referralBonusPercent) / 100);
-          if (referralPoints > 0) tasks.push(adjustPatientPoints(patient.referredBy, referralPoints));
-      }
+  // D. POST-PROCESAMIENTO (Work Orders)
+  if (saleResult.saleType === "LAB") {
+      await ensureWorkOrdersForSale(saleResult, saleResult.id).catch(console.error);
   }
 
-  await Promise.all(tasks);
-  
-  // SOLO generamos Work Orders si es venta LAB
-  if (saleType === "LAB") {
-      await ensureWorkOrdersForSale(newSale, saleId);
-  }
-
-  return { id: saleId, ...newSale };
+  return saleResult;
 }
+
+// ==========================================
+// 3. FUNCIONES DE MODIFICACIÓN
+// ==========================================
 
 export async function addPaymentToSale(saleId, payment) {
   const currentShift = await getCurrentShift();
@@ -201,6 +285,7 @@ export async function processReturn(saleId, itemId, qtyToReturn, refundMethod = 
     const item = sale.items[itemIndex];
     
     if (item.inventoryProductId) {
+        // Usamos función externa para devoluciones (fuera de la transacción de venta)
         await adjustStock(item.inventoryProductId, qtyToReturn, `Devolución Venta #${saleId.slice(0,6)}`);
     }
 
@@ -241,26 +326,3 @@ export async function deleteSale(id) {
     await deleteDoc(saleRef);
     await deleteWorkOrdersBySaleId(id);
 }
-
-// Reportes (sin cambios mayores)
-export async function getSalesMetricsByShift(shiftId) {
-    if (!shiftId) return { totalIncome: 0, incomeByMethod: {} };
-    const q = query(collection(db, COLLECTION_NAME), where("shiftId", "==", shiftId));
-    const snapshot = await getDocs(q);
-    let totalIncome = 0;
-    const incomeByMethod = { EFECTIVO: 0, TARJETA: 0, TRANSFERENCIA: 0, CHEQUE: 0, OTRO: 0 };
-    snapshot.forEach(doc => {
-        const sale = doc.data();
-        sale.payments.forEach(pay => {
-            if (pay.shiftId === shiftId) {
-                totalIncome += pay.amount;
-                const m = (pay.method || "OTRO").toUpperCase();
-                if (incomeByMethod[m] !== undefined) incomeByMethod[m] += pay.amount;
-            }
-        });
-    });
-    return { totalIncome, incomeByMethod };
-}
-
-export async function getFinancialReport(startDate, endDate) { return { totalSales: 0, totalIncome: 0, totalReceivable: 0, incomeByMethod: {} }; } // Simplificado para ahorrar espacio en este archivo, usa el anterior si lo necesitas completo
-export async function getProfitabilityReport(startDate, endDate) { return { global: {}, byCategory: {} }; }

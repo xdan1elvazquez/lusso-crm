@@ -5,7 +5,13 @@ import LoadingState from "@/components/LoadingState";
 export default function TeamPage() {
   const [employees, setEmployees] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [form, setForm] = useState({ name: "", role: "SALES", commissionPercent: "", baseSalary: "" });
+  const [form, setForm] = useState({ 
+    name: "", 
+    email: "", // 👈 Nuevo campo
+    role: "SALES", 
+    commissionPercent: "", 
+    baseSalary: "" 
+  });
 
   // Función para recargar datos
   const refresh = async () => {
@@ -26,7 +32,8 @@ export default function TeamPage() {
     e.preventDefault();
     if (!form.name) return;
     await createEmployee(form);
-    setForm({ name: "", role: "SALES", commissionPercent: "", baseSalary: "" });
+    // Reiniciar form
+    setForm({ name: "", email: "", role: "SALES", commissionPercent: "", baseSalary: "" });
     refresh();
   };
 
@@ -47,16 +54,24 @@ export default function TeamPage() {
 
   return (
     <div style={{ paddingBottom: 40, width: "100%" }}>
-      <h1 style={{ marginBottom: 20 }}>Colaboradores (Nube)</h1>
+      <h1 style={{ marginBottom: 20 }}>Colaboradores y Permisos</h1>
       
       {/* FORMULARIO DE ALTA */}
       <form onSubmit={handleSave} style={{ background: "#1a1a1a", padding: 20, borderRadius: 12, border: "1px solid #333", marginBottom: 30 }}>
          <h3 style={{margin:"0 0 15px 0", color:"#e5e7eb", fontSize:"1.1em"}}>Nuevo Integrante</h3>
-         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 15, alignItems: "end" }}>
+         
+         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 15, marginBottom: 15 }}>
              <label>
                 <div style={{fontSize:12, color:"#aaa", marginBottom:5}}>Nombre Completo</div>
                 <input autoFocus value={form.name} onChange={e => setForm({...form, name: e.target.value})} style={{width:"100%", padding:10, background:"#222", border:"1px solid #444", color:"white", borderRadius:6}} placeholder="Ej. Juan Pérez" />
              </label>
+             <label>
+                <div style={{fontSize:12, color:"#60a5fa", marginBottom:5}}>Email de Acceso (Firebase)</div>
+                <input type="email" value={form.email} onChange={e => setForm({...form, email: e.target.value})} style={{width:"100%", padding:10, background:"#222", border:"1px solid #60a5fa", color:"white", borderRadius:6}} placeholder="juan@lusso.mx" />
+             </label>
+         </div>
+
+         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 15, alignItems: "end" }}>
              <label>
                 <div style={{fontSize:12, color:"#aaa", marginBottom:5}}>Rol / Puesto</div>
                 <select value={form.role} onChange={e => setForm({...form, role: e.target.value})} style={{width:"100%", padding:10, background:"#222", border:"1px solid #444", color:"white", borderRadius:6}}>
@@ -85,7 +100,10 @@ export default function TeamPage() {
                      </div>
                      <div>
                          <div style={{fontWeight:"bold", fontSize:"1.1em"}}>{emp.name}</div>
-                         <div style={{fontSize:"0.9em", color: ROLES[emp.role] ? "#60a5fa" : "#888"}}>{ROLES[emp.role] || emp.role}</div>
+                         <div style={{fontSize:"0.8em", color: ROLES[emp.role] ? "#60a5fa" : "#888"}}>
+                             {ROLES[emp.role] || emp.role}
+                             {emp.email && <span style={{marginLeft:8, color:"#666"}}>({emp.email})</span>}
+                         </div>
                      </div>
                  </div>
                  <div style={{display:"flex", gap:20, alignItems:"center", marginRight:20}}>

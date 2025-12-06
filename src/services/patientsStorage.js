@@ -5,7 +5,7 @@ import {
   getDoc, 
   addDoc, 
   updateDoc, 
-  deleteDoc, 
+  // deleteDoc, // 👈 Ya no usamos esto para borrado físico
   doc, 
   query, 
   orderBy,
@@ -17,7 +17,12 @@ const COLLECTION_NAME = "patients";
 
 // --- LECTURA ---
 export async function getPatients() {
-  const q = query(collection(db, COLLECTION_NAME), orderBy("createdAt", "desc"));
+  // 🛡️ SOFT DELETE: Filtramos solo los que NO han sido borrados
+  const q = query(
+    collection(db, COLLECTION_NAME), 
+    where("deletedAt", "==", null), // 👈 Filtro clave
+    orderBy("createdAt", "desc")
+  );
   const snapshot = await getDocs(q);
   return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 }
@@ -26,12 +31,17 @@ export async function getPatientById(id) {
   if (!id) return null;
   const docRef = doc(db, COLLECTION_NAME, id);
   const snapshot = await getDoc(docRef);
+  // Opcional: Podrías verificar si snapshot.data().deletedAt existe para mostrar un aviso
   return snapshot.exists() ? { id: snapshot.id, ...snapshot.data() } : null;
 }
 
 export async function getPatientsRecommendedBy(patientId) {
   if (!patientId) return [];
-  const q = query(collection(db, COLLECTION_NAME), where("referredBy", "==", patientId));
+  const q = query(
+    collection(db, COLLECTION_NAME), 
+    where("referredBy", "==", patientId),
+    where("deletedAt", "==", null) // 👈 Aseguramos no traer borrados
+  );
   const snapshot = await getDocs(q);
   return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 }
@@ -44,18 +54,18 @@ export async function createPatient(data) {
     firstName: data.firstName?.trim() || "", 
     lastName: data.lastName?.trim() || "",
     
-    // Contacto (Teléfono principal es Móvil)
+    // Contacto
     phone: data.phone?.trim() || "", 
     homePhone: data.homePhone?.trim() || "",
     email: data.email?.trim() || "",
     
-    // Demográficos Nuevos
+    // Demográficos
     dob: data.dob || "", 
-    assignedSex: data.assignedSex || "NO_ESPECIFICADO", // Sexo al nacer
-    genderExpression: data.genderExpression || "",       // Identidad/Expresión
+    assignedSex: data.assignedSex || "NO_ESPECIFICADO",
+    genderExpression: data.genderExpression || "",
     maritalStatus: data.maritalStatus || "",
     religion: data.religion || "",
-    reliability: data.reliability || "NO_VALORADA",      // Fiabilidad informante
+    reliability: data.reliability || "NO_VALORADA",
 
     occupation: data.occupation?.trim() || "",
     
@@ -64,6 +74,9 @@ export async function createPatient(data) {
     referredBy: data.referredBy || null, 
     points: 0,
     
+    // Inicializamos deletedAt en null explícitamente para ayudar al índice
+    deletedAt: null, 
+
     taxData: {
         rfc: data.taxData?.rfc || "",
         razonSocial: data.taxData?.razonSocial || "",
@@ -115,8 +128,12 @@ export async function touchPatientView(id) {
   await updateDoc(docRef, { lastViewed: new Date().toISOString() });
 }
 
+// 🛡️ SOFT DELETE IMPLEMENTADO
 export async function deletePatient(id) {
-  await deleteDoc(doc(db, COLLECTION_NAME, id));
+  const docRef = doc(db, COLLECTION_NAME, id);
+  await updateDoc(docRef, { 
+      deletedAt: new Date().toISOString() 
+  });
 }
 
 export async function seedPatientsIfEmpty() {

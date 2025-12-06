@@ -1,7 +1,10 @@
 import { useMemo, useState, useEffect } from "react";
 import { useInventory } from "@/hooks/useInventory";
-import { getAlertSettings, updateAlertSettings } from "@/services/settingsStorage"; // Ahora Async
+import { getAlertSettings, updateAlertSettings } from "@/services/settingsStorage";
+// 👇 CORRECCIÓN: Separamos los imports correctamente
+import { recalculateInventoryStats } from "@/services/inventoryStorage";
 import { getLogsByProductId } from "@/services/inventoryLogStorage";
+// -----------------------------------------------------------
 import { preventNegativeKey, sanitizeMoney, formatMoneyBlur } from "@/utils/inputHandlers";
 import LoadingState from "@/components/LoadingState";
 
@@ -30,8 +33,6 @@ export default function InventoryPage() {
   const [query, setQuery] = useState("");
   const [isEditingProduct, setIsEditingProduct] = useState(false);
   const [isConfiguring, setIsConfiguring] = useState(false);
-  
-  // 👈 Estado inicial vacío para alertas (antes leía directo)
   const [alerts, setAlerts] = useState({ minTotalFrames: 0, minMen: 0, minWomen: 0, minUnisex: 0, minKids: 0 });
   const [historyProduct, setHistoryProduct] = useState(null);
 
@@ -43,7 +44,6 @@ export default function InventoryPage() {
     tags: { gender: "UNISEX", material: "ACETATO", color: "", presentation: "DROPS" }
   });
 
-  // 👈 Carga asíncrona de configuración
   useEffect(() => {
       async function loadSettings() {
           const s = await getAlertSettings();
@@ -51,6 +51,14 @@ export default function InventoryPage() {
       }
       loadSettings();
   }, [isConfiguring]);
+
+  // Botón de pánico para arreglar contadores
+  const handleRecalculate = async () => {
+      if(!confirm("Esto recalculará el valor total y conteos leyendo todo el inventario. ¿Continuar?")) return;
+      await recalculateInventoryStats();
+      refresh(); 
+      alert("Estadísticas sincronizadas con éxito.");
+  };
 
   const filtered = useMemo(() => {
     const q = query.toLowerCase();
@@ -96,7 +104,6 @@ export default function InventoryPage() {
       setIsConfiguring(false); 
   };
 
-  // --- MODAL KARDEX (Igual que antes) ---
   const HistoryModal = ({ product, onClose }) => {
       const [logs, setLogs] = useState([]);
       const [isLoadingLogs, setIsLoadingLogs] = useState(true);
@@ -161,6 +168,9 @@ export default function InventoryPage() {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
         <h1 style={{ margin: 0 }}>Inventario (Nube)</h1>
         <div style={{ display: "flex", gap: 10 }}>
+          {/* Botón de pánico para arreglar los números si se desvían */}
+          <button onClick={handleRecalculate} style={{ background: "#451a03", color: "#fbbf24", border: "1px solid #fbbf24", padding: "10px", borderRadius: 6, cursor: "pointer" }} title="Sincronizar Totales">🧮</button>
+          
           <button onClick={() => refresh()} style={{ background: "transparent", border: "1px solid #555", color: "#aaa", padding: "10px", borderRadius: 6, cursor: "pointer" }}>🔄</button>
           <button onClick={() => setIsConfiguring(true)} style={{ background: "#333", color: "#ddd", border: "1px solid #555", padding: "10px 15px", borderRadius: 6, cursor: "pointer" }}>⚙️ Alertas</button>
           <button onClick={handleNewProduct} style={{ background: "#2563eb", color: "white", border: "none", padding: "10px 20px", borderRadius: 6, cursor: "pointer", fontWeight: "bold" }}>+ Nuevo Producto</button>
@@ -169,9 +179,9 @@ export default function InventoryPage() {
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 15, marginBottom: 30 }}>
         <StatCard label="Total Armazones" value={stats.totalFrames} alertThreshold={alerts.minTotalFrames} />
-        <StatCard label="Hombres" value={stats.byGender.hombre} alertThreshold={alerts.minMen} />
-        <StatCard label="Mujeres" value={stats.byGender.mujer} alertThreshold={alerts.minWomen} />
-        <StatCard label="Valor Inventario ($)" value={`$${stats.inventoryValue?.toLocaleString()}`} subtext="Costo total invertido" />
+        <StatCard label="Hombres" value={stats.byGender?.hombre || 0} alertThreshold={alerts.minMen} />
+        <StatCard label="Mujeres" value={stats.byGender?.mujer || 0} alertThreshold={alerts.minWomen} />
+        <StatCard label="Valor Inventario ($)" value={`$${(stats.inventoryValue || 0).toLocaleString()}`} subtext="Costo total invertido" />
       </div>
 
       {isConfiguring && (

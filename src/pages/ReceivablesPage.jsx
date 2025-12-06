@@ -1,7 +1,6 @@
 import { useState, useMemo, useEffect } from "react";
 import { getAllSales, addPaymentToSale } from "@/services/salesStorage";
-import { getPatients } from "@/services/patientsStorage";
-import { getTerminals } from "@/services/settingsStorage"; 
+// Ya no importamos getPatients ni getTerminals para esta vista optimizada
 import LoadingState from "@/components/LoadingState";
 
 const PAYMENT_METHODS = ["EFECTIVO", "TARJETA", "TRANSFERENCIA", "OTRO"];
@@ -9,38 +8,31 @@ const PAYMENT_METHODS = ["EFECTIVO", "TARJETA", "TRANSFERENCIA", "OTRO"];
 export default function ReceivablesPage() {
   const [loading, setLoading] = useState(true);
   const [sales, setSales] = useState([]);
-  const [patients, setPatients] = useState([]);
   const [query, setQuery] = useState("");
   const [selectedSale, setSelectedSale] = useState(null);
 
   const refreshData = async () => {
       setLoading(true);
       try {
-          const [sData, pData] = await Promise.all([
-              getAllSales(),
-              getPatients()
-          ]);
+          const sData = await getAllSales();
           setSales(sData);
-          setPatients(pData);
       } catch(e) { console.error(e); } finally { setLoading(false); }
   };
 
   useEffect(() => { refreshData(); }, []);
-
-  const patientMap = useMemo(() => 
-    patients.reduce((acc, p) => ({ ...acc, [p.id]: p }), {}), 
-  [patients]);
 
   const debtors = useMemo(() => {
     return sales
       .filter(s => s.balance > 0.01)
       .map(s => ({
         ...s,
-        patientName: patientMap[s.patientId] ? `${patientMap[s.patientId].firstName} ${patientMap[s.patientId].lastName}` : "Desconocido",
-        phone: patientMap[s.patientId]?.phone || ""
+        // ⚡ OPTIMIZACIÓN: Usar nombre denormalizado
+        patientName: s.patientName || "Paciente (Histórico)",
+        // Si no guardamos teléfono en la venta, lo dejamos vacío o genérico para no romper el rendimiento
+        phone: "" 
       }))
       .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
-  }, [sales, patientMap]);
+  }, [sales]);
 
   const filtered = useMemo(() => {
     if (!query) return debtors;
@@ -84,7 +76,6 @@ export default function ReceivablesPage() {
                   <div style={{ color: "#888", fontSize: "0.9em", marginTop: 4 }}>
                      {sale.description || "Venta General"} · {new Date(sale.createdAt).toLocaleDateString()}
                   </div>
-                  {sale.phone && <div style={{ color: "#60a5fa", fontSize: "0.85em", marginTop: 2 }}>📞 {sale.phone}</div>}
                </div>
                <div style={{ textAlign: "right" }}>
                   <div style={{ fontSize: "0.8em", color: "#aaa" }}>Total: ${sale.total.toLocaleString()}</div>
@@ -112,11 +103,9 @@ export default function ReceivablesPage() {
   );
 }
 
-// Modal de Abono (Simplificado para ahorrar espacio, la lógica es la misma de siempre)
 function PaymentModal({ sale, onClose, onSuccess }) {
   const [amount, setAmount] = useState("");
   const [method, setMethod] = useState("EFECTIVO");
-  // ... (Lógica de terminales omitida por brevedad, usa el componente completo si lo necesitas, es igual a SalesPanel) ...
   
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -132,9 +121,10 @@ function PaymentModal({ sale, onClose, onSuccess }) {
     <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.8)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}>
        <form onSubmit={handleSubmit} style={{ background: "#1a1a1a", padding: 25, borderRadius: 12, border: "1px solid #333", width: "100%", maxWidth: 400 }}>
           <h3>Registrar Abono</h3>
+          <p style={{color:"#aaa", fontSize:"0.9em", marginBottom:15}}>Cliente: {sale.patientName}</p>
           <input type="number" autoFocus value={amount} onChange={e => setAmount(e.target.value)} style={{width:"100%", padding:10, marginBottom:10}} placeholder="Monto" />
           <select value={method} onChange={e => setMethod(e.target.value)} style={{width:"100%", padding:10, marginBottom:10}}>{PAYMENT_METHODS.map(m=><option key={m} value={m}>{m}</option>)}</select>
-          <div style={{display:"flex", gap:10, justifyContent:"flex-end"}}><button type="button" onClick={onClose}>Cancelar</button><button type="submit">Confirmar</button></div>
+          <div style={{display:"flex", gap:10, justifyContent:"flex-end"}}><button type="button" onClick={onClose} style={{cursor:"pointer"}}>Cancelar</button><button type="submit" style={{cursor:"pointer", fontWeight:"bold"}}>Confirmar</button></div>
        </form>
     </div>
   );

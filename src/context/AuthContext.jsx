@@ -1,10 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
 import { auth } from "../firebase/config";
-import { 
-  onAuthStateChanged, 
-  signInWithEmailAndPassword, 
-  signOut 
-} from "firebase/auth";
+import { onAuthStateChanged, signInWithEmailAndPassword, signOut } from "firebase/auth";
+import { getEmployeeByEmail } from "@/services/employeesStorage"; // 👈 IMPORTANTE
 
 const AuthContext = createContext();
 
@@ -14,13 +11,27 @@ export function useAuth() {
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
+  const [userData, setUserData] = useState(null); // Aquí guardaremos rol y nombre
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Escucha activa: Firebase nos avisa si el usuario cambia
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      setUser(currentUser);
-      setLoading(false); // ¡Ya sabemos si está logueado o no!
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+      if (currentUser) {
+          // 🔍 Buscamos si este email tiene un rol asignado en la DB
+          const employeeProfile = await getEmployeeByEmail(currentUser.email);
+          
+          if (employeeProfile) {
+              setUserData(employeeProfile);
+          } else {
+              // Si no existe, es un usuario "visitante" sin rol (o admin inicial)
+              setUserData({ role: "GUEST", name: currentUser.email });
+          }
+          setUser(currentUser);
+      } else {
+          setUser(null);
+          setUserData(null);
+      }
+      setLoading(false);
     });
     return unsubscribe;
   }, []);
@@ -35,6 +46,8 @@ export function AuthProvider({ children }) {
 
   const value = {
     user,
+    userData, // 👈 Exponemos los datos del empleado (rol, nombre)
+    role: userData?.role || "GUEST", // Helper rápido
     login,
     logout,
     loading
