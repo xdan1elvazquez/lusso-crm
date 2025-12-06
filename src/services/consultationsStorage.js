@@ -6,7 +6,7 @@ import { logAuditAction } from "./auditStorage";
 import { getPhysicalExamDefaults } from "@/utils/physicalExamConfig";
 import { getRegionalExamDefaults } from "@/utils/physicalExamRegionsConfig";
 import { getNeuroDefaults } from "@/utils/physicalExamNeuroConfig"; 
-import { getOphthalmoDefaults } from "@/utils/ophthalmologyConfig"; // 🟢 NUEVO IMPORT
+import { getOphthalmoDefaults } from "@/utils/ophthalmologyConfig";
 
 const COLLECTION_NAME = "consultations";
 
@@ -62,6 +62,10 @@ function normalizeConsultation(docSnapshot) {
     prescribedMeds: Array.isArray(base.prescribedMeds) ? base.prescribedMeds : [],
     prognosis: base.prognosis || "",
     notes: base.notes || "",
+    
+    // 🟢 NUEVO: Objeto SOAP con fallback seguro para consultas viejas
+    soap: base.soap || { s: "", o: "", a: "", p: "" },
+
     rx: base.rx || {}, 
     createdAt: base.createdAt,
     updatedAt: base.updatedAt
@@ -123,6 +127,10 @@ export async function createConsultation(payload) {
     prescribedMeds: payload.prescribedMeds || [],
     prognosis: payload.prognosis || "",
     notes: payload.notes || "",
+    
+    // 🟢 NUEVO: Inicializar SOAP
+    soap: payload.soap || { s: "", o: "", a: "", p: "" },
+
     rx: payload.rx || {},
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()

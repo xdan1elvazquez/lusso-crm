@@ -116,7 +116,13 @@ export default function ConsultationDetailPage() {
                     diagnoses: c.diagnoses || [],
                     diagnosis: c.diagnosis, 
                     interconsultation: c.interconsultation || { required: false, to: "", reason: "", urgency: "NORMAL", status: "PENDING" },
-                    treatment: c.treatment, prescribedMeds: c.prescribedMeds, prognosis: c.prognosis, notes: c.notes
+                    treatment: c.treatment, 
+                    prescribedMeds: c.prescribedMeds, 
+                    prognosis: c.prognosis || "",
+                    notes: c.notes,
+                    
+                    // 🟢 NUEVO: Cargar SOAP con fallback seguro
+                    soap: c.soap || { s: "", o: "", a: "", p: "" }
                 });
             } else {
                 console.error("Consulta no encontrada o no coincide con paciente");
@@ -200,12 +206,12 @@ export default function ConsultationDetailPage() {
   const removeMedFromList = (i) => { setForm(prev => ({ ...prev, prescribedMeds: prev.prescribedMeds.filter((_, idx) => idx !== i) })); };
   const handleAllSystemsNormal = () => { if(confirm("¿Marcar todo IPAS como NORMAL?")) { setForm(f => ({ ...f, systemsReview: { ...getEmptySystems(), nervousVisual: {}, extended: {} } })); } };
 
-  // 📝 GENERADOR DE RESUMEN CLÍNICO (ACTUALIZADO)
+  // 📝 GENERADOR DE RESUMEN CLÍNICO
   const generateClinicalSummary = () => {
       let summaryLines = [];
       summaryLines.push("INTERROGATORIO POR APARATOS Y SISTEMAS:");
 
-      // IPAS ... (Lógica existente) ...
+      // IPAS
       const nv = form.systemsReview.nervousVisual || {};
       Object.values(IPAS_NV_CONFIG).forEach(block => {
           const symptoms = nv[block.id] || {};
@@ -263,6 +269,16 @@ export default function ConsultationDetailPage() {
               if(od || os) summaryLines.push(`${config.title}: [OD] ${od || "Sin datos"} | [OI] ${os || "Sin datos"}`);
           }
       });
+
+      // 🟢 RESUMEN DE NUEVAS SECCIONES
+      summaryLines.push("");
+      summaryLines.push(`DIAGNÓSTICO: ${form.diagnosis || "Pendiente"}`);
+      if (form.diagnoses.length) summaryLines.push(`CIE-11: ${form.diagnoses.map(d=>d.name).join(", ")}`);
+      
+      summaryLines.push(`PLAN: ${form.treatment || "Pendiente"}`);
+      if (form.prescribedMeds.length) summaryLines.push(`Medicamentos: ${form.prescribedMeds.map(m=>m.productName).join(", ")}`);
+      
+      summaryLines.push(`PRONÓSTICO: ${form.prognosis || "Reservado"}`);
 
       return summaryLines.join("\n");
   };
@@ -361,10 +377,10 @@ export default function ConsultationDetailPage() {
                     />
                 </div>
 
-                {/* 📍 EXAMEN DE LA VISTA (RX) */}
+                {/* 3. EXAMEN DE LA VISTA (RX) */}
                 <EyeExamsPanel patientId={patientId} consultationId={consultationId} />
 
-                {/* 3. OFTALMOLOGÍA ROBUSTA (NUEVA SECCIÓN) */}
+                {/* 4. OFTALMOLOGÍA ROBUSTA */}
                 <div style={{ marginTop: 20 }}>
                    <OphthalmologyExamForm 
                       data={form.ophthalmologyExam}
@@ -372,19 +388,152 @@ export default function ConsultationDetailPage() {
                    />
                 </div>
 
-                {/* 4. DIAGNÓSTICO Y PLAN */}
-                <div>
-                  <h3 style={{ color:"#a78bfa", borderBottom:"1px solid #a78bfa", paddingBottom:5 }}>4. Diagnóstico y Plan</h3>
-                  <div style={{ display: "grid", gap: 15 }}>
-                    <DiagnosisManager diagnoses={form.diagnoses} onChange={(newDx) => setForm(f => ({ ...f, diagnoses: newDx }))} />
-                    <textarea rows={1} value={form.diagnosis} onChange={(e) => setForm(f => ({ ...f, diagnosis: e.target.value }))} style={{...textareaStyle, background:"#111"}} placeholder="Notas diagnósticas..." />
-                    <InterconsultationForm data={form.interconsultation} onChange={(newVal) => setForm(f => ({ ...f, interconsultation: newVal }))} />
-                    <label style={{...labelStyle, marginTop:10}}>Tratamiento / Receta</label>
-                    <PrescriptionBuilder onAdd={handleAddMed} />
-                    {form.prescribedMeds.length > 0 && <div style={{ padding: 10, background: "#222", borderRadius: 6, border: "1px solid #444" }}>{form.prescribedMeds.map((m, i) => <div key={i} style={{ display: "flex", gap: 6, fontSize: 12, padding: 4 }}><span>💊 {m.productName}</span><button onClick={() => removeMedFromList(i)} style={{ color: "#f87171", border: "none", background: "none", cursor: "pointer" }}>✕</button></div>)}</div>}
-                    <label style={labelStyle}>Plan / Indicaciones</label>
-                    <textarea rows={6} value={form.treatment} onChange={(e) => setForm(f => ({ ...f, treatment: e.target.value }))} style={{ ...textareaStyle, fontFamily: "monospace" }} />
-                  </div>
+                {/* 🟢 NUEVAS SECCIONES REORGANIZADAS */}
+                
+                <div style={{ marginTop: 30, display: "grid", gap: 30 }}>
+                    
+                    {/* 5. IMPRESIÓN DIAGNÓSTICA */}
+                    <section style={{ background: "#1a1a1a", padding: 20, borderRadius: 12, border: "1px solid #333" }}>
+                        <h3 style={{ color:"#a78bfa", borderBottom:"1px solid #a78bfa", paddingBottom:5, marginTop:0 }}>
+                            5. Impresión Diagnóstica Oftalmológica
+                        </h3>
+                        <div style={{ display: "grid", gap: 15 }}>
+                            <DiagnosisManager 
+                                diagnoses={form.diagnoses} 
+                                onChange={(newDx) => setForm(f => ({ ...f, diagnoses: newDx }))} 
+                            />
+                            
+                            <label style={{ fontSize: 13, color: "#ccc" }}>Notas diagnósticas complementarias:</label>
+                            <textarea 
+                                rows={2} 
+                                value={form.diagnosis} 
+                                onChange={(e) => setForm(f => ({ ...f, diagnosis: e.target.value }))} 
+                                style={{...textareaStyle, background:"#111"}} 
+                                placeholder="Descripción libre del diagnóstico..." 
+                            />
+                            
+                            <InterconsultationForm 
+                                data={form.interconsultation} 
+                                onChange={(newVal) => setForm(f => ({ ...f, interconsultation: newVal }))} 
+                            />
+                        </div>
+                    </section>
+
+                    {/* 6. PLAN TERAPÉUTICO */}
+                    <section style={{ background: "#1a1a1a", padding: 20, borderRadius: 12, border: "1px solid #333" }}>
+                        <h3 style={{ color:"#4ade80", borderBottom:"1px solid #4ade80", paddingBottom:5, marginTop:0 }}>
+                            6. Plan Terapéutico
+                        </h3>
+                        <div style={{ display: "grid", gap: 15 }}>
+                            <label style={{ fontSize: 13, color: "#ccc" }}>Farmacoterapia (Receta):</label>
+                            
+                            <PrescriptionBuilder onAdd={handleAddMed} />
+                            
+                            {form.prescribedMeds.length > 0 && (
+                                <div style={{ padding: 10, background: "#222", borderRadius: 6, border: "1px solid #444" }}>
+                                    {form.prescribedMeds.map((m, i) => (
+                                        <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13, padding: "6px 0", borderBottom: "1px dashed #333" }}>
+                                            <span>💊 <strong>{m.productName}</strong>: {m.instructions}</span>
+                                            <button onClick={() => removeMedFromList(i)} style={{ color: "#f87171", border: "none", background: "none", cursor: "pointer" }}>✕</button>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+
+                            <label style={{ fontSize: 13, color: "#ccc", marginTop: 10 }}>Plan de Manejo / Indicaciones al Paciente:</label>
+                            <textarea 
+                                rows={4} 
+                                value={form.treatment} 
+                                onChange={(e) => setForm(f => ({ ...f, treatment: e.target.value }))} 
+                                style={{ ...textareaStyle, fontFamily: "monospace" }} 
+                                placeholder="Indicaciones generales, cuidados, alarmas..."
+                            />
+                        </div>
+                    </section>
+
+                    {/* 7. PRONÓSTICO */}
+                    <section style={{ background: "#1a1a1a", padding: 20, borderRadius: 12, border: "1px solid #333" }}>
+                        <h3 style={{ color:"#fbbf24", borderBottom:"1px solid #fbbf24", paddingBottom:5, marginTop:0 }}>
+                            7. Pronóstico
+                        </h3>
+                        <div style={{ display: "grid", gridTemplateColumns: "200px 1fr", gap: 15, alignItems: "start" }}>
+                            <select 
+                                value={["Bueno", "Malo", "Reservado"].includes(form.prognosis) ? form.prognosis : "OTRO"} 
+                                onChange={(e) => {
+                                    const val = e.target.value;
+                                    setForm(f => ({ ...f, prognosis: val === "OTRO" ? "" : val }));
+                                }} 
+                                style={{ padding: 10, background: "#222", border: "1px solid #444", color: "white", borderRadius: 6 }}
+                            >
+                                <option value="">-- Seleccionar --</option>
+                                <option value="Bueno">Bueno para la función visual</option>
+                                <option value="Reservado">Reservado a evolución</option>
+                                <option value="Malo">Malo para la función visual</option>
+                                <option value="OTRO">Otro / Específico</option>
+                            </select>
+                            
+                            <input 
+                                placeholder="Detalles del pronóstico (opcional)..." 
+                                value={form.prognosis} 
+                                onChange={(e) => setForm(f => ({ ...f, prognosis: e.target.value }))} 
+                                style={inputStyle} 
+                            />
+                        </div>
+                    </section>
+
+                    {/* 8. NOTA EVOLUTIVA (SOAP) */}
+                    <section style={{ background: "#1a1a1a", padding: 20, borderRadius: 12, border: "1px solid #333" }}>
+                        <h3 style={{ color:"#60a5fa", borderBottom:"1px solid #60a5fa", paddingBottom:5, marginTop:0 }}>
+                            8. Nota Evolutiva (SOAP)
+                        </h3>
+                        <div style={{ display: "grid", gap: 15 }}>
+                            <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:15}}>
+                                <label>
+                                    <span style={{color:"#aaa", fontSize:12, fontWeight:"bold"}}>S (Subjetivo)</span>
+                                    <textarea 
+                                        rows={3} 
+                                        placeholder="Lo que el paciente refiere..."
+                                        value={form.soap?.s || ""}
+                                        onChange={e => setForm(f => ({...f, soap: {...f.soap, s: e.target.value}}))}
+                                        style={textareaStyle} 
+                                    />
+                                </label>
+                                <label>
+                                    <span style={{color:"#aaa", fontSize:12, fontWeight:"bold"}}>O (Objetivo)</span>
+                                    <textarea 
+                                        rows={3} 
+                                        placeholder="Hallazgos relevantes de la exploración..."
+                                        value={form.soap?.o || ""}
+                                        onChange={e => setForm(f => ({...f, soap: {...f.soap, o: e.target.value}}))}
+                                        style={textareaStyle} 
+                                    />
+                                </label>
+                            </div>
+                            <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:15}}>
+                                <label>
+                                    <span style={{color:"#aaa", fontSize:12, fontWeight:"bold"}}>A (Análisis)</span>
+                                    <textarea 
+                                        rows={3} 
+                                        placeholder="Interpretación de hallazgos..."
+                                        value={form.soap?.a || ""}
+                                        onChange={e => setForm(f => ({...f, soap: {...f.soap, a: e.target.value}}))}
+                                        style={textareaStyle} 
+                                    />
+                                </label>
+                                <label>
+                                    <span style={{color:"#aaa", fontSize:12, fontWeight:"bold"}}>P (Plan)</span>
+                                    <textarea 
+                                        rows={3} 
+                                        placeholder="Pasos a seguir..."
+                                        value={form.soap?.p || ""}
+                                        onChange={e => setForm(f => ({...f, soap: {...f.soap, p: e.target.value}}))}
+                                        style={textareaStyle} 
+                                    />
+                                </label>
+                            </div>
+                        </div>
+                    </section>
+
                 </div>
               </div>
           </fieldset>
