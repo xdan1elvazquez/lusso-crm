@@ -1,15 +1,20 @@
 import React, { useState, useMemo } from "react";
+// UI Components
+import Input from "@/components/ui/Input";
+import Badge from "@/components/ui/Badge";
 
 export default function ProductSearch({ products, onAdd }) {
   const [query, setQuery] = useState("");
 
   const filteredProducts = useMemo(() => {
     if (!query) return [];
-    return products.filter(p => p.brand.toLowerCase().includes(query.toLowerCase())).slice(0, 5);
+    return products.filter(p => 
+        p.brand.toLowerCase().includes(query.toLowerCase()) || 
+        p.model.toLowerCase().includes(query.toLowerCase())
+    ).slice(0, 5);
   }, [products, query]);
 
   const handleSelect = (product) => {
-    // Clasificación
     const isLabCategory = ["FRAMES", "CONTACT_LENS", "LENSES"].includes(product.category);
     
     onAdd({ 
@@ -17,7 +22,7 @@ export default function ProductSearch({ products, onAdd }) {
         description: `${product.brand} ${product.model}`, 
         qty: 1, 
         unitPrice: product.price,
-        cost: product.cost || 0, // 👈 IMPORTANTE: Pasamos el costo para reportes financieros
+        cost: product.cost || 0, 
         inventoryProductId: product.id, 
         taxable: product.taxable,
         requiresLab: isLabCategory 
@@ -26,29 +31,35 @@ export default function ProductSearch({ products, onAdd }) {
   };
 
   return (
-    <div style={{ position: "relative", marginBottom: 15 }}>
-      <label style={{ fontSize: 12, color: "#aaa", display:"block", marginBottom:5 }}>Agregar otro producto</label>
-      <input 
+    <div className="relative mb-6 z-20">
+      <Input 
+        label="Agregar producto rápido"
         value={query} 
         onChange={e => setQuery(e.target.value)} 
-        placeholder="Escribe marca, modelo o categoría..." 
-        style={{ width: "100%", padding: 10, background: "#222", color: "white", border: "1px solid #444", borderRadius: 6 }} 
+        placeholder="Escribe marca, modelo o código..." 
+        className="bg-surface border-primary/30 focus:border-primary"
       />
+      
+      {/* Dropdown de Resultados */}
       {filteredProducts.length > 0 && (
-        <div style={{ position: "absolute", zIndex: 50, background: "#333", border: "1px solid #555", width: "100%", borderRadius: 6, marginTop: 4, overflow: "hidden", maxHeight: 200, overflowY: "auto" }}>
+        <div className="absolute top-full left-0 right-0 mt-2 bg-surface border border-border rounded-xl shadow-2xl overflow-hidden animate-[fadeIn_0.2s_ease-out]">
           {filteredProducts.map(p => (
             <div 
                 key={p.id} 
                 onClick={() => handleSelect(p)} 
-                style={{ padding: 10, cursor: "pointer", borderBottom: "1px solid #444", display:"flex", justifyContent:"space-between" }}
-                onMouseEnter={(e) => e.currentTarget.style.background = "#444"}
-                onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
+                className="p-3 cursor-pointer border-b border-border last:border-0 hover:bg-surfaceHighlight transition-colors group flex justify-between items-center"
             >
               <div>
-                  <div>{p.brand} {p.model}</div>
-                  <div style={{fontSize:10, color:"#888"}}>{p.category}</div>
+                  <div className="font-bold text-textMain group-hover:text-white">
+                      {p.brand} <span className="font-normal text-textMuted">{p.model}</span>
+                  </div>
+                  <div className="mt-1">
+                      <Badge color="gray" className="text-[10px]">{p.category}</Badge>
+                  </div>
               </div>
-              <span style={{ color: "#4ade80" }}>${p.price}</span>
+              <span className="text-emerald-400 font-bold tracking-tight">
+                  ${p.price.toLocaleString()}
+              </span>
             </div>
           ))}
         </div>

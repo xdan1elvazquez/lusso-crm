@@ -13,11 +13,18 @@ import { normalizeRxValue } from "@/utils/rxOptions";
 import { parseDiopter } from "@/utils/rxUtils";
 import { useNotify, useConfirm } from "@/context/UIContext";
 
+// Componentes Internos (Se refactorizarán en Parte B)
 import ProductSearch from "@/components/sales/ProductSearch";
 import OpticalSelector from "@/components/sales/OpticalSelector";
 import CartList from "@/components/sales/CartList";
 import PaymentForm from "@/components/sales/PaymentForm";
 import SaleDetailModal from "./SaleDetailModal";
+
+// UI Components
+import Card from "@/components/ui/Card";
+import Select from "@/components/ui/Select";
+import Input from "@/components/ui/Input";
+import Badge from "@/components/ui/Badge";
 
 export default function SalesPanel({ patientId, prefillData, onClearPrefill }) {
   const navigate = useNavigate();
@@ -51,10 +58,9 @@ export default function SalesPanel({ patientId, prefillData, onClearPrefill }) {
 
   useEffect(() => { loadData(); }, [patientId]);
 
-  // Hook POS
   const pos = usePOS(patientId, terminals, loadData);
 
-  // Efecto Prefill (desde Examen)
+  // Efecto Prefill
   useEffect(() => {
       if (prefillData?.type === 'EXAM') {
           const e = prefillData.data;
@@ -76,7 +82,6 @@ export default function SalesPanel({ patientId, prefillData, onClearPrefill }) {
       e.target.value = "";
   };
 
-  // 🧠 RECUPERADO: Importar medicamentos de consulta
   const handleImportConsultation = (e) => {
     const consultId = e.target.value; 
     if(!consultId) return;
@@ -85,21 +90,15 @@ export default function SalesPanel({ patientId, prefillData, onClearPrefill }) {
     if (consultation && consultation.prescribedMeds?.length > 0) {
       consultation.prescribedMeds.forEach(med => {
          const invProd = products.find(p => p.id === med.productId);
-         // Usamos pos.addToCart del hook
          pos.addToCart({ 
-             kind: "MEDICATION", 
-             description: med.productName, 
-             qty: med.qty || 1, 
-             unitPrice: med.price || 0, 
-             cost: invProd?.cost || 0, 
-             inventoryProductId: med.productId, 
-             requiresLab: false, // Medicamentos son venta simple
-             taxable: invProd ? invProd.taxable : true 
+             kind: "MEDICATION", description: med.productName, qty: med.qty || 1, 
+             unitPrice: med.price || 0, cost: invProd?.cost || 0, 
+             inventoryProductId: med.productId, requiresLab: false, taxable: invProd ? invProd.taxable : true 
          });
       });
-      notify.success("Medicamentos agregados al carrito.");
+      notify.success("Medicamentos agregados.");
     } else {
-        notify.info("Esta consulta no tiene medicamentos recetados.");
+        notify.info("Sin medicamentos en esta consulta.");
     }
     e.target.value = "";
   };
@@ -117,36 +116,52 @@ export default function SalesPanel({ patientId, prefillData, onClearPrefill }) {
   };
 
   return (
-    <section style={{ background: "#1a1a1a", padding: 24, borderRadius: 12, border: "1px solid #333" }}>
-      <h3 style={{ margin: "0 0 20px 0", color: "#e5e7eb" }}>Caja y Ventas</h3>
+    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
       {viewSale && <SaleDetailModal sale={viewSale} patient={{firstName:"", lastName:""}} onClose={()=>setViewSale(null)} onUpdate={loadData} />}
 
-      <div style={{ display:"grid", gridTemplateColumns:"2fr 1fr", gap:20 }}>
-          {/* COLUMNA IZQUIERDA: INPUTS */}
-          <div style={{ background: "#111", padding: 20, borderRadius: 10, border: "1px dashed #444" }}>
-              <div style={{display:"flex", gap:10, marginBottom:15}}>
-                  <div style={{flex:1}}><label style={{fontSize:12, color:"#fbbf24"}}>No. Caja</label><input value={pos.logistics.boxNumber} onChange={e=>pos.setLogistics({...pos.logistics, boxNumber:e.target.value})} style={{width:"100%", padding:8, background:"#333", border:"1px solid #fbbf24", color:"white", borderRadius:6}} /></div>
-                  <div style={{flex:2}}>
-                      <label style={{fontSize:12, color:"#aaa"}}>Vendedor</label>
-                      <select value={pos.logistics.soldBy} onChange={e=>pos.setLogistics({...pos.logistics, soldBy:e.target.value})} style={{width:"100%", padding:8, background:"#222", border:"1px solid #444", color:"white", borderRadius:6}}>
+      {/* COLUMNA IZQUIERDA (8/12) - CONFIGURACIÓN */}
+      <div className="lg:col-span-8 space-y-6">
+          
+          {/* TARJETA DE LOGÍSTICA E IMPORTACIÓN */}
+          <Card className="border-t-4 border-t-primary">
+              <h3 className="text-sm font-bold text-textMuted uppercase tracking-wider mb-4">Configuración de Venta</h3>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                  <Input label="No. Caja / Folio Físico" value={pos.logistics.boxNumber} onChange={e=>pos.setLogistics({...pos.logistics, boxNumber:e.target.value})} className="border-yellow-500/30 focus:border-yellow-500" />
+                  
+                  <div>
+                      <label className="block text-xs font-bold text-textMuted uppercase tracking-wider mb-2 ml-1">Vendedor</label>
+                      <select value={pos.logistics.soldBy} onChange={e=>pos.setLogistics({...pos.logistics, soldBy:e.target.value})} className="w-full px-4 py-3 bg-background border border-border rounded-xl text-textMain text-sm focus:border-primary outline-none appearance-none">
                           <option value="">-- Seleccionar --</option>
                           {employees.map(e => <option key={e.id} value={e.name}>{e.name}</option>)}
                       </select>
                   </div>
               </div>
 
-              <div style={{marginBottom:15, padding:10, background:"#1e3a8a", borderRadius:6, display:"grid", gap:10}}>
-                  <select onChange={handleImportExam} style={{width:"100%", padding:8, background:"rgba(0,0,0,0.3)", color:"white", border:"1px solid rgba(255,255,255,0.2)", borderRadius:4, fontWeight:"bold"}}>
-                      <option value="">👓 Importar Graduación (Examen)</option>
-                      {exams.map(e => <option key={e.id} value={e.id}>{new Date(e.examDate).toLocaleDateString()}</option>)}
-                  </select>
-                  {/* 👇 Selector recuperado */}
-                  <select onChange={handleImportConsultation} style={{width:"100%", padding:8, background:"rgba(0,0,0,0.3)", color:"#bfdbfe", border:"1px solid rgba(255,255,255,0.2)", borderRadius:4, fontWeight:"bold"}}>
-                      <option value="">💊 Importar Receta Médica (Consulta)</option>
-                      {consultations.map(c => <option key={c.id} value={c.id}>{new Date(c.visitDate).toLocaleDateString()} - {c.diagnosis}</option>)}
-                  </select>
+              {/* BARRA DE IMPORTACIÓN */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 bg-surfaceHighlight rounded-xl border border-dashed border-border">
+                  <div className="relative">
+                      <select onChange={handleImportExam} className="w-full pl-10 pr-4 py-2 bg-surface border border-border rounded-lg text-sm text-textMain focus:ring-1 focus:ring-primary outline-none cursor-pointer">
+                          <option value="">Importar Graduación (Examen)</option>
+                          {exams.map(e => <option key={e.id} value={e.id}>{new Date(e.examDate).toLocaleDateString()} (Rx)</option>)}
+                      </select>
+                      <span className="absolute left-3 top-2.5 text-base">👓</span>
+                  </div>
+                  
+                  <div className="relative">
+                      <select onChange={handleImportConsultation} className="w-full pl-10 pr-4 py-2 bg-surface border border-border rounded-lg text-sm text-textMain focus:ring-1 focus:ring-primary outline-none cursor-pointer">
+                          <option value="">Importar Receta (Consulta)</option>
+                          {consultations.map(c => <option key={c.id} value={c.id}>{new Date(c.visitDate).toLocaleDateString()} - {c.diagnosis}</option>)}
+                      </select>
+                      <span className="absolute left-3 top-2.5 text-base">💊</span>
+                  </div>
               </div>
+          </Card>
 
+          {/* SELECTORES DE PRODUCTOS (COMPONENTES INTERNOS) */}
+          <div className="space-y-6">
+              {/* Aquí se montan los componentes que aún tienen estilos viejos. 
+                  Se arreglarán en la siguiente fase */}
               <OpticalSelector 
                   show={showOpticalSpecs} onToggle={()=>setShowOpticalSpecs(true)}
                   currentRx={currentRx} catalog={labsCatalog}
@@ -154,34 +169,58 @@ export default function SalesPanel({ patientId, prefillData, onClearPrefill }) {
                   onAddSmart={handleAddSmartLens}
                   onAddManual={(l) => pos.addToCart({kind:"LENSES", description:l.name, qty:1, unitPrice:0, requiresLab:true, rxSnapshot:currentRx})}
               />
+              
               <ProductSearch products={products} onAdd={pos.addToCart} />
           </div>
-
-          {/* COLUMNA DERECHA: CARRITO */}
-          <div style={{ background: "#111", padding: 20, borderRadius: 12, border: "1px solid #333", display: "flex", flexDirection: "column" }}>
-              <h3 style={{ marginTop: 0, color: "#4ade80" }}>🛒 Carrito</h3>
-              <CartList cart={pos.cart} onRemove={pos.removeFromCart} />
-              
-              <PaymentForm 
-                  subtotal={pos.totals.subtotal} total={pos.totals.total}
-                  payment={pos.payment} setPayment={pos.setPayment}
-                  terminals={terminals} onCheckout={pos.handleCheckout}
-                  isProcessing={pos.isProcessing} cartLength={pos.cart.length}
-              />
-
-              <div style={{marginTop:20, borderTop:"1px solid #333", paddingTop:10}}>
-                  <h4 style={{margin:"0 0 10px 0", color:"#aaa"}}>Historial</h4>
-                  <div style={{display:"grid", gap:8}}>
-                      {salesHistory.slice(0,5).map(s => (
-                          <div key={s.id} onClick={()=>setViewSale(s)} style={{display:"flex", justifyContent:"space-between", padding:10, background:"#222", borderRadius:6, cursor:"pointer", borderLeft: s.saleType==="LAB"?"3px solid #60a5fa":"3px solid #333"}}>
-                              <div><div style={{fontWeight:"bold", color:"white"}}>{s.description}</div><div style={{fontSize:"0.8em", color:"#888"}}>{new Date(s.createdAt).toLocaleDateString()}</div></div>
-                              <div style={{textAlign:"right"}}><div style={{fontWeight:"bold"}}>${s.total.toLocaleString()}</div><div style={{fontSize:"0.7em", color: s.saleType==="LAB"?"#60a5fa":"#aaa"}}>{s.saleType==="LAB"?"TALLER":"SIMPLE"}</div></div>
-                          </div>
-                      ))}
-                  </div>
-              </div>
-          </div>
       </div>
-    </section>
+
+      {/* COLUMNA DERECHA (4/12) - CARRITO Y COBRO */}
+      <div className="lg:col-span-4 flex flex-col gap-6">
+          
+          <Card className="flex-1 flex flex-col border-t-4 border-t-emerald-500" noPadding>
+              <div className="p-5 border-b border-border bg-surfaceHighlight/50">
+                  <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                      🛒 Carrito <span className="text-xs bg-surface border border-border px-2 py-0.5 rounded-full text-textMuted">{pos.cart.length} items</span>
+                  </h3>
+              </div>
+              
+              <div className="p-5 flex-1 flex flex-col">
+                  {/* LISTA CARRITO */}
+                  <div className="flex-1 min-h-[200px]">
+                      <CartList cart={pos.cart} onRemove={pos.removeFromCart} />
+                  </div>
+
+                  {/* FORMULARIO PAGO */}
+                  <PaymentForm 
+                      subtotal={pos.totals.subtotal} total={pos.totals.total}
+                      payment={pos.payment} setPayment={pos.setPayment}
+                      terminals={terminals} onCheckout={pos.handleCheckout}
+                      isProcessing={pos.isProcessing} cartLength={pos.cart.length}
+                  />
+              </div>
+          </Card>
+
+          {/* HISTORIAL RÁPIDO */}
+          <Card className="max-h-80 overflow-y-auto custom-scrollbar" noPadding>
+              <div className="p-4 bg-surfaceHighlight/30 sticky top-0 backdrop-blur-sm border-b border-border">
+                  <h4 className="text-xs font-bold text-textMuted uppercase">Últimas Ventas</h4>
+              </div>
+              <div className="divide-y divide-border">
+                  {salesHistory.slice(0,5).map(s => (
+                      <div key={s.id} onClick={()=>setViewSale(s)} className="p-4 cursor-pointer hover:bg-surfaceHighlight transition-colors group">
+                          <div className="flex justify-between items-center mb-1">
+                              <div className="font-bold text-white group-hover:text-primary transition-colors">{s.description}</div>
+                              <div className="font-bold text-emerald-400">${s.total.toLocaleString()}</div>
+                          </div>
+                          <div className="flex justify-between items-center text-xs text-textMuted">
+                              <div>{new Date(s.createdAt).toLocaleDateString()}</div>
+                              <Badge color={s.saleType==="LAB"?"blue":"gray"}>{s.saleType==="LAB"?"TALLER":"SIMPLE"}</Badge>
+                          </div>
+                      </div>
+                  ))}
+              </div>
+          </Card>
+      </div>
+    </div>
   );
 }

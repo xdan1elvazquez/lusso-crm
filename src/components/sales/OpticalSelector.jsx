@@ -1,5 +1,8 @@
 import React, { useState, useMemo } from "react";
 import { checkLensCompatibility, getSuggestions } from "@/utils/lensMatcher";
+// UI Components
+import Button from "@/components/ui/Button";
+import Select from "@/components/ui/Select"; // Asumimos que tienes este o usaremos el estilo nativo de Tailwind
 
 export default function OpticalSelector({ 
     show, 
@@ -52,59 +55,118 @@ export default function OpticalSelector({
 
   if (!show) {
       return (
-        <button onClick={onToggle} style={{ marginTop: 15, background: "transparent", border: "1px dashed #60a5fa", color: "#60a5fa", padding: "6px 12px", borderRadius: 4, cursor: "pointer", fontSize: "0.9em", width: "100%" }}>
-            👓 Agregar Lentes Graduados
-        </button>
+        <Button 
+            variant="ghost" 
+            onClick={onToggle} 
+            className="w-full border-dashed border-primary/40 text-primary hover:bg-primary/5 hover:border-primary"
+        >
+            + 👓 Agregar Lentes Graduados
+        </Button>
       );
   }
 
+  // Estilo base para selects internos
+  const selectClass = "w-full bg-surface border border-border rounded-lg px-3 py-2 text-sm text-textMain focus:border-primary outline-none appearance-none cursor-pointer hover:bg-surfaceHighlight transition-colors";
+
   return (
-    <div style={{ background: "#1f1f1f", padding: 10, borderRadius: 8, marginBottom: 15, border:"1px solid #60a5fa" }}>
-        <div style={{fontSize:11, color:"#60a5fa", fontWeight:"bold", marginBottom:10}}>SELECTOR DE MICA (Rx Inteligente)</div>
+    <div className="bg-surface/50 border border-primary/20 rounded-xl p-4 mb-6 shadow-sm">
+        <div className="flex justify-between items-center mb-4">
+            <div className="text-xs font-bold text-primary uppercase tracking-wider">Selector Inteligente (Rx)</div>
+            <button onClick={onToggle} className="text-xs text-textMuted hover:text-white">Ocultar</button>
+        </div>
         
-        <div style={{display:"flex", gap:15, marginBottom:15, fontSize:12, color:"#ddd", background:"#333", padding:8, borderRadius:4}}>
-            <div style={{fontWeight:"bold", color:"#fbbf24"}}>SERVICIOS:</div>
-            <label style={{display:"flex", alignItems:"center", gap:5, cursor:"pointer"}}>
-                <input type="checkbox" checked={itemDetails.requiresBisel} onChange={e => setItemDetails({...itemDetails, requiresBisel: e.target.checked})} />
+        {/* Toggle Servicios */}
+        <div className="flex gap-4 mb-4 p-3 bg-background rounded-lg border border-border">
+            <span className="text-xs font-bold text-textMuted uppercase self-center">Servicios:</span>
+            <label className="flex items-center gap-2 cursor-pointer text-sm text-textMain hover:text-white">
+                <input type="checkbox" checked={itemDetails.requiresBisel} onChange={e => setItemDetails({...itemDetails, requiresBisel: e.target.checked})} className="accent-primary" />
                 🛠️ Bisel
             </label>
-            <label style={{display:"flex", alignItems:"center", gap:5, cursor:"pointer"}}>
-                <input type="checkbox" checked={itemDetails.requiresTallado} onChange={e => setItemDetails({...itemDetails, requiresTallado: e.target.checked})} />
+            <label className="flex items-center gap-2 cursor-pointer text-sm text-textMain hover:text-white">
+                <input type="checkbox" checked={itemDetails.requiresTallado} onChange={e => setItemDetails({...itemDetails, requiresTallado: e.target.checked})} className="accent-primary" />
                 ⚙️ Tallado
             </label>
         </div>
 
-        <div style={{display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:8, marginBottom:10}}>
-            <select value={filters.design} onChange={e => setFilters({...filters, design: e.target.value})} style={{padding:6, background:"#333", border:"1px solid #555", color:"white", borderRadius:4, fontSize:12}}><option value="">-- Diseño --</option>{filterOptions.designs.map(d => <option key={d} value={d}>{d}</option>)}</select>
-            <select value={filters.material} onChange={e => setFilters({...filters, material: e.target.value})} style={{padding:6, background:"#333", border:"1px solid #555", color:"white", borderRadius:4, fontSize:12}}><option value="">-- Material --</option>{filterOptions.materials.map(m => <option key={m} value={m}>{m}</option>)}</select>
-            <select value={filters.treatment} onChange={e => setFilters({...filters, treatment: e.target.value})} style={{padding:6, background:"#333", border:"1px solid #555", color:"white", borderRadius:4, fontSize:12}}><option value="">-- Tratamiento --</option>{filterOptions.treatments.map(t => <option key={t} value={t}>{t}</option>)}</select>
+        {/* Filtros Grid */}
+        <div className="grid grid-cols-3 gap-3 mb-4">
+            <select value={filters.design} onChange={e => setFilters({...filters, design: e.target.value})} className={selectClass}>
+                <option value="">Diseño (Todos)</option>
+                {filterOptions.designs.map(d => <option key={d} value={d}>{d}</option>)}
+            </select>
+            <select value={filters.material} onChange={e => setFilters({...filters, material: e.target.value})} className={selectClass}>
+                <option value="">Material (Todos)</option>
+                {filterOptions.materials.map(m => <option key={m} value={m}>{m}</option>)}
+            </select>
+            <select value={filters.treatment} onChange={e => setFilters({...filters, treatment: e.target.value})} className={selectClass}>
+                <option value="">Tratamiento (Todos)</option>
+                {filterOptions.treatments.map(t => <option key={t} value={t}>{t}</option>)}
+            </select>
         </div>
 
-        <div style={{ maxHeight: 200, overflowY: "auto", border: "1px solid #333", borderRadius: 4, background: "#111" }}>
+        {/* Lista Resultados */}
+        <div className="max-h-48 overflow-y-auto custom-scrollbar border border-border rounded-lg bg-background mb-4">
             {validLenses.length > 0 ? validLenses.map(l => (
-                <div key={l.id} onClick={() => onAddSmart(l)} style={{ padding: 8, cursor: "pointer", borderBottom: "1px solid #222", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-                    <div><div style={{fontWeight:"bold", color:"white", fontSize:13}}>{l.name}</div><div style={{fontSize:11, color:"#aaa"}}>{l.labName} · {l.material}</div></div>
-                    <div style={{textAlign:"right"}}><div style={{fontSize:12, color:"#4ade80", fontWeight:"bold"}}>${l.calculatedPrice?.toLocaleString()}</div></div>
+                <div 
+                    key={l.id} 
+                    onClick={() => onAddSmart(l)} 
+                    className="p-3 cursor-pointer border-b border-border last:border-0 hover:bg-surfaceHighlight/50 transition-colors flex justify-between items-center group"
+                >
+                    <div>
+                        <div className="font-bold text-white text-sm group-hover:text-primary transition-colors">{l.name}</div>
+                        <div className="text-xs text-textMuted">{l.labName} · {l.material}</div>
+                    </div>
+                    <div className="font-bold text-emerald-400 text-sm">${l.calculatedPrice?.toLocaleString()}</div>
                 </div>
             )) : (
-                <div style={{ padding: 15, textAlign: "center", fontSize: 13, color: "#888" }}>
-                    {suggestions.length > 0 ? <ul style={{textAlign:"left", margin:0, paddingLeft:20, color:"#fbbf24"}}>{suggestions.map((s, i) => <li key={i}>{s}</li>)}</ul> : (currentRx.od.sph !== null ? "Usa filtros para buscar." : "Carga Rx para ver opciones.")}
+                <div className="p-6 text-center text-xs text-textMuted italic">
+                    {suggestions.length > 0 ? (
+                        <div className="text-left text-amber-400 space-y-1">
+                            {suggestions.map((s, i) => <div key={i}>• {s}</div>)}
+                        </div>
+                    ) : (
+                        currentRx.od.sph !== null ? "Usa los filtros para encontrar micas compatibles." : "Carga una Rx primero para ver opciones inteligentes."
+                    )}
                 </div>
             )}
         </div>
         
-        <div style={{marginTop:10, borderTop:"1px dashed #444", paddingTop:8}}>
-            <input value={lensQuery} onChange={e => setLensQuery(e.target.value)} placeholder="O busca manualmente..." style={{ width: "100%", padding: 6, background: "#222", color: "#aaa", border: "1px solid #333", borderRadius: 4, fontSize:12 }} />
+        {/* Búsqueda Manual Fallback */}
+        <div className="relative pt-3 border-t border-border border-dashed">
+            <input 
+                value={lensQuery} 
+                onChange={e => setLensQuery(e.target.value)} 
+                placeholder="¿No aparece? Busca manualmente..." 
+                className="w-full bg-transparent text-sm text-textMuted placeholder-textMuted/50 focus:text-white outline-none"
+            />
              {lensQuery && filteredManualLenses.length > 0 && (
-                <div style={{ position: "absolute", zIndex: 20, background: "#222", border: "1px solid #444", width: "300px" }}>
-                    {filteredManualLenses.map(l => <div key={l.id} onClick={() => { onAddManual(l); setLensQuery(""); }} style={{padding:10, borderBottom:"1px solid #444", cursor:"pointer"}}>{l.name}</div>)}
+                <div className="absolute bottom-full left-0 right-0 mb-2 bg-surface border border-border rounded-lg shadow-xl z-30 overflow-hidden">
+                    {filteredManualLenses.map(l => (
+                        <div key={l.id} onClick={() => { onAddManual(l); setLensQuery(""); }} className="p-3 hover:bg-primary/20 cursor-pointer text-sm text-textMain border-b border-border last:border-0">
+                            {l.name}
+                        </div>
+                    ))}
                 </div>
             )}
         </div>
 
-        <div style={{display:"flex", gap:5, marginTop:10}}>
-             <input placeholder="Armazón (Marca/Modelo)" value={itemDetails.frameModel} onChange={e => setItemDetails({...itemDetails, frameModel:e.target.value})} style={{flex:1, padding:6, background:"#333", border:"none", color:"white", borderRadius:4, fontSize:12}} />
-             <select value={itemDetails.frameStatus} onChange={e => setItemDetails({...itemDetails, frameStatus:e.target.value})} style={{width:80, padding:6, background:"#333", border:"none", color:"#aaa", borderRadius:4, fontSize:11}}><option value="NUEVO">Nuevo</option><option value="USADO">Usado</option><option value="PROPIO">Propio</option></select>
+        {/* Detalles Extra Armazón */}
+        <div className="grid grid-cols-[1fr_auto] gap-3 mt-3">
+             <input 
+                placeholder="Armazón (Marca/Modelo)" 
+                value={itemDetails.frameModel} 
+                onChange={e => setItemDetails({...itemDetails, frameModel:e.target.value})} 
+                className={selectClass}
+             />
+             <select 
+                value={itemDetails.frameStatus} 
+                onChange={e => setItemDetails({...itemDetails, frameStatus:e.target.value})} 
+                className={`${selectClass} w-24`}
+             >
+                <option value="NUEVO">Nuevo</option>
+                <option value="USADO">Usado</option>
+                <option value="PROPIO">Propio</option>
+             </select>
         </div>
     </div>
   );
