@@ -3,12 +3,14 @@ import {
   collection, addDoc, getDocs, doc, updateDoc, deleteDoc, query, where, orderBy, getDoc 
 } from "firebase/firestore";
 import { logAuditAction } from "./auditStorage";
-// 👇 Imports de configuración de ambas partes
 import { getPhysicalExamDefaults } from "@/utils/physicalExamConfig";
 import { getRegionalExamDefaults } from "@/utils/physicalExamRegionsConfig";
+import { getNeuroDefaults } from "@/utils/physicalExamNeuroConfig"; 
+import { getOphthalmoDefaults } from "@/utils/ophthalmologyConfig"; // 🟢 NUEVO IMPORT
 
 const COLLECTION_NAME = "consultations";
 
+// Estructuras legacy para compatibilidad
 const emptyEyeData = { lids: "", conjunctiva: "", cornea: "", chamber: "", iris: "", lens: "", files: [] };
 const emptyFundusData = { vitreous: "", nerve: "", macula: "", vessels: "", retinaPeriphery: "", files: [] };
 const emptyPio = { od: "", os: "", time: "", meds: "" };
@@ -30,36 +32,32 @@ function normalizeConsultation(docSnapshot) {
     history: base.history || "",
     systemsReview: base.systemsReview || {},
 
-    // 👇 ESTRUCTURA COMPLETA DE EXPLORACIÓN FÍSICA
+    // Exploración General
     physicalExam: {
         general: base.physicalExam?.general || getPhysicalExamDefaults(),
-        regional: base.physicalExam?.regional || getRegionalExamDefaults()
+        regional: base.physicalExam?.regional || getRegionalExamDefaults(),
+        neuro: base.physicalExam?.neuro || getNeuroDefaults()
     },
 
-    // Legacy (mantenido por compatibilidad pero no usado en UI nueva)
-    vitalSigns: { 
-        sys: base.vitalSigns?.sys || "", dia: base.vitalSigns?.dia || "", 
-        heartRate: base.vitalSigns?.heartRate || "", temp: base.vitalSigns?.temp || "" 
-    },
+    // 🟢 NUEVO: Exploración Oftalmológica Robusta
+    ophthalmologyExam: base.ophthalmologyExam || getOphthalmoDefaults(),
 
+    // 🟢 NUEVO: Adjuntos
+    attachments: Array.isArray(base.attachments) ? base.attachments : [],
+
+    // Legacy (para no romper reportes antiguos)
+    vitalSigns: base.vitalSigns || {},
     exam: {
-        anterior: {
-            od: { ...emptyEyeData, ...(base.exam?.anterior?.od || {}) },
-            os: { ...emptyEyeData, ...(base.exam?.anterior?.os || {}) },
-            notes: base.exam?.anterior?.notes || ""
-        },
-        tonometry: { ...emptyPio, ...(base.exam?.tonometry || {}) },
-        posterior: {
-            od: { ...emptyFundusData, ...(base.exam?.posterior?.od || {}) },
-            os: { ...emptyFundusData, ...(base.exam?.posterior?.os || {}) },
-            notes: base.exam?.posterior?.notes || ""
-        },
+        anterior: { od: {...emptyEyeData, ...(base.exam?.anterior?.od||{})}, os: {...emptyEyeData, ...(base.exam?.anterior?.os||{})}, notes: base.exam?.anterior?.notes||"" },
+        tonometry: { ...emptyPio, ...(base.exam?.tonometry||{}) },
+        posterior: { od: {...emptyFundusData, ...(base.exam?.posterior?.od||{})}, os: {...emptyFundusData, ...(base.exam?.posterior?.os||{})}, notes: base.exam?.posterior?.notes||"" },
         motility: base.exam?.motility || "",
         gonioscopy: base.exam?.gonioscopy || ""
     },
+    
     diagnoses: Array.isArray(base.diagnoses) ? base.diagnoses : [],
     diagnosis: base.diagnosis || "",
-    interconsultation: base.interconsultation || { required: false, to: "", reason: "", urgency: "NORMAL", status: "PENDING" },
+    interconsultation: base.interconsultation || {},
     treatment: base.treatment || "",
     prescribedMeds: Array.isArray(base.prescribedMeds) ? base.prescribedMeds : [],
     prognosis: base.prognosis || "",
@@ -99,18 +97,25 @@ export async function createConsultation(payload) {
     version: 1,
     forceUnlock: false,
     addendums: [],
+    
     reason: payload.reason || "",
     history: payload.history || "",
     systemsReview: payload.systemsReview || {},
     
-    // 👇 Inicialización
     physicalExam: {
         general: getPhysicalExamDefaults(),
-        regional: getRegionalExamDefaults()
+        regional: getRegionalExamDefaults(),
+        neuro: getNeuroDefaults()
     },
     
+    // 🟢 Inicialización de nuevos campos
+    ophthalmologyExam: getOphthalmoDefaults(),
+    attachments: [],
+
+    // Legacy
     vitalSigns: payload.vitalSigns || {},
-    exam: payload.exam || {}, 
+    exam: payload.exam || {},
+    
     diagnoses: payload.diagnoses || [],
     diagnosis: payload.diagnosis || "",
     interconsultation: payload.interconsultation || {},

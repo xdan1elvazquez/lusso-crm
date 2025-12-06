@@ -12,26 +12,28 @@ import { getPatientById } from "@/services/patientsStorage";
 // 📍 COMPONENTES
 import EyeExamsPanel from "@/components/EyeExamsPanel";
 import StudiesPanel from "@/components/StudiesPanel";
-import ODOSEditor from "@/components/consultation/ODOSEditor";
 import DiagnosisManager from "@/components/consultation/DiagnosisManager";
 import InterconsultationForm from "@/components/consultation/InterconsultationForm";
 import PrescriptionBuilder from "@/components/consultation/PrescriptionBuilder";
 import IPASNervousVisualForm from "@/components/consultation/IPASNervousVisualForm";
 import IPASBlockForm from "@/components/consultation/IPASBlockForm";
 
-// 👇 NUEVOS COMPONENTES DE EXPLORACIÓN
 import PhysicalExamGeneralForm from "@/components/consultation/PhysicalExamGeneralForm";
 import PhysicalExamRegionalForm from "@/components/consultation/PhysicalExamRegionalForm";
+import PhysicalExamNeuroForm from "@/components/consultation/PhysicalExamNeuroForm"; 
+
+// 🟢 NUEVOS COMPONENTES
+import OphthalmologyExamForm from "@/components/consultation/OphthalmologyExamForm";
+import AttachmentsPanel from "@/components/consultation/AttachmentsPanel";
 
 // 📍 CONFIGURACIÓN
-import { 
-    getEmptySystems, QUICK_DATA, 
-    SEGMENTS_ANTERIOR, SEGMENTS_POSTERIOR, ALICIA_TEMPLATES 
-} from "@/utils/consultationConfig";
+import { getEmptySystems, QUICK_DATA, ALICIA_TEMPLATES } from "@/utils/consultationConfig";
 import { IPAS_NV_CONFIG } from "@/utils/ipasNervousVisualConfig";
 import { IPAS_EXTENDED_CONFIG } from "@/utils/ipasExtendedConfig";
 import { getPhysicalExamDefaults } from "@/utils/physicalExamConfig";
 import { getRegionalExamDefaults, PE_REGIONS_CONFIG } from "@/utils/physicalExamRegionsConfig";
+import { getNeuroDefaults, PE_NEURO_CONFIG } from "@/utils/physicalExamNeuroConfig";
+import { getOphthalmoDefaults, OPHTHALMO_CONFIG } from "@/utils/ophthalmologyConfig";
 
 function toDateInput(isoString) {
   if (!isoString) return "";
@@ -78,7 +80,7 @@ export default function ConsultationDetailPage() {
   const [loading, setLoading] = useState(true);
 
   const [tick, setTick] = useState(0);
-  const [showIPAS, setShowIPAS] = useState(false); // Cerrado por defecto para limpieza
+  const [showIPAS, setShowIPAS] = useState(false); 
   const [showHistory, setShowHistory] = useState(false);
   const [auditLogs, setAuditLogs] = useState([]);
   const [addendumText, setAddendumText] = useState("");
@@ -101,26 +103,16 @@ export default function ConsultationDetailPage() {
                     type: c.type, 
                     reason: c.reason, 
                     history: c.history, 
-                    // IPAS
-                    systemsReview: { 
-                        ...getEmptySystems(), 
-                        nervousVisual: {}, 
-                        extended: {}, 
-                        ...(c.systemsReview || {}) 
-                    },
-                    // EXPLORACIÓN FÍSICA (NUEVO)
+                    systemsReview: { ...getEmptySystems(), nervousVisual: {}, extended: {}, ...(c.systemsReview || {}) },
                     physicalExam: {
                         general: c.physicalExam?.general || getPhysicalExamDefaults(),
-                        regional: c.physicalExam?.regional || getRegionalExamDefaults()
+                        regional: c.physicalExam?.regional || getRegionalExamDefaults(),
+                        neuro: c.physicalExam?.neuro || getNeuroDefaults()
                     },
-                    vitalSigns: { ...c.vitalSigns }, // Legacy
-                    // OFTALMO
-                    exam: { 
-                        anterior: { od: {...c.exam.anterior.od}, os: {...c.exam.anterior.os}, notes: c.exam.anterior.notes },
-                        tonometry: { ...c.exam.tonometry },
-                        posterior: { od: {...c.exam.posterior.od}, os: {...c.exam.posterior.os}, notes: c.exam.posterior.notes },
-                        motility: c.exam.motility, gonioscopy: c.exam.gonioscopy
-                    },
+                    // 🟢 CARGA NUEVOS CAMPOS
+                    ophthalmologyExam: c.ophthalmologyExam || getOphthalmoDefaults(),
+                    attachments: c.attachments || [],
+                    
                     diagnoses: c.diagnoses || [],
                     diagnosis: c.diagnosis, 
                     interconsultation: c.interconsultation || { required: false, to: "", reason: "", urgency: "NORMAL", status: "PENDING" },
@@ -159,7 +151,7 @@ export default function ConsultationDetailPage() {
           if (reason === null) return;
           
           const dxText = form.diagnoses.map(d => `[${d.code}] ${d.name}`).join(", ");
-          // Guardamos todo, incluyendo physicalExam nuevo
+          
           await updateConsultation(consultationId, { 
               ...form, 
               diagnosis: dxText || form.diagnosis, 
@@ -206,7 +198,6 @@ export default function ConsultationDetailPage() {
   const applyHistoryTemplate = (e) => { const key = e.target.value; if (!key) return; const t = ALICIA_TEMPLATES[key]; setForm(f => ({ ...f, history: f.history ? f.history + "\n\n" + t : t })); e.target.value = ""; };
   const handleAddMed = (textLine, medObject) => { setForm(prev => ({ ...prev, treatment: (prev.treatment ? prev.treatment + "\n" : "") + textLine, prescribedMeds: medObject ? [...prev.prescribedMeds, medObject] : prev.prescribedMeds })); };
   const removeMedFromList = (i) => { setForm(prev => ({ ...prev, prescribedMeds: prev.prescribedMeds.filter((_, idx) => idx !== i) })); };
-  const handleAddFile = (section, eye, fileUrl) => { setForm(f => ({ ...f, exam: { ...f.exam, [section]: { ...f.exam[section], [eye]: { ...f.exam[section][eye], files: [...(f.exam[section][eye].files || []), fileUrl] } } } })); alert("Archivo adjuntado: " + fileUrl); };
   const handleAllSystemsNormal = () => { if(confirm("¿Marcar todo IPAS como NORMAL?")) { setForm(f => ({ ...f, systemsReview: { ...getEmptySystems(), nervousVisual: {}, extended: {} } })); } };
 
   // 📝 GENERADOR DE RESUMEN CLÍNICO (ACTUALIZADO)
@@ -214,7 +205,7 @@ export default function ConsultationDetailPage() {
       let summaryLines = [];
       summaryLines.push("INTERROGATORIO POR APARATOS Y SISTEMAS:");
 
-      // IPAS - Nervioso y Visual
+      // IPAS ... (Lógica existente) ...
       const nv = form.systemsReview.nervousVisual || {};
       Object.values(IPAS_NV_CONFIG).forEach(block => {
           const symptoms = nv[block.id] || {};
@@ -223,82 +214,55 @@ export default function ConsultationDetailPage() {
               const details = actives.map(([k, val]) => {
                   const symConfig = block.symptoms.find(s => s.id === k);
                   const label = symConfig?.label || k;
-                  let parts = [];
-                  if (val.intensity) parts.push(`Int: ${val.intensity}`);
-                  if (val.zone) parts.push(`Zona: ${val.zone}`);
-                  return `${label} (${parts.join(", ")})`;
+                  return `${label} (${val.intensity || ''})`;
               });
-              summaryLines.push(`${block.title}: Se refiere ${details.join("; ")}.`);
-          } else {
-              summaryLines.push(`${block.title}: Negado.`);
-          }
-      });
-
-      // IPAS - Extendido
-      const ext = form.systemsReview.extended || {};
-      Object.values(IPAS_EXTENDED_CONFIG).forEach(block => {
-          const blockData = ext[block.id] || {};
-          let headerText = [];
-          if (block.headerFields) block.headerFields.forEach(f => { if(blockData[f.id]) headerText.push(`${f.label}: ${blockData[f.id]}`); });
-          const actives = block.symptoms.filter(sym => blockData[sym.id]?.present).map(sym => sym.label);
-          if (headerText.length > 0 || actives.length > 0) {
-              summaryLines.push(`${block.title}: ${[...headerText, ...actives].join(", ")}.`);
-          } else {
-              summaryLines.push(`${block.title}: Negado.`);
+              summaryLines.push(`${block.title}: ${details.join("; ")}.`);
           }
       });
 
       summaryLines.push(""); 
       summaryLines.push("EXPLORACIÓN FÍSICA GENERAL:");
       const pe = form.physicalExam?.general || getPhysicalExamDefaults();
-      
-      // Signos Vitales (Nuevo)
       let vitals = [];
       if(pe.vitals?.ta) vitals.push(`TA: ${pe.vitals.ta}`);
       if(pe.vitals?.fc) vitals.push(`FC: ${pe.vitals.fc}`);
-      if(pe.vitals?.temp) vitals.push(`T: ${pe.vitals.temp}°C`);
       if(pe.anthro?.imc) vitals.push(`IMC: ${pe.anthro.imc}`);
       if(vitals.length) summaryLines.push(`Signos Vitales: ${vitals.join(", ")}.`);
       
-      // Habitus
       const h = pe.habitus || {};
-      if (h.facies !== "Normotípica" || h.apariencia !== "Buena") {
-          summaryLines.push(`Inspección General: Facies ${h.facies}, apariencia ${h.apariencia}.`);
-      } else {
-          summaryLines.push("Inspección General: Consciente, edad aparente acorde a la cronológica, facies normotípica.");
-      }
+      summaryLines.push(`Inspección General: Facies ${h.facies}, apariencia ${h.apariencia}.`);
 
-      // Exploración Regional (Hallazgos Positivos)
+      // Regional
       const pr = form.physicalExam?.regional || {};
-      let regionsText = [];
       Object.keys(PE_REGIONS_CONFIG).forEach(key => {
           const config = PE_REGIONS_CONFIG[key];
           const data = pr[key] || {};
-          const abnormalItems = config.items.filter(item => {
-              const val = data[item.id];
-              if(item.type === "toggle") return item.invert ? !val : val;
-              return val !== item.default && val !== "";
-          });
-          if (abnormalItems.length > 0 || data.notas) {
-              const details = abnormalItems.map(i => i.label);
-              if(data.notas) details.push(`Notas: ${data.notas}`);
-              regionsText.push(`${config.title.split('. ')[1]}: ${details.join(", ")}.`);
-          }
+          if (data.notas) summaryLines.push(`${config.title}: ${data.notas}`);
       });
 
-      if(regionsText.length > 0) {
-          summaryLines.push("Hallazgos Regionales Relevantes:");
-          summaryLines.push(...regionsText);
-      } else {
-          summaryLines.push("Exploración física regional sin hallazgos patológicos aparentes.");
-      }
+      // Neuro
+      const neuro = form.physicalExam?.neuro || {};
+      let neuroText = [];
+      Object.keys(PE_NEURO_CONFIG).forEach(key => {
+          const config = PE_NEURO_CONFIG[key];
+          const data = neuro[key] || {};
+          if (data.notas) neuroText.push(`${config.title}: ${data.notas}`);
+      });
+      if (neuroText.length) summaryLines.push("Neuro: " + neuroText.join("; "));
 
-      // Oftalmo (Existente)
+      // 🟢 OFTALMOLÓGICA ROBUSTA
       summaryLines.push("");
-      summaryLines.push("EXPLORACIÓN OFTALMOLÓGICA:");
-      summaryLines.push(`Biomicroscopía: ${form.exam.anterior.notes || "Sin hallazgos relevantes."}`);
-      summaryLines.push(`Fondo de Ojo: ${form.exam.posterior.notes || "Sin hallazgos relevantes."}`);
-      summaryLines.push(`PIO: OD ${form.exam.tonometry.od} / OS ${form.exam.tonometry.os} mmHg`);
+      summaryLines.push("EXPLORACIÓN OFTALMOLÓGICA DETALLADA:");
+      const oph = form.ophthalmologyExam;
+      Object.keys(OPHTHALMO_CONFIG).forEach(key => {
+          const config = OPHTHALMO_CONFIG[key];
+          const data = oph[key];
+          if (!data.isNormal) {
+              const od = Object.entries(data.od).filter(([_,v])=>v).map(([k,v])=>`${k}: ${v}`).join(", ");
+              const os = Object.entries(data.os).filter(([_,v])=>v).map(([k,v])=>`${k}: ${v}`).join(", ");
+              if(od || os) summaryLines.push(`${config.title}: [OD] ${od || "Sin datos"} | [OI] ${os || "Sin datos"}`);
+          }
+      });
 
       return summaryLines.join("\n");
   };
@@ -334,7 +298,7 @@ export default function ConsultationDetailPage() {
       <div style={{ display: "grid", gap: 30 }}>
         <section style={{ background: "#1a1a1a", padding: 24, borderRadius: 12, border: "1px solid #333" }}>
           
-          {/* CABECERA DE FECHA Y ACCIONES */}
+          {/* CABECERA */}
           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 20, background:"#111", padding:10, borderRadius:8, border:"1px solid #333" }}>
              <label style={{ fontSize: 13, color: "#888" }}>Fecha Atención 
                 <input type="date" disabled={isLocked} value={form.visitDate} onChange={(e) => setForm(f => ({ ...f, visitDate: e.target.value }))} style={{...inputStyle, width:"auto", marginLeft:10}} />
@@ -363,7 +327,7 @@ export default function ConsultationDetailPage() {
                   </div>
                 </div>
 
-                {/* IPAS (SISTEMAS) */}
+                {/* IPAS */}
                 <div style={{background:"#111", padding:15, borderRadius:8, border:"1px solid #444"}}>
                     <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10}}>
                         <h4 style={{color:"#fbbf24", margin:0, cursor:"pointer"}} onClick={() => setShowIPAS(!showIPAS)}>{showIPAS ? "▼" : "▶"} Interrogatorio por Aparatos y Sistemas (IPAS)</h4>
@@ -380,7 +344,7 @@ export default function ConsultationDetailPage() {
                     )}
                 </div>
 
-                {/* 2. EXPLORACIÓN FÍSICA (NUEVO) */}
+                {/* 2. EXPLORACIÓN FÍSICA Y NEURO (ACORDEONES) */}
                 <div style={{marginTop: 20}}>
                     <h3 style={{ color:"#a78bfa", borderBottom:"1px solid #a78bfa", paddingBottom:5 }}>2. Exploración Física</h3>
                     <PhysicalExamGeneralForm 
@@ -391,51 +355,29 @@ export default function ConsultationDetailPage() {
                         data={form.physicalExam?.regional} 
                         onChange={(val) => setForm(prev => ({ ...prev, physicalExam: { ...prev.physicalExam, regional: val } }))} 
                     />
+                    <PhysicalExamNeuroForm 
+                        data={form.physicalExam?.neuro}
+                        onChange={(val) => setForm(prev => ({ ...prev, physicalExam: { ...prev.physicalExam, neuro: val } }))}
+                    />
                 </div>
 
                 {/* 📍 EXAMEN DE LA VISTA (RX) */}
                 <EyeExamsPanel patientId={patientId} consultationId={consultationId} />
 
-                {/* 3. BIOMICROSCOPÍA */}
-                <div>
-                  <h3 style={{ color:"#4ade80", borderBottom:"1px solid #4ade80", paddingBottom:5 }}>3. Biomicroscopía (Ant)</h3>
-                  <div style={{ display: "grid", gap: 20 }}>
-                    {SEGMENTS_ANTERIOR.map(seg => (
-                        <ODOSEditor key={seg.key} title={seg.label.toUpperCase()} dataOD={form.exam.anterior.od[seg.key]} dataOS={form.exam.anterior.os[seg.key]} options={QUICK_DATA.anterior[seg.key]} onUpdate={(eye, val) => setForm(f => ({...f, exam: {...f.exam, anterior: {...f.exam.anterior, [eye]: {...f.exam.anterior[eye], [seg.key]: val}}}}))} onAddFile={(eye, url) => handleAddFile('anterior', eye, url)} />
-                    ))}
-                    <label><span style={labelStyle}>Notas Adicionales</span><textarea rows={2} value={form.exam.anterior.notes} onChange={e => setForm(f => ({...f, exam: {...f.exam, anterior: {...f.exam.anterior, notes: e.target.value}}}))} style={textareaStyle} /></label>
-                  </div>
+                {/* 3. OFTALMOLOGÍA ROBUSTA (NUEVA SECCIÓN) */}
+                <div style={{ marginTop: 20 }}>
+                   <OphthalmologyExamForm 
+                      data={form.ophthalmologyExam}
+                      onChange={(val) => setForm(prev => ({ ...prev, ophthalmologyExam: val }))}
+                   />
                 </div>
 
-                {/* 4. TONOMETRÍA (RESTAURADO) */}
+                {/* 4. DIAGNÓSTICO Y PLAN */}
                 <div>
-                   <h3 style={{ color:"#fcd34d", borderBottom:"1px solid #fcd34d", paddingBottom:5 }}>4. Tonometría</h3>
-                   <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 15, background:"#292524", padding:15, borderRadius:8 }}>
-                      <label><span style={{...labelStyle, color:"#fcd34d"}}>PIO OD</span><input type="number" value={form.exam.tonometry.od} onChange={e => setForm(f => ({...f, exam: {...f.exam, tonometry: {...f.exam.tonometry, od: e.target.value}}}))} style={inputStyle} /></label>
-                      <label><span style={{...labelStyle, color:"#fcd34d"}}>PIO OS</span><input type="number" value={form.exam.tonometry.os} onChange={e => setForm(f => ({...f, exam: {...f.exam, tonometry: {...f.exam.tonometry, os: e.target.value}}}))} style={inputStyle} /></label>
-                      <label><span style={labelStyle}>Hora</span><input type="time" value={form.exam.tonometry.time} onChange={e => setForm(f => ({...f, exam: {...f.exam, tonometry: {...f.exam.tonometry, time: e.target.value}}}))} style={inputStyle} /></label>
-                      <label style={{gridColumn: "1/-1"}}><span style={labelStyle}>Medicamento / Gotas Aplicadas</span><input value={form.exam.tonometry.meds} onChange={e => setForm(f => ({...f, exam: {...f.exam, tonometry: {...f.exam.tonometry, meds: e.target.value}}}))} style={inputStyle} placeholder="Ej. Tetracaína, Timolol..." /></label>
-                   </div>
-                </div>
-
-                {/* 5. FONDO DE OJO (RESTAURADO) */}
-                <div>
-                  <h3 style={{ color:"#f472b6", borderBottom:"1px solid #f472b6", paddingBottom:5 }}>5. Fondo de Ojo (Post)</h3>
-                  <div style={{ display: "grid", gap: 20 }}>
-                    {SEGMENTS_POSTERIOR.map(seg => (
-                        <ODOSEditor key={seg.key} title={seg.label.toUpperCase()} dataOD={form.exam.posterior.od[seg.key]} dataOS={form.exam.posterior.os[seg.key]} options={QUICK_DATA.posterior[seg.key]} onUpdate={(eye, val) => setForm(f => ({...f, exam: {...f.exam, posterior: {...f.exam.posterior, [eye]: {...f.exam.posterior[eye], [seg.key]: val}}}}))} onAddFile={(eye, url) => handleAddFile('posterior', eye, url)} />
-                    ))}
-                     <label><span style={labelStyle}>Notas Adicionales</span><textarea rows={2} value={form.exam.posterior.notes} onChange={e => setForm(f => ({...f, exam: {...f.exam, posterior: {...f.exam.posterior, notes: e.target.value}}}))} style={textareaStyle} /></label>
-                  </div>
-                </div>
-
-                {/* 6. DIAGNÓSTICO Y PLAN */}
-                <div>
-                  <h3 style={{ color:"#a78bfa", borderBottom:"1px solid #a78bfa", paddingBottom:5 }}>6. Diagnóstico y Plan</h3>
+                  <h3 style={{ color:"#a78bfa", borderBottom:"1px solid #a78bfa", paddingBottom:5 }}>4. Diagnóstico y Plan</h3>
                   <div style={{ display: "grid", gap: 15 }}>
                     <DiagnosisManager diagnoses={form.diagnoses} onChange={(newDx) => setForm(f => ({ ...f, diagnoses: newDx }))} />
-                    <label style={{ fontSize: 12, color: "#666" }}>Notas Dx (Texto libre adicional)</label>
-                    <textarea rows={1} value={form.diagnosis} onChange={(e) => setForm(f => ({ ...f, diagnosis: e.target.value }))} style={{...textareaStyle, background:"#111"}} />
+                    <textarea rows={1} value={form.diagnosis} onChange={(e) => setForm(f => ({ ...f, diagnosis: e.target.value }))} style={{...textareaStyle, background:"#111"}} placeholder="Notas diagnósticas..." />
                     <InterconsultationForm data={form.interconsultation} onChange={(newVal) => setForm(f => ({ ...f, interconsultation: newVal }))} />
                     <label style={{...labelStyle, marginTop:10}}>Tratamiento / Receta</label>
                     <PrescriptionBuilder onAdd={handleAddMed} />
@@ -477,7 +419,13 @@ export default function ConsultationDetailPage() {
             </div>
         </section>
 
-        {/* 📍 B) ESTUDIOS / GABINETE (RESTAURADO) */}
+        {/* 📍 ADJUNTOS (NUEVO) */}
+        <AttachmentsPanel 
+           attachments={form.attachments}
+           onUpdate={(newAttachments) => setForm(prev => ({ ...prev, attachments: newAttachments }))}
+        />
+
+        {/* 📍 ESTUDIOS (LEGACY, MANTENER POR SI ACASO) */}
         <StudiesPanel patientId={patientId} consultationId={consultationId} />
 
       </div>
