@@ -3,7 +3,7 @@ import {
   getExamsByPatient, 
   getExamsByConsultation, 
   createEyeExam, 
-  updateEyeExam,
+  updateEyeExam, 
   deleteEyeExam 
 } from "@/services/eyeExamStorage"; 
 import RxPicker from "@/components/RxPicker";
@@ -15,8 +15,6 @@ import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
 import Input from "@/components/ui/Input";
 import Badge from "@/components/ui/Badge";
-
-// 👇 IMPORTACIÓN QUE FALTABA
 import LoadingState from "@/components/LoadingState";
 
 const TABS = { PRELIM: "prelim", REFRACTION: "refraction", CONTACT: "contact" };
@@ -44,10 +42,10 @@ const TabButton = ({ id, label, activeTab, setActiveTab }) => (
     type="button"
     onClick={() => setActiveTab(id)}
     className={`
-      flex-1 py-2 text-sm font-medium transition-colors border-b-2 
+      flex-1 py-3 text-sm font-medium transition-colors border-b-2 
       ${activeTab === id 
-        ? "border-primary text-primary" 
-        : "border-transparent text-textMuted hover:text-white hover:bg-surfaceHighlight/50"
+        ? "border-primary text-primary bg-surfaceHighlight/10" 
+        : "border-transparent text-textMuted hover:text-white hover:bg-surfaceHighlight/5"
       }
     `}
   >
@@ -70,20 +68,20 @@ const AvInput = ({ label, valOD, valOS, valAO, onChange, prevData }) => {
   };
 
   return (
-    <div className="bg-surfaceHighlight/30 p-3 rounded-lg border border-border">
+    <div className="bg-surfaceHighlight/20 p-3 rounded-lg border border-border">
       <div className="text-xs font-bold text-textMuted uppercase mb-2">{label}</div>
       <div className="grid grid-cols-3 gap-3">
         <label>
            <span className="text-[10px] text-blue-400 font-bold block mb-1">OD <RenderDiff current={valOD} prev={prevData?.od} /></span>
-           <input value={valOD} onChange={e => onChange('od', e.target.value)} className="w-full bg-background border border-border rounded px-2 py-1 text-sm focus:border-blue-500 outline-none text-center" placeholder="20/..." />
+           <input value={valOD} onChange={e => onChange('od', e.target.value)} className="w-full bg-background border border-border rounded px-2 py-1 text-sm focus:border-blue-500 outline-none text-center text-white" placeholder="20/..." />
         </label>
         <label>
            <span className="text-[10px] text-green-400 font-bold block mb-1">OS <RenderDiff current={valOS} prev={prevData?.os} /></span>
-           <input value={valOS} onChange={e => onChange('os', e.target.value)} className="w-full bg-background border border-border rounded px-2 py-1 text-sm focus:border-green-500 outline-none text-center" placeholder="20/..." />
+           <input value={valOS} onChange={e => onChange('os', e.target.value)} className="w-full bg-background border border-border rounded px-2 py-1 text-sm focus:border-green-500 outline-none text-center text-white" placeholder="20/..." />
         </label>
         <label>
            <span className="text-[10px] text-white font-bold block mb-1">AO <RenderDiff current={valAO} prev={prevData?.ao} /></span>
-           <input value={valAO} onChange={e => onChange('ao', e.target.value)} className="w-full bg-background border border-border rounded px-2 py-1 text-sm focus:border-white outline-none text-center" placeholder="20/..." />
+           <input value={valAO} onChange={e => onChange('ao', e.target.value)} className="w-full bg-background border border-border rounded px-2 py-1 text-sm focus:border-white outline-none text-center text-white" placeholder="20/..." />
         </label>
       </div>
     </div>
@@ -102,6 +100,7 @@ export default function EyeExamsPanel({ patientId, consultationId = null, onSell
   const [formDate, setFormDate] = useState(new Date().toISOString().slice(0, 10));
   const [notes, setNotes] = useState("");
   
+  // Estados iniciales robustos
   const [prelim, setPrelim] = useState({ avsc: { far: { od: "", os: "", ao: "" }, near: { od: "", os: "", ao: "" } }, avcc: { far: { od: "", os: "", ao: "" }, near: { od: "", os: "", ao: "" } }, cv: { far: { od: "", os: "", ao: "" }, near: { od: "", os: "", ao: "" } }, ishihara: "", motility: "", lensometry: normalizeRxValue() });
   const [refraction, setRefraction] = useState({ autorefrac: { od: "", os: "" }, finalRx: normalizeRxValue(), finalAv: { far: { od: "", os: "", ao: "" }, near: { od: "", os: "", ao: "" } } });
   const [cl, setCl] = useState({ keratometry: { od: { k1:"", k2:"", axis:"" }, os: { k1:"", k2:"", axis:"" } }, trial: { od: { baseCurve:"", diameter:"", power:"", av:"", overRefraction:"" }, os: { baseCurve:"", diameter:"", power:"", av:"", overRefraction:"" }, notes: "" }, final: { design: "", brand: "", od: { baseCurve:"", diameter:"", power:"" }, os: { baseCurve:"", diameter:"", power:"" } } });
@@ -166,7 +165,7 @@ export default function EyeExamsPanel({ patientId, consultationId = null, onSell
 
       {isCreating && (
         <div className="bg-background rounded-xl border border-border overflow-hidden mb-6 animate-fadeIn">
-           <div className="flex border-b border-border bg-surfaceHighlight/20">
+           <div className="flex border-b border-border bg-surfaceHighlight/10">
               <TabButton id={TABS.PRELIM} label="1. Preliminares" activeTab={activeTab} setActiveTab={setActiveTab} />
               <TabButton id={TABS.REFRACTION} label="2. Refracción" activeTab={activeTab} setActiveTab={setActiveTab} />
               <TabButton id={TABS.CONTACT} label="3. Lentes de Contacto" activeTab={activeTab} setActiveTab={setActiveTab} />
@@ -177,8 +176,9 @@ export default function EyeExamsPanel({ patientId, consultationId = null, onSell
                  <Input label="Fecha" type="date" value={formDate} onChange={e => setFormDate(e.target.value)} className="w-auto" />
               </div>
 
+              {/* 1. PRELIMINARES */}
               {activeTab === TABS.PRELIM && (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 animate-fadeIn">
                    <div className="space-y-4">
                       <h4 className="text-sm font-bold text-amber-400 border-b border-amber-500/30 pb-2">Agudeza Visual Entrada (SC)</h4>
                       <AvInput label="Lejos" valOD={prelim.avsc.far.od} valOS={prelim.avsc.far.os} valAO={prelim.avsc.far.ao} 
@@ -196,8 +196,9 @@ export default function EyeExamsPanel({ patientId, consultationId = null, onSell
                 </div>
               )}
 
+              {/* 2. REFRACCIÓN */}
               {activeTab === TABS.REFRACTION && (
-                <div className="space-y-6">
+                <div className="space-y-6 animate-fadeIn">
                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-surfaceHighlight/20 p-4 rounded-xl">
                       <Input label="Autorefractómetro OD" value={refraction.autorefrac.od} onChange={e => setRefraction(r => ({...r, autorefrac: {...r.autorefrac, od: e.target.value}}))} placeholder="-2.00 -0.50 x 180" />
                       <Input label="Autorefractómetro OS" value={refraction.autorefrac.os} onChange={e => setRefraction(r => ({...r, autorefrac: {...r.autorefrac, os: e.target.value}}))} placeholder="-2.00 -0.50 x 180" />
@@ -225,13 +226,70 @@ export default function EyeExamsPanel({ patientId, consultationId = null, onSell
                 </div>
               )}
 
+              {/* 3. LENTES DE CONTACTO (RESTAURADO Y ESTILIZADO) */}
               {activeTab === TABS.CONTACT && (
-                 <div className="text-center text-textMuted py-10 italic">Módulo de Lentes de Contacto en construcción visual... (Usar campos de texto libre por ahora)</div>
+                <div className="space-y-6 animate-fadeIn">
+                    
+                    {/* QUERATOMETRÍA */}
+                    <div className="bg-surfaceHighlight/20 p-4 rounded-xl border border-border">
+                        <h4 className="text-sm font-bold text-pink-400 border-b border-pink-500/30 pb-2 mb-3">1. Queratometría</h4>
+                        
+                        {/* OD */}
+                        <div className="grid grid-cols-[40px_1fr_1fr_1fr] gap-3 mb-3 items-center">
+                            <span className="text-sm font-bold text-blue-400">OD</span>
+                            <Input placeholder="K1" value={cl.keratometry.od.k1} onChange={e => setCl(c => ({...c, keratometry: {...c.keratometry, od: {...c.keratometry.od, k1: e.target.value}}}))} className="h-8 text-xs text-center" />
+                            <Input placeholder="K2" value={cl.keratometry.od.k2} onChange={e => setCl(c => ({...c, keratometry: {...c.keratometry, od: {...c.keratometry.od, k2: e.target.value}}}))} className="h-8 text-xs text-center" />
+                            <Input placeholder="Eje" value={cl.keratometry.od.axis} onChange={e => setCl(c => ({...c, keratometry: {...c.keratometry, od: {...c.keratometry.od, axis: e.target.value}}}))} className="h-8 text-xs text-center" />
+                        </div>
+                        
+                        {/* OS */}
+                        <div className="grid grid-cols-[40px_1fr_1fr_1fr] gap-3 items-center">
+                            <span className="text-sm font-bold text-green-400">OS</span>
+                            <Input placeholder="K1" value={cl.keratometry.os.k1} onChange={e => setCl(c => ({...c, keratometry: {...c.keratometry, os: {...c.keratometry.os, k1: e.target.value}}}))} className="h-8 text-xs text-center" />
+                            <Input placeholder="K2" value={cl.keratometry.os.k2} onChange={e => setCl(c => ({...c, keratometry: {...c.keratometry, os: {...c.keratometry.os, k2: e.target.value}}}))} className="h-8 text-xs text-center" />
+                            <Input placeholder="Eje" value={cl.keratometry.os.axis} onChange={e => setCl(c => ({...c, keratometry: {...c.keratometry, os: {...c.keratometry.os, axis: e.target.value}}}))} className="h-8 text-xs text-center" />
+                        </div>
+                    </div>
+
+                    {/* LENTE DE PRUEBA */}
+                    <div className="bg-surfaceHighlight/10 p-4 rounded-xl border border-border">
+                        <h4 className="text-sm font-bold text-pink-400 border-b border-pink-500/30 pb-2 mb-3">2. Lente de Prueba</h4>
+                        
+                        {/* HEADER TABLA */}
+                        <div className="grid grid-cols-[40px_1fr_1fr_1fr_1fr] gap-3 mb-2 text-[10px] text-textMuted font-bold uppercase text-center">
+                            <span></span>
+                            <span>Curva Base</span>
+                            <span>Diámetro</span>
+                            <span>Poder</span>
+                            <span>Sobre-Rx</span>
+                        </div>
+
+                        {/* OD */}
+                        <div className="grid grid-cols-[40px_1fr_1fr_1fr_1fr] gap-3 mb-3 items-center">
+                            <span className="text-sm font-bold text-blue-400">OD</span>
+                            <Input placeholder="CB" value={cl.trial.od.baseCurve} onChange={e => setCl(c => ({...c, trial: {...c.trial, od: {...c.trial.od, baseCurve: e.target.value}}}))} className="h-8 text-xs text-center" />
+                            <Input placeholder="DIA" value={cl.trial.od.diameter} onChange={e => setCl(c => ({...c, trial: {...c.trial, od: {...c.trial.od, diameter: e.target.value}}}))} className="h-8 text-xs text-center" />
+                            <Input placeholder="PWR" value={cl.trial.od.power} onChange={e => setCl(c => ({...c, trial: {...c.trial, od: {...c.trial.od, power: e.target.value}}}))} className="h-8 text-xs text-center" />
+                            <Input placeholder="S-Rx" value={cl.trial.od.overRefraction} onChange={e => setCl(c => ({...c, trial: {...c.trial, od: {...c.trial.od, overRefraction: e.target.value}}}))} className="h-8 text-xs text-center" />
+                        </div>
+
+                        {/* OS */}
+                        <div className="grid grid-cols-[40px_1fr_1fr_1fr_1fr] gap-3 items-center mb-4">
+                            <span className="text-sm font-bold text-green-400">OS</span>
+                            <Input placeholder="CB" value={cl.trial.os.baseCurve} onChange={e => setCl(c => ({...c, trial: {...c.trial, os: {...c.trial.os, baseCurve: e.target.value}}}))} className="h-8 text-xs text-center" />
+                            <Input placeholder="DIA" value={cl.trial.os.diameter} onChange={e => setCl(c => ({...c, trial: {...c.trial, os: {...c.trial.os, diameter: e.target.value}}}))} className="h-8 text-xs text-center" />
+                            <Input placeholder="PWR" value={cl.trial.os.power} onChange={e => setCl(c => ({...c, trial: {...c.trial, os: {...c.trial.os, power: e.target.value}}}))} className="h-8 text-xs text-center" />
+                            <Input placeholder="S-Rx" value={cl.trial.os.overRefraction} onChange={e => setCl(c => ({...c, trial: {...c.trial, os: {...c.trial.os, overRefraction: e.target.value}}}))} className="h-8 text-xs text-center" />
+                        </div>
+
+                        <Input label="Notas de Adaptación" value={cl.trial.notes} onChange={e => setCl(c => ({...c, trial: {...c.trial, notes: e.target.value}}))} placeholder="Movimiento, centrado, comodidad..." />
+                    </div>
+                </div>
               )}
 
               <div className="pt-4 border-t border-border">
                  <label className="block text-xs font-bold text-textMuted uppercase mb-2">Observaciones Generales</label>
-                 <textarea rows={2} value={notes} onChange={e => setNotes(e.target.value)} className="w-full bg-surface border border-border rounded-xl p-3 text-textMain focus:border-primary outline-none" />
+                 <textarea rows={2} value={notes} onChange={e => setNotes(e.target.value)} className="w-full bg-surface border border-border rounded-xl p-3 text-textMain focus:border-primary outline-none resize-none" />
                  <Button type="submit" variant="primary" className="w-full mt-4">
                     {editingId ? "Actualizar Examen" : "Guardar Examen"}
                  </Button>
