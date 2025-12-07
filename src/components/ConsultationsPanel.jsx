@@ -5,6 +5,12 @@ import {
   deleteConsultation,
   getConsultationsByPatient,
 } from "@/services/consultationsStorage";
+import LoadingState from "@/components/LoadingState";
+import Card from "@/components/ui/Card";
+import Button from "@/components/ui/Button";
+import Input from "@/components/ui/Input";
+import Select from "@/components/ui/Select";
+import Badge from "@/components/ui/Badge";
 
 const ITEMS_PER_PAGE = 5;
 
@@ -68,85 +74,81 @@ export default function ConsultationsPanel({ patientId }) {
   };
 
   return (
-    <section style={{ background: "#1a1a1a", padding: 20, borderRadius: 12, border: "1px solid #333" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 15 }}>
-        {/* 🟢 CAMBIO: Título actualizado de "Historia Clínica" a "Exploración" */}
-        <h2 style={{ margin: 0, fontSize: "1.2em", color: "#e5e7eb" }}>Exploración ({allConsultations.length})</h2>
-        <button 
-          onClick={() => setIsCreating(!isCreating)} 
-          style={{ background: isCreating ? "#333" : "#2563eb", color: "white", border: "none", padding: "6px 12px", borderRadius: 6, cursor: "pointer", fontSize: "0.9em" }}
-        >
+    <Card className="border-t-4 border-t-blue-600 transition-all duration-300">
+      <div className="flex justify-between items-center mb-6">
+        <h2 className="text-xl font-bold text-white flex items-center gap-2">
+            🩺 Exploración Médica ({allConsultations.length})
+        </h2>
+        <Button onClick={() => setIsCreating(!isCreating)} variant={isCreating ? "ghost" : "primary"}>
           {isCreating ? "Cancelar" : "+ Nueva Consulta"}
-        </button>
+        </Button>
       </div>
 
       {isCreating && (
-        <form onSubmit={onSubmit} style={{ display: "grid", gap: 10, marginBottom: 20, padding: 15, background: "#111", borderRadius: 8, border: "1px dashed #444" }}>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                <label style={{ fontSize: 12, color: "#aaa" }}>Fecha
-                    <input type="date" value={form.visitDate} onChange={(e) => setForm((f) => ({ ...f, visitDate: e.target.value }))} style={{ width: "100%", padding: 6, background: "#222", border: "1px solid #444", color: "white", borderRadius: 4 }} />
-                </label>
-                <label style={{ fontSize: 12, color: "#aaa" }}>Tipo
-                    <select value={form.type} onChange={(e) => setForm((f) => ({ ...f, type: e.target.value }))} style={{ width: "100%", padding: 6, background: "#222", border: "1px solid #444", color: "white", borderRadius: 4 }}>
-                        <option value="OPHTHALMO">Oftalmología</option>
-                        <option value="REFRACTIVE">Optometría</option>
-                        <option value="GENERAL">General</option>
-                    </select>
-                </label>
+        <form onSubmit={onSubmit} className="bg-background p-6 rounded-xl border border-border mb-6 animate-fadeIn space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+                <Input label="Fecha" type="date" value={form.visitDate} onChange={(e) => setForm((f) => ({ ...f, visitDate: e.target.value }))} />
+                <Select label="Tipo" value={form.type} onChange={(e) => setForm((f) => ({ ...f, type: e.target.value }))}>
+                    <option value="OPHTHALMO">Oftalmología</option>
+                    <option value="REFRACTIVE">Optometría</option>
+                    <option value="GENERAL">General</option>
+                </Select>
             </div>
-            <input placeholder="Motivo de consulta" value={form.reason} onChange={(e) => setForm((f) => ({ ...f, reason: e.target.value }))} style={{ padding: 8, background: "#222", border: "1px solid #444", color: "white", borderRadius: 4 }} />
-            <input placeholder="Diagnóstico" value={form.diagnosis} onChange={(e) => setForm((f) => ({ ...f, diagnosis: e.target.value }))} style={{ padding: 8, background: "#222", border: "1px solid #444", color: "white", borderRadius: 4 }} />
-            <button type="submit" style={{ background: "#4ade80", color: "black", border: "none", padding: "8px", borderRadius: 4, cursor: "pointer", fontWeight: "bold" }}>Guardar Registro</button>
+            <Input label="Motivo de Consulta" placeholder="Razón de la visita" value={form.reason} onChange={(e) => setForm((f) => ({ ...f, reason: e.target.value }))} />
+            <Input label="Diagnóstico Inicial" placeholder="Opcional" value={form.diagnosis} onChange={(e) => setForm((f) => ({ ...f, diagnosis: e.target.value }))} />
+            <div className="text-right">
+                <Button type="submit" variant="primary">Guardar Registro</Button>
+            </div>
         </form>
       )}
 
-      {loading ? <div style={{textAlign:"center", padding:20, color:"#666"}}>Cargando historial...</div> : (
+      {loading ? <LoadingState /> : (
           <>
             {allConsultations.length > 0 && (
-                <input 
+                <Input 
                     placeholder="🔍 Buscar en historial..." 
                     value={search}
                     onChange={e => { setSearch(e.target.value); setPage(1); }}
-                    style={{ width: "100%", padding: 8, marginBottom: 15, background: "#111", border: "1px solid #333", color: "white", borderRadius: 6 }}
+                    className="mb-4 bg-surface"
                 />
             )}
 
-            <div style={{ display: "grid", gap: 10 }}>
+            <div className="space-y-3">
                 {paginated.length === 0 ? (
-                <p style={{ opacity: 0.6, fontSize: 13, fontStyle: "italic" }}>No hay registros que coincidan.</p>
+                    <p className="text-textMuted text-sm italic">No hay registros que coincidan.</p>
                 ) : (
-                paginated.map((c) => (
-                    <div key={c.id} style={{ border: "1px solid #333", borderRadius: 8, padding: 12, background: "#111" }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
-                        <div>
-                        <span style={{ fontWeight: "bold", color: "#fff" }}>{new Date(c.visitDate || c.createdAt).toLocaleDateString()}</span>
-                        <span style={{ marginLeft: 8, fontSize: 11, background: c.type==="OPHTHALMO"?"#1e3a8a":"#064e3b", padding: "2px 6px", borderRadius: 4, color: "#ddd" }}>
-                            {c.type === "OPHTHALMO" ? "Médica" : "Optometría"}
-                        </span>
+                    paginated.map((c) => (
+                        <div key={c.id} className="border border-border rounded-xl p-4 bg-surface hover:border-primary/40 transition-colors">
+                            <div className="flex justify-between mb-2">
+                                <div>
+                                    <span className="font-bold text-white block">{new Date(c.visitDate || c.createdAt).toLocaleDateString()}</span>
+                                    <div className="mt-1">
+                                        <Badge color={c.type==="OPHTHALMO"?"blue":"green"}>{c.type === "OPHTHALMO" ? "Médica" : "Optometría"}</Badge>
+                                    </div>
+                                </div>
+                                <div className="flex gap-3 items-start">
+                                    <Link to={`/patients/${patientId}/consultations/${c.id}`} className="text-xs text-blue-400 hover:text-blue-300 font-medium">Ver Detalles ↗</Link>
+                                    <button onClick={() => onDelete(c.id)} className="text-textMuted hover:text-red-400 text-lg leading-none">×</button>
+                                </div>
+                            </div>
+                            <div className="text-sm text-textMuted">
+                                {c.diagnosis ? <strong className="text-white block">{c.diagnosis}</strong> : <span className="opacity-70">Sin diagnóstico</span>}
+                                {c.reason && <div className="mt-1 opacity-80">{c.reason}</div>}
+                            </div>
                         </div>
-                        <div style={{ display: "flex", gap: 10 }}>
-                        <Link to={`/patients/${patientId}/consultations/${c.id}`} style={{ fontSize: 12, color: "#60a5fa" }}>Ver Detalles ↗</Link>
-                        <button onClick={() => onDelete(c.id)} style={{ fontSize: 12, background: "none", border: "none", color: "#666", cursor: "pointer" }}>x</button>
-                        </div>
-                    </div>
-                    <div style={{ fontSize: 13, color: "#ccc" }}>
-                        {c.diagnosis ? <strong>{c.diagnosis}</strong> : <span style={{opacity:0.7}}>Sin diagnóstico</span>}
-                        {c.reason && <div style={{color:"#888", marginTop:2}}>{c.reason}</div>}
-                    </div>
-                    </div>
-                ))
+                    ))
                 )}
             </div>
 
             {totalPages > 1 && (
-                <div style={{ display: "flex", justifyContent: "center", gap: 10, marginTop: 15, alignItems: "center" }}>
-                    <button disabled={page === 1} onClick={() => setPage(p => p - 1)} style={{ background: "#333", color: "white", border: "none", padding: "4px 10px", borderRadius: 4, cursor: page===1?"not-allowed":"pointer", opacity: page===1?0.5:1 }}>◀</button>
-                    <span style={{ fontSize: 12, color: "#888" }}>Pág {page} de {totalPages}</span>
-                    <button disabled={page === totalPages} onClick={() => setPage(p => p + 1)} style={{ background: "#333", color: "white", border: "none", padding: "4px 10px", borderRadius: 4, cursor: page===totalPages?"not-allowed":"pointer", opacity: page===totalPages?0.5:1 }}>▶</button>
+                <div className="flex justify-center gap-2 mt-6">
+                    <button disabled={page === 1} onClick={() => setPage(p => p - 1)} className="px-3 py-1 rounded bg-surface border border-border disabled:opacity-50 text-textMuted hover:text-white">◀</button>
+                    <span className="text-sm self-center text-textMuted">Pág {page} de {totalPages}</span>
+                    <button disabled={page === totalPages} onClick={() => setPage(p => p + 1)} className="px-3 py-1 rounded bg-surface border border-border disabled:opacity-50 text-textMuted hover:text-white">▶</button>
                 </div>
             )}
           </>
       )}
-    </section>
+    </Card>
   );
 }

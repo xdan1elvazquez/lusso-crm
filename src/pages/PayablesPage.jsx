@@ -1,35 +1,40 @@
 import { useState, useMemo, useEffect } from "react";
-import { Link } from "react-router-dom";
 import { getAllWorkOrders, updateWorkOrder } from "@/services/workOrdersStorage";
-import { getAllSupplierDebts, createSupplierDebt, markDebtAsPaid, deleteSupplierDebt } from "@/services/supplierDebtsStorage";
+import { getAllSupplierDebts, markDebtAsPaid } from "@/services/supplierDebtsStorage";
 import { getSuppliers } from "@/services/suppliersStorage";
 import { getPatients } from "@/services/patientsStorage";
 import { createExpense } from "@/services/expensesStorage";
 import LoadingState from "@/components/LoadingState";
+import { useNotify, useConfirm } from "@/context/UIContext";
+
+// UI Kit
+import Card from "@/components/ui/Card";
+import Button from "@/components/ui/Button";
+import Badge from "@/components/ui/Badge";
+import ModalWrapper from "@/components/ui/ModalWrapper";
 
 export default function PayablesPage() {
+  const notify = useNotify();
+  const confirm = useConfirm();
   const [loading, setLoading] = useState(true);
+  
   const [orders, setOrders] = useState([]);
   const [supplierDebts, setSupplierDebts] = useState([]);
   const [patients, setPatients] = useState([]);
-  const [suppliers, setSuppliers] = useState([]);
   
-  const [payModal, setPayModal] = useState(null);
-  const [isCreating, setIsCreating] = useState(false);
+  const [payTarget, setPayTarget] = useState(null); // Elemento a pagar
 
   const refreshData = async () => {
       setLoading(true);
       try {
-          const [wo, deb, pat, sup] = await Promise.all([
+          const [wo, deb, pat] = await Promise.all([
               getAllWorkOrders(),
               getAllSupplierDebts(),
               getPatients(),
-              getSuppliers()
           ]);
           setOrders(wo);
           setSupplierDebts(deb);
           setPatients(pat);
-          setSuppliers(sup);
       } catch (e) { console.error(e); } finally { setLoading(false); }
   };
 
@@ -38,54 +43,129 @@ export default function PayablesPage() {
   const patientMap = useMemo(() => patients.reduce((acc, p) => ({ ...acc, [p.id]: p }), {}), [patients]);
 
   const allDebts = useMemo(() => {
-    const labDebts = orders.filter(w => w.labCost > 0 && !w.isPaid && w.status !== "CANCELLED").map(w => ({
-          ...w, uniqueId: `WO-${w.id}`, source: 'WORK_ORDER', title: w.labName || "Lab Externo", subtitle: `Px: ${patientMap[w.patientId]?.firstName || ""} · ${w.type}`, amount: w.labCost, date: w.createdAt
-      }));
-    const supplyDebts = supplierDebts.filter(d => !d.isPaid).map(d => ({
-          ...d, uniqueId: `SUP-${d.id}`, source: 'SUPPLIER', title: d.provider, subtitle: d.concept, amount: d.amount, date: d.createdAt
-      }));
+    // Deudas de Laboratorio (Work Orders no pagadas)
+    const labDebts = orders
+        .filter(w => w.labCost > 0 && !w.isPaid && w.status !== "CANCELLED")
+        .map(w => ({
+          ...w, 
+          uniqueId: `WO-${w.id}`, 
+          source: 'WORK_ORDER', 
+          title: w.labName || "Lab Externo", 
+          subtitle: `Px: ${patientMap[w.patientId]?.firstName || ""} · ${w.type}`, 
+          amount: w.labCost, 
+          date: w.createdAt,
+          typeLabel: "Laboratorio"
+        }));
+    
+    // Deudas de Proveedores
+    const supplyDebts = supplierDebts
+        .filter(d => !d.isPaid)
+        .map(d => ({
+          ...d, 
+          uniqueId: `SUP-${d.id}`, 
+          source: 'SUPPLIER', 
+          title: d.provider, 
+          subtitle: d.concept, 
+          amount: d.amount, 
+          date: d.createdAt,
+          typeLabel: "Proveedor"
+        }));
+        
     return [...labDebts, ...supplyDebts].sort((a, b) => new Date(a.date) - new Date(b.date));
   }, [orders, supplierDebts, patientMap]);
 
   const totalDebt = allDebts.reduce((sum, d) => sum + d.amount, 0);
 
-  const handlePay = async (debt, method) => {
-      await createExpense({
-        description: `Pago ${debt.source === 'WORK_ORDER' ? 'Lab' : 'Prov'}: ${debt.title} (${debt.subtitle})`,
-        amount: debt.amount,
-        category: debt.category || "COSTO_VENTA",
-        method: method,
-        date: new Date().toISOString()
-      });
+  const handlePay = async (method) => {
+      if (!payTarget) return;
 
-      if (debt.source === 'WORK_ORDER') await updateWorkOrder(debt.id, { isPaid: true });
-      else await markDebtAsPaid(debt.id);
+      try {
+          await createExpense({
+            description: `Pago ${payTarget.source === 'WORK_ORDER' ? 'Lab' : 'Prov'}: ${payTarget.title} (${payTarget.subtitle})`,
+            amount: payTarget.amount,
+            category: payTarget.category || "COSTO_VENTA",
+            method: method,
+            date: new Date().toISOString()
+          });
 
-      setPayModal(null);
-      refreshData();
+          if (payTarget.source === 'WORK_ORDER') await updateWorkOrder(payTarget.id, { isPaid: true });
+          else await markDebtAsPaid(payTarget.id);
+
+          setPayTarget(null);
+          refreshData();
+          notify.success("Pago registrado correctamente");
+      } catch (error) {
+          notify.error("Error al pagar: " + error.message);
+      }
   };
 
-  // ... (Resto de handlers y renderizado igual que la versión anterior) ...
-  
   if (loading) return <LoadingState />;
 
   return (
-      // ... (JSX igual que versión anterior, usando allDebts) ...
-      // Te ahorro el JSX repetitivo, es el mismo que tenías.
-      <div style={{ width: "100%", paddingBottom: 40 }}>
-        <h1>Cuentas por Pagar</h1>
-        {/* ... */}
-        <div style={{ display: "grid", gap: 10 }}>
-             {allDebts.map(d => (
-                 <div key={d.uniqueId} style={{background:"#1a1a1a", padding:15, border:"1px solid #333", borderRadius:10}}>
-                    <div style={{display:"flex", justifyContent:"space-between"}}>
-                        <strong>{d.title}</strong>
-                        <span>${d.amount.toLocaleString()}</span>
-                    </div>
-                    <button onClick={() => setPayModal(d)} style={{marginTop:10}}>Pagar</button>
+      <div className="page-container space-y-6">
+        <div className="flex flex-col md:flex-row justify-between items-end gap-4">
+            <div>
+                <h1 className="text-3xl font-bold text-white tracking-tight">Cuentas por Pagar</h1>
+                <p className="text-textMuted text-sm">Compromisos con laboratorios y proveedores</p>
+            </div>
+            <Card noPadding className="px-6 py-3 bg-surfaceHighlight/20 border-red-500/30">
+                <div className="text-xs text-textMuted uppercase font-bold tracking-wider">Total Deuda</div>
+                <div className="text-2xl font-bold text-red-400">${totalDebt.toLocaleString()}</div>
+            </Card>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+             {allDebts.length === 0 && (
+                 <div className="col-span-full py-20 text-center text-textMuted bg-surface rounded-xl border border-border">
+                     No hay deudas pendientes.
                  </div>
+             )}
+
+             {allDebts.map(d => (
+                 <Card key={d.uniqueId} className="hover:border-red-500/50 transition-colors group relative" noPadding>
+                    <div className="p-5">
+                        <div className="flex justify-between items-start mb-2">
+                            <div>
+                                <Badge color={d.source === 'WORK_ORDER' ? "blue" : "purple"} className="mb-2">{d.typeLabel}</Badge>
+                                <div className="font-bold text-white text-lg truncate" title={d.title}>{d.title}</div>
+                            </div>
+                            <div className="text-right">
+                                <div className="text-xl font-bold text-red-400">${d.amount.toLocaleString()}</div>
+                            </div>
+                        </div>
+                        
+                        <div className="bg-background rounded-lg p-2 text-xs text-textMuted mb-4 border border-border">
+                            <div className="font-bold text-white mb-0.5 truncate">{d.subtitle}</div>
+                            <div>{new Date(d.date).toLocaleDateString()}</div>
+                        </div>
+                        
+                        <Button onClick={() => setPayTarget(d)} className="w-full shadow-lg shadow-red-500/10" variant="secondary">
+                            Pagar Deuda
+                        </Button>
+                    </div>
+                 </Card>
              ))}
         </div>
+
+        {/* MODAL DE PAGO SIMPLE */}
+        {payTarget && (
+            <ModalWrapper title="Confirmar Pago" onClose={() => setPayTarget(null)} width="400px">
+                <div className="space-y-4">
+                    <div className="text-center py-4">
+                        <div className="text-sm text-textMuted mb-1">Vas a pagar a <strong className="text-white">{payTarget.title}</strong></div>
+                        <div className="text-3xl font-bold text-white">${payTarget.amount.toLocaleString()}</div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                        {["EFECTIVO", "TRANSFERENCIA", "TARJETA", "CHEQUE"].map(m => (
+                            <Button key={m} onClick={() => handlePay(m)} variant="secondary" className="text-xs">
+                                {m}
+                            </Button>
+                        ))}
+                    </div>
+                    <Button onClick={() => setPayTarget(null)} variant="ghost" className="w-full mt-2">Cancelar</Button>
+                </div>
+            </ModalWrapper>
+        )}
       </div>
   );
 }

@@ -3,10 +3,21 @@ import { getAllExpenses, createExpense, deleteExpense } from "@/services/expense
 import { preventNegativeKey, sanitizeMoney, formatMoneyBlur } from "@/utils/inputHandlers";
 import LoadingState from "@/components/LoadingState";
 
-const CATEGORIES = ["INVENTARIO", "OPERATIVO", "NOMINA", "MARKETING", "MANTENIMIENTO", "OTROS"];
+// UI Kit
+import Card from "@/components/ui/Card";
+import Button from "@/components/ui/Button";
+import Input from "@/components/ui/Input";
+import Select from "@/components/ui/Select";
+import Badge from "@/components/ui/Badge";
+import { useConfirm, useNotify } from "@/context/UIContext";
+
+const CATEGORIES = ["INVENTARIO", "OPERATIVO", "NOMINA", "MARKETING", "MANTENIMIENTO", "COSTO_VENTA", "OTROS"];
 const METHODS = ["EFECTIVO", "TRANSFERENCIA", "TARJETA", "CHEQUE"];
 
 export default function ExpensesPage() {
+  const confirm = useConfirm();
+  const notify = useNotify();
+
   const [loading, setLoading] = useState(true);
   const [expenses, setExpenses] = useState([]);
   const [isCreating, setIsCreating] = useState(false);
@@ -19,120 +30,116 @@ export default function ExpensesPage() {
     date: new Date().toISOString().slice(0, 10)
   });
 
-  // Función de recarga
   const refresh = async () => {
     setLoading(true);
     try {
         const data = await getAllExpenses();
         setExpenses(data);
-    } catch (error) {
-        console.error(error);
-        alert("Error al cargar gastos");
-    } finally {
-        setLoading(false);
-    }
+    } catch (error) { console.error(error); } finally { setLoading(false); }
   };
 
   useEffect(() => { refresh(); }, []);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!form.amount || !form.description) return;
+    if (!form.amount || !form.description) return notify.info("Completa los campos obligatorios");
     
     try {
         await createExpense(form);
         setForm({ description: "", amount: "", category: "OPERATIVO", method: "EFECTIVO", date: new Date().toISOString().slice(0, 10) });
         setIsCreating(false);
         refresh();
+        notify.success("Gasto registrado");
     } catch (e) {
-        alert("Error: " + e.message);
+        notify.error("Error: " + e.message);
     }
   };
 
   const handleDelete = async (id) => {
-    if(confirm("¿Eliminar registro de gasto?")) {
+    if(await confirm({ title: "Eliminar Gasto", message: "¿Estás seguro de borrar este registro?" })) {
       await deleteExpense(id);
       refresh();
+      notify.success("Eliminado correctamente");
     }
   };
 
-  if (loading && expenses.length === 0) return <LoadingState />;
+  if (loading) return <LoadingState />;
 
   return (
-    <div style={{ width: "100%", paddingBottom: 40 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-        <h1 style={{ margin: 0 }}>Gastos y Compras (Nube)</h1>
-        <button onClick={() => setIsCreating(!isCreating)} style={{ background: "#f87171", color: "white", border: "none", padding: "10px 20px", borderRadius: 6, cursor: "pointer", fontWeight: "bold" }}>
-          - Registrar Gasto
-        </button>
+    <div className="page-container space-y-6">
+      <div className="flex justify-between items-center">
+        <div>
+            <h1 className="text-3xl font-bold text-white tracking-tight">Gastos y Compras</h1>
+            <p className="text-textMuted text-sm">Registro de salidas de dinero</p>
+        </div>
+        <Button onClick={() => setIsCreating(!isCreating)} variant={isCreating ? "ghost" : "danger"}>
+          {isCreating ? "Cancelar" : "- Registrar Salida"}
+        </Button>
       </div>
 
       {isCreating && (
-        <form onSubmit={handleSubmit} style={{ background: "#1a1a1a", padding: 20, borderRadius: 12, border: "1px solid #333", marginBottom: 20, display: "grid", gap: 15 }}>
-           <h3 style={{ margin: 0, color: "#fca5a5" }}>Nuevo Egreso</h3>
-           
-           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 15 }}>
-              <label style={{ display: "grid", gap: 5 }}>
-                 <span style={{fontSize:12, color:"#aaa"}}>Concepto</span>
-                 <input value={form.description} onChange={e => setForm({...form, description: e.target.value})} placeholder="Ej. Pago de Luz" style={{ padding: 8, background: "#222", border: "1px solid #444", color: "white", borderRadius: 4 }} />
-              </label>
-              
-              <label style={{ display: "grid", gap: 5 }}>
-                 <span style={{fontSize:12, color:"#aaa"}}>Monto ($)</span>
-                 <input 
+        <Card className="border-t-4 border-t-red-500 shadow-glow animate-fadeIn">
+           <h3 className="text-lg font-bold text-red-400 mb-6">Nuevo Egreso</h3>
+           <form onSubmit={handleSubmit} className="space-y-4">
+               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="md:col-span-2">
+                      <Input label="Concepto" value={form.description} onChange={e => setForm({...form, description: e.target.value})} placeholder="Ej. Pago de Luz" autoFocus />
+                  </div>
+                  <Input 
+                    label="Monto ($)" 
                     type="number" 
-                    min="0"
                     value={form.amount} 
                     onKeyDown={preventNegativeKey}
                     onChange={e => setForm({...form, amount: sanitizeMoney(e.target.value)})} 
                     onBlur={e => setForm(f => ({...f, amount: formatMoneyBlur(f.amount)}))}
-                    placeholder="0.00" 
-                    style={{ padding: 8, background: "#222", border: "1px solid #444", color: "white", borderRadius: 4 }} 
-                 />
-              </label>
-           </div>
+                    className="text-red-400 font-bold"
+                  />
+               </div>
 
-           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 15 }}>
-              <label style={{ display: "grid", gap: 5 }}>
-                 <span style={{fontSize:12, color:"#aaa"}}>Categoría</span>
-                 <select value={form.category} onChange={e => setForm({...form, category: e.target.value})} style={{ padding: 8, background: "#222", border: "1px solid #444", color: "white", borderRadius: 4 }}>
-                    {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-                 </select>
-              </label>
-              <label style={{ display: "grid", gap: 5 }}>
-                 <span style={{fontSize:12, color:"#aaa"}}>Método de Pago</span>
-                 <select value={form.method} onChange={e => setForm({...form, method: e.target.value})} style={{ padding: 8, background: "#222", border: "1px solid #444", color: "white", borderRadius: 4 }}>
-                    {METHODS.map(m => <option key={m} value={m}>{m}</option>)}
-                 </select>
-              </label>
-              <label style={{ display: "grid", gap: 5 }}>
-                 <span style={{fontSize:12, color:"#aaa"}}>Fecha</span>
-                 <input type="date" value={form.date} onChange={e => setForm({...form, date: e.target.value})} style={{ padding: 8, background: "#222", border: "1px solid #444", color: "white", borderRadius: 4 }} />
-              </label>
-           </div>
+               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <Select label="Categoría" value={form.category} onChange={e => setForm({...form, category: e.target.value})}>
+                      {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                  </Select>
+                  <Select label="Método de Pago" value={form.method} onChange={e => setForm({...form, method: e.target.value})}>
+                      {METHODS.map(m => <option key={m} value={m}>{m}</option>)}
+                  </Select>
+                  <Input label="Fecha" type="date" value={form.date} onChange={e => setForm({...form, date: e.target.value})} />
+               </div>
 
-           <button type="submit" style={{ padding: 10, background: "#dc2626", color: "white", border: "none", borderRadius: 6, fontWeight: "bold", cursor: "pointer", marginTop: 10 }}>
-              Registrar Salida
-           </button>
-        </form>
+               <div className="flex justify-end pt-4">
+                  <Button type="submit" variant="danger" className="w-full md:w-auto px-8">Registrar Gasto</Button>
+               </div>
+           </form>
+        </Card>
       )}
 
-      <div style={{ display: "grid", gap: 10 }}>
+      <div className="grid gap-3">
+        {expenses.length === 0 && <div className="text-center py-10 text-textMuted bg-surface rounded-xl border border-border">No hay gastos registrados.</div>}
+        
         {expenses.map(e => (
-           <div key={e.id} style={{ background: "#111", border: "1px solid #333", borderRadius: 10, padding: 15, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <div>
-                 <div style={{ fontWeight: "bold", fontSize: "1.1em" }}>{e.description}</div>
-                 <div style={{ fontSize: "0.9em", color: "#888" }}>
-                    {new Date(e.date).toLocaleDateString()} · <span style={{ color: "#fca5a5", background: "#450a0a", padding: "2px 6px", borderRadius: 4, fontSize: "0.9em" }}>{e.category}</span> · {e.method}
+           <div key={e.id} className="bg-surface border border-border rounded-xl p-4 flex justify-between items-center group hover:border-red-500/30 transition-colors">
+              <div className="flex items-center gap-4">
+                 <div className="w-10 h-10 rounded-full bg-red-900/20 flex items-center justify-center text-red-400 text-lg">
+                    💸
+                 </div>
+                 <div>
+                     <div className="font-bold text-white text-lg">{e.description}</div>
+                     <div className="flex gap-2 items-center text-xs text-textMuted mt-1">
+                        <span>{new Date(e.date).toLocaleDateString()}</span>
+                        <span>•</span>
+                        <Badge color="gray">{e.category}</Badge>
+                        <span>•</span>
+                        <span>{e.method}</span>
+                     </div>
                  </div>
               </div>
-              <div style={{ textAlign: "right" }}>
-                 <div style={{ fontSize: "1.2em", fontWeight: "bold", color: "#f87171" }}>- ${Number(e.amount).toLocaleString()}</div>
-                 <button onClick={() => handleDelete(e.id)} style={{ background: "none", border: "none", color: "#666", fontSize: 12, cursor: "pointer", textDecoration: "underline" }}>Eliminar</button>
+              
+              <div className="text-right">
+                 <div className="text-xl font-bold text-red-400">- ${Number(e.amount).toLocaleString()}</div>
+                 <button onClick={() => handleDelete(e.id)} className="text-textMuted hover:text-red-500 text-xs mt-1 opacity-0 group-hover:opacity-100 transition-opacity">Eliminar</button>
               </div>
            </div>
         ))}
-        {expenses.length === 0 && <p style={{ opacity: 0.5, textAlign: "center" }}>No hay gastos registrados.</p>}
       </div>
     </div>
   );

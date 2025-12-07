@@ -4,7 +4,7 @@ import { useAuth } from "@/context/AuthContext";
 
 export default function AppLayout() {
   const navigate = useNavigate();
-  const { logout, user } = useAuth();
+  const { logout } = useAuth();
   const [isCollapsed, setIsCollapsed] = useState(false);
 
   const handleLogout = async () => {
@@ -28,7 +28,7 @@ export default function AppLayout() {
   return (
     <div className="flex h-screen w-full bg-background text-textMain overflow-hidden">
       
-      {/* SIDEBAR - Flex shrink 0 es vital para que no se aplaste */}
+      {/* SIDEBAR */}
       <aside 
         className={`
           flex-shrink-0 flex flex-col border-r border-border bg-[#050b1d] 
@@ -36,7 +36,7 @@ export default function AppLayout() {
           ${isCollapsed ? "w-20" : "w-64"}
         `}
       >
-        {/* Header */}
+        {/* Header Sidebar */}
         <div className={`h-16 flex items-center border-b border-border/50 flex-shrink-0 ${isCollapsed ? "justify-center" : "justify-between px-6"}`}>
           {!isCollapsed ? (
             <div className="text-lg font-bold tracking-wide text-white overflow-hidden whitespace-nowrap">
@@ -54,26 +54,72 @@ export default function AppLayout() {
           </button>
         </div>
 
-        {/* Navegación */}
+        {/* Navegación Scrolleable */}
         <nav className="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-6 overflow-x-hidden">
+          
           <NavSection title="Clínica" collapsed={isCollapsed}>
-            <NavLink to="dashboard" className={navLinkClass} title="Dashboard"><span className="text-lg flex-shrink-0">📊</span> {!isCollapsed && <span className="whitespace-nowrap">Dashboard</span>}</NavLink>
-            <NavLink to="patients" className={navLinkClass} title="Pacientes"><span className="text-lg flex-shrink-0">👥</span> {!isCollapsed && <span className="whitespace-nowrap">Pacientes</span>}</NavLink>
-            <NavLink to="work-orders" className={navLinkClass} title="Trabajos"><span className="text-lg flex-shrink-0">👓</span> {!isCollapsed && <span className="whitespace-nowrap">Trabajos</span>}</NavLink>
+            <NavLink to="dashboard" className={navLinkClass} title="Dashboard">
+                <span className="text-lg flex-shrink-0">📊</span> {!isCollapsed && <span className="whitespace-nowrap">Dashboard</span>}
+            </NavLink>
+            <NavLink to="patients" className={navLinkClass} title="Pacientes">
+                <span className="text-lg flex-shrink-0">👥</span> {!isCollapsed && <span className="whitespace-nowrap">Pacientes</span>}
+            </NavLink>
+            <NavLink to="statistics" className={navLinkClass} title="Estadísticas">
+                <span className="text-lg flex-shrink-0">📈</span> {!isCollapsed && <span className="whitespace-nowrap">Estadísticas</span>}
+            </NavLink>
           </NavSection>
 
           <NavSection title="Ventas" collapsed={isCollapsed}>
-            <NavLink to="sales" className={navLinkClass} title="Punto de Venta"><span className="text-lg flex-shrink-0">🛒</span> {!isCollapsed && <span className="whitespace-nowrap">Punto de Venta</span>}</NavLink>
-            <NavLink to="sales-history" className={navLinkClass} title="Historial"><span className="text-lg flex-shrink-0">📑</span> {!isCollapsed && <span className="whitespace-nowrap">Historial</span>}</NavLink>
-            <NavLink to="receivables" className={navLinkClass} title="Cobranza"><span className="text-lg flex-shrink-0">💳</span> {!isCollapsed && <span className="whitespace-nowrap">Cobranza</span>}</NavLink>
+            <NavLink to="sales" className={navLinkClass} title="Punto de Venta">
+                <span className="text-lg flex-shrink-0">🛒</span> {!isCollapsed && <span className="whitespace-nowrap">Punto de Venta</span>}
+            </NavLink>
+            <NavLink to="work-orders" className={navLinkClass} title="Trabajos">
+                <span className="text-lg flex-shrink-0">👓</span> {!isCollapsed && <span className="whitespace-nowrap">Trabajos</span>}
+            </NavLink>
+            <NavLink to="sales-history" className={navLinkClass} title="Historial">
+                <span className="text-lg flex-shrink-0">📑</span> {!isCollapsed && <span className="whitespace-nowrap">Historial</span>}
+            </NavLink>
           </NavSection>
 
-          <NavSection title="Gestión" collapsed={isCollapsed}>
-            <NavLink to="inventory" className={navLinkClass} title="Inventario"><span className="text-lg flex-shrink-0">📦</span> {!isCollapsed && <span className="whitespace-nowrap">Inventario</span>}</NavLink>
-            <NavLink to="finance" className={navLinkClass} title="Finanzas"><span className="text-lg flex-shrink-0">💰</span> {!isCollapsed && <span className="whitespace-nowrap">Finanzas</span>}</NavLink>
-            <NavLink to="expenses" className={navLinkClass} title="Gastos"><span className="text-lg flex-shrink-0">💸</span> {!isCollapsed && <span className="whitespace-nowrap">Gastos</span>}</NavLink>
-            <NavLink to="shifts" className={navLinkClass} title="Turnos"><span className="text-lg flex-shrink-0">🔐</span> {!isCollapsed && <span className="whitespace-nowrap">Turnos</span>}</NavLink>
+          <NavSection title="Logística" collapsed={isCollapsed}>
+            <NavLink to="inventory" className={navLinkClass} title="Inventario">
+                <span className="text-lg flex-shrink-0">📦</span> {!isCollapsed && <span className="whitespace-nowrap">Inventario</span>}
+            </NavLink>
+            <NavLink to="labs" className={navLinkClass} title="Laboratorios">
+                <span className="text-lg flex-shrink-0">🧪</span> {!isCollapsed && <span className="whitespace-nowrap">Laboratorios</span>}
+            </NavLink>
+            <NavLink to="suppliers" className={navLinkClass} title="Proveedores">
+                <span className="text-lg flex-shrink-0">🏭</span> {!isCollapsed && <span className="whitespace-nowrap">Proveedores</span>}
+            </NavLink>
           </NavSection>
+
+          <NavSection title="Finanzas" collapsed={isCollapsed}>
+            <NavLink to="finance" className={navLinkClass} title="Finanzas">
+                <span className="text-lg flex-shrink-0">💰</span> {!isCollapsed && <span className="whitespace-nowrap">Finanzas</span>}
+            </NavLink>
+            <NavLink to="receivables" className={navLinkClass} title="Por Cobrar">
+                <span className="text-lg flex-shrink-0">💳</span> {!isCollapsed && <span className="whitespace-nowrap">Por Cobrar</span>}
+            </NavLink>
+            <NavLink to="payables" className={navLinkClass} title="Por Pagar">
+                <span className="text-lg flex-shrink-0">📉</span> {!isCollapsed && <span className="whitespace-nowrap">Por Pagar</span>}
+            </NavLink>
+            <NavLink to="expenses" className={navLinkClass} title="Gastos">
+                <span className="text-lg flex-shrink-0">💸</span> {!isCollapsed && <span className="whitespace-nowrap">Gastos</span>}
+            </NavLink>
+            <NavLink to="payroll" className={navLinkClass} title="Nómina">
+                <span className="text-lg flex-shrink-0">👥</span> {!isCollapsed && <span className="whitespace-nowrap">Nómina</span>}
+            </NavLink>
+          </NavSection>
+
+          <NavSection title="Admin" collapsed={isCollapsed}>
+            <NavLink to="shifts" className={navLinkClass} title="Cortes de Caja">
+                <span className="text-lg flex-shrink-0">🔐</span> {!isCollapsed && <span className="whitespace-nowrap">Turnos / Caja</span>}
+            </NavLink>
+            <NavLink to="team" className={navLinkClass} title="Equipo">
+                <span className="text-lg flex-shrink-0">🧷</span> {!isCollapsed && <span className="whitespace-nowrap">Equipo</span>}
+            </NavLink>
+          </NavSection>
+
         </nav>
 
         {/* Footer */}
@@ -92,7 +138,7 @@ export default function AppLayout() {
         </div>
       </aside>
 
-      {/* CONTENIDO PRINCIPAL - Sin animaciones complejas */}
+      {/* CONTENIDO PRINCIPAL */}
       <main className="flex-1 flex flex-col min-w-0 bg-background relative">
         <header className="h-16 border-b border-border flex items-center justify-between px-8 bg-background/80 backdrop-blur-sm sticky top-0 z-20 flex-shrink-0">
            <h2 className="text-sm font-medium text-textMuted">Panel de Administración</h2>

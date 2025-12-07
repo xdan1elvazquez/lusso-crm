@@ -4,6 +4,7 @@ import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
 import Input from "@/components/ui/Input";
 import Select from "@/components/ui/Select";
+import LoadingState from "@/components/LoadingState"; // 👈
 
 const FILE_TYPES = [
   { id: "IMAGE", label: "Imagen", icon: "🖼️" },
@@ -65,7 +66,7 @@ export default function StudiesPanel({ patientId, consultationId = null }) {
           </form>
       )}
 
-      {loading ? <div className="text-center text-textMuted">Cargando...</div> : (
+      {loading ? <LoadingState /> : (
           <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
               {studies.length === 0 && <p className="col-span-full text-textMuted italic text-sm">No hay estudios adjuntos.</p>}
               

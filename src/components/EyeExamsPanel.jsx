@@ -16,6 +16,9 @@ import Button from "@/components/ui/Button";
 import Input from "@/components/ui/Input";
 import Badge from "@/components/ui/Badge";
 
+// 👇 IMPORTACIÓN QUE FALTABA
+import LoadingState from "@/components/LoadingState";
+
 const TABS = { PRELIM: "prelim", REFRACTION: "refraction", CONTACT: "contact" };
 
 // Helper visual para Porcentajes AV

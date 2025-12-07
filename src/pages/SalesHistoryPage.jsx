@@ -2,6 +2,14 @@ import { useState, useMemo, useEffect } from "react";
 import { getAllSales, deleteSale } from "@/services/salesStorage";
 import SaleDetailModal from "@/components/SaleDetailModal";
 import LoadingState from "@/components/LoadingState";
+import { useConfirm, useNotify } from "@/context/UIContext";
+
+// UI Kit
+import Card from "@/components/ui/Card";
+import Button from "@/components/ui/Button";
+import Input from "@/components/ui/Input";
+import Select from "@/components/ui/Select";
+import Badge from "@/components/ui/Badge";
 
 const CATEGORIES = [
   { id: "ALL", label: "Todas las categorías" },
@@ -15,6 +23,9 @@ const CATEGORIES = [
 ];
 
 export default function SalesHistoryPage() {
+  const confirm = useConfirm();
+  const notify = useNotify();
+
   const [loading, setLoading] = useState(true);
   const [sales, setSales] = useState([]);
   const [search, setSearch] = useState("");
@@ -27,21 +38,14 @@ export default function SalesHistoryPage() {
       try {
           const data = await getAllSales();
           setSales(data);
-      } catch (e) {
-          console.error(e);
-      } finally {
-          setLoading(false);
-      }
+      } catch (e) { console.error(e); } finally { setLoading(false); }
   };
 
   useEffect(() => { refreshData(); }, []);
 
   const filtered = useMemo(() => {
     return sales.filter(s => {
-      // ⚡ OPTIMIZACIÓN: Usamos el nombre guardado en la venta
-      // Si es una venta vieja sin nombre guardado, mostramos un fallback
       const pName = s.patientName || "Paciente (Histórico)";
-      
       const textMatch = 
         s.id.toLowerCase().includes(search.toLowerCase()) ||
         pName.toLowerCase().includes(search.toLowerCase()) ||
@@ -59,73 +63,87 @@ export default function SalesHistoryPage() {
   }, [sales, search, category, dateRange]);
 
   const handleDelete = async (id) => {
-    if(confirm("¿Estás seguro de cancelar esta venta? Se revertirá el inventario y los puntos.")) {
+    if(await confirm({ title: "Cancelar Venta", message: "¿Estás seguro? Se revertirá el inventario y los puntos." })) {
       await deleteSale(id);
       refreshData();
+      notify.success("Venta cancelada");
     }
   };
 
   if (loading) return <LoadingState />;
 
   return (
-    <div style={{ width: "100%", paddingBottom: 40 }}>
-      <h1 style={{ marginBottom: 20 }}>Historial de Ventas</h1>
-
-      <div style={{ background: "#1a1a1a", padding: 15, borderRadius: 12, border: "1px solid #333", marginBottom: 20, display: "flex", gap: 15, flexWrap: "wrap", alignItems: "end" }}>
-          <label style={{flex: 1, minWidth: 200}}>
-              <span style={{fontSize:12, color:"#aaa", display:"block", marginBottom:5}}>Buscar (Folio, Paciente, Monto)</span>
-              <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Escribe para buscar..." style={{width:"100%", padding:8, background:"#222", border:"1px solid #444", color:"white", borderRadius:6}} />
-          </label>
-          <label>
-              <span style={{fontSize:12, color:"#aaa", display:"block", marginBottom:5}}>Categoría</span>
-              <select value={category} onChange={e => setCategory(e.target.value)} style={{width:180, padding:8, background:"#222", border:"1px solid #444", color:"white", borderRadius:6}}>
-                  {CATEGORIES.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
-              </select>
-          </label>
-          <label><span style={{fontSize:12, color:"#aaa", display:"block", marginBottom:5}}>Desde</span><input type="date" value={dateRange.start} onChange={e => setDateRange({...dateRange, start: e.target.value})} style={{padding:8, background:"#222", border:"1px solid #444", color:"white", borderRadius:6}} /></label>
-          <label><span style={{fontSize:12, color:"#aaa", display:"block", marginBottom:5}}>Hasta</span><input type="date" value={dateRange.end} onChange={e => setDateRange({...dateRange, end: e.target.value})} style={{padding:8, background:"#222", border:"1px solid #444", color:"white", borderRadius:6}} /></label>
-          <button onClick={() => { setSearch(""); setCategory("ALL"); setDateRange({start:"", end:""}); }} style={{padding:"8px 12px", background:"#333", border:"1px solid #555", color:"#ccc", borderRadius:6, cursor:"pointer"}}>Limpiar</button>
+    <div className="page-container space-y-6">
+      <div className="flex justify-between items-center">
+          <div>
+              <h1 className="text-3xl font-bold text-white tracking-tight">Historial de Ventas</h1>
+              <p className="text-textMuted text-sm">Consulta y auditoría de tickets ({filtered.length})</p>
+          </div>
+          <Button variant="ghost" onClick={() => { setSearch(""); setCategory("ALL"); setDateRange({start:"", end:""}); }}>Limpiar Filtros</Button>
       </div>
 
-      <div style={{ background: "#1a1a1a", border: "1px solid #333", borderRadius: 12, overflow: "hidden" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.9em" }}>
-              <thead>
-                  <tr style={{ background: "#111", color: "#aaa", textAlign: "left", borderBottom: "1px solid #444" }}>
-                      <th style={{ padding: 12 }}>Fecha</th>
-                      <th style={{ padding: 12 }}>Folio</th>
-                      <th style={{ padding: 12 }}>Paciente</th>
-                      <th style={{ padding: 12 }}>Detalle</th>
-                      <th style={{ padding: 12 }}>Total</th>
-                      <th style={{ padding: 12 }}>Estado</th>
-                      <th style={{ padding: 12, textAlign: "right" }}>Acciones</th>
+      {/* BARRA DE FILTROS */}
+      <Card noPadding className="p-4 bg-surfaceHighlight/20 border-blue-500/20">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+              <div className="md:col-span-2">
+                  <Input label="Buscar" value={search} onChange={e => setSearch(e.target.value)} placeholder="Folio, Paciente o Monto..." />
+              </div>
+              <Select label="Categoría" value={category} onChange={e => setCategory(e.target.value)}>
+                  {CATEGORIES.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
+              </Select>
+              <div className="flex gap-2">
+                  <Input label="Desde" type="date" value={dateRange.start} onChange={e => setDateRange({...dateRange, start: e.target.value})} />
+                  <Input label="Hasta" type="date" value={dateRange.end} onChange={e => setDateRange({...dateRange, end: e.target.value})} />
+              </div>
+          </div>
+      </Card>
+
+      {/* TABLA DE RESULTADOS */}
+      <div className="overflow-hidden rounded-xl border border-border bg-surface">
+          <table className="w-full text-sm text-left">
+              <thead className="bg-surfaceHighlight text-textMuted uppercase text-xs font-bold">
+                  <tr>
+                      <th className="p-4">Fecha / Folio</th>
+                      <th className="p-4">Paciente</th>
+                      <th className="p-4">Detalle</th>
+                      <th className="p-4">Total</th>
+                      <th className="p-4">Estado</th>
+                      <th className="p-4 text-right">Acciones</th>
                   </tr>
               </thead>
-              <tbody>
-                  {filtered.length === 0 ? (
-                      <tr><td colSpan="7" style={{padding:30, textAlign:"center", color:"#666"}}>No se encontraron ventas.</td></tr>
-                  ) : (
-                      filtered.map(s => (
-                          <tr key={s.id} style={{ borderBottom: "1px solid #222" }}>
-                              <td style={{ padding: 12, color: "#ccc" }}>{new Date(s.createdAt).toLocaleDateString()}</td>
-                              <td style={{ padding: 12, fontFamily: "monospace", color: "#60a5fa" }}>#{s.id.slice(0,6).toUpperCase()}</td>
-                              
-                              {/* ⚡ CAMBIO: Renderizar patientName directo */}
-                              <td style={{ padding: 12, fontWeight: "bold" }}>{s.patientName || "Paciente (Histórico)"}</td>
-                              
-                              <td style={{ padding: 12, color: "#aaa" }}><div>{s.description}</div><div style={{fontSize:"0.8em", color:"#666"}}>{s.kind}</div></td>
-                              <td style={{ padding: 12, fontWeight: "bold", color: "#fff" }}>${s.total.toLocaleString()}</td>
-                              <td style={{ padding: 12 }}><span style={{ padding: "2px 8px", borderRadius: 10, fontSize: "0.85em", fontWeight: "bold", background: s.balance <= 0.01 ? "rgba(74, 222, 128, 0.1)" : "rgba(248, 113, 113, 0.1)", color: s.balance <= 0.01 ? "#4ade80" : "#f87171" }}>{s.balance <= 0.01 ? "PAGADO" : "PENDIENTE"}</span></td>
-                              <td style={{ padding: 12, textAlign: "right" }}>
-                                  <button onClick={() => setViewSale(s)} style={{ marginRight: 8, background: "none", border: "none", cursor: "pointer", fontSize:"1.2em" }} title="Ver Detalle">👁️</button>
-                                  <button onClick={() => handleDelete(s.id)} style={{ background: "none", border: "none", cursor: "pointer", color: "#f87171", fontSize:"1.2em" }} title="Cancelar Venta">✕</button>
-                              </td>
-                          </tr>
-                      ))
+              <tbody className="divide-y divide-border">
+                  {filtered.length === 0 && (
+                      <tr><td colSpan="6" className="p-8 text-center text-textMuted italic">No se encontraron ventas.</td></tr>
                   )}
+                  {filtered.map(s => (
+                      <tr key={s.id} className="hover:bg-white/5 transition-colors group">
+                          <td className="p-4">
+                              <div className="text-textMuted">{new Date(s.createdAt).toLocaleDateString()}</div>
+                              <div className="font-mono text-xs text-blue-400 font-bold">#{s.id.slice(0,6).toUpperCase()}</div>
+                          </td>
+                          <td className="p-4 font-bold text-white">{s.patientName || "Paciente (Histórico)"}</td>
+                          <td className="p-4">
+                              <div className="text-white text-sm">{s.description}</div>
+                              <Badge color="gray" className="text-[10px] mt-1">{s.kind}</Badge>
+                          </td>
+                          <td className="p-4 font-bold text-emerald-400">${s.total.toLocaleString()}</td>
+                          <td className="p-4">
+                              <Badge color={s.balance <= 0.01 ? "green" : "red"}>
+                                  {s.balance <= 0.01 ? "PAGADO" : "PENDIENTE"}
+                              </Badge>
+                          </td>
+                          <td className="p-4 text-right">
+                              <div className="flex justify-end gap-2 opacity-80 group-hover:opacity-100 transition-opacity">
+                                  <button onClick={() => setViewSale(s)} className="text-textMuted hover:text-white p-2 rounded hover:bg-white/10" title="Ver Detalle">👁️</button>
+                                  <button onClick={() => handleDelete(s.id)} className="text-red-400 hover:text-red-300 p-2 rounded hover:bg-red-500/10" title="Cancelar Venta">✕</button>
+                              </div>
+                          </td>
+                      </tr>
+                  ))}
               </tbody>
           </table>
       </div>
-      {/* ⚡ CAMBIO: Pasamos el nombre directo al modal para evitar búsquedas internas si es posible */}
+
       {viewSale && <SaleDetailModal sale={viewSale} patient={{firstName: viewSale.patientName || "Paciente", lastName: ""}} onClose={() => setViewSale(null)} onUpdate={refreshData} />}
     </div>
   );
