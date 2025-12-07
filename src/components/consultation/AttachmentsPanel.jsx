@@ -1,15 +1,6 @@
-// src/components/consultation/AttachmentsPanel.jsx
 import React, { useState } from "react";
-
-const styles = {
-  container: { marginTop: 20, background: "#1a1a1a", padding: 20, borderRadius: 12, border: "1px solid #333" },
-  header: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 15 },
-  list: { display: "grid", gap: 10 },
-  item: { display: "flex", justifyContent: "space-between", alignItems: "center", background: "#111", padding: "10px", borderRadius: 6, border: "1px solid #333" },
-  preview: { width: 40, height: 40, objectFit: "cover", borderRadius: 4, marginRight: 10, background: "#333" },
-  fileInfo: { flex: 1 },
-  actions: { display: "flex", gap: 10 }
-};
+import Button from "@/components/ui/Button";
+import Input from "@/components/ui/Input";
 
 export default function AttachmentsPanel({ attachments = [], onUpdate }) {
   const [isUploading, setIsUploading] = useState(false);
@@ -19,7 +10,6 @@ export default function AttachmentsPanel({ attachments = [], onUpdate }) {
     e.preventDefault();
     if (!form.name) return alert("Nombre requerido");
     
-    // Simulación de archivo
     const newFile = {
       id: crypto.randomUUID(),
       name: form.name,
@@ -43,43 +33,47 @@ export default function AttachmentsPanel({ attachments = [], onUpdate }) {
   const handleFileSelect = (e) => {
     const file = e.target.files[0];
     if (file) {
-      // Aquí iría la lógica de subida a Firebase Storage
       setForm({ ...form, name: file.name, url: URL.createObjectURL(file), type: file.type.includes("image") ? "IMAGE" : "DOC" });
     }
   };
 
   return (
-    <div style={styles.container}>
-      <div style={styles.header}>
-        <h3 style={{ margin: 0, color: "#e5e7eb", fontSize: "1.1em" }}>📎 Adjuntos (OCT, Campos, Fotos)</h3>
-        <button onClick={() => setIsUploading(!isUploading)} style={{ background: "#2563eb", color: "white", border: "none", padding: "6px 12px", borderRadius: 6, cursor: "pointer" }}>+ Adjuntar</button>
+    <div className="mt-8 border-t border-border pt-6">
+      <div className="flex justify-between items-center mb-4">
+        <h3 className="text-lg font-bold text-white">📎 Adjuntos (OCT, Campos, Fotos)</h3>
+        <Button onClick={() => setIsUploading(!isUploading)} variant={isUploading ? "ghost" : "primary"}>
+            {isUploading ? "Cancelar" : "+ Adjuntar"}
+        </Button>
       </div>
 
       {isUploading && (
-        <div style={{ background: "#111", padding: 15, borderRadius: 8, marginBottom: 15, border: "1px dashed #555" }}>
-          <div style={{ display: "grid", gap: 10 }}>
-            <input type="file" onChange={handleFileSelect} style={{ color: "white" }} />
-            <input placeholder="Nombre (ej. OCT OD)" value={form.name} onChange={e => setForm({...form, name: e.target.value})} style={{ padding: 8, background: "#222", border: "1px solid #444", color: "white", borderRadius: 4 }} />
-            <div style={{fontSize:11, color:"#666"}}>* En esta demo, se usa una URL local temporal.</div>
-            <button onClick={handleAdd} style={{ background: "#064e3b", color: "#4ade80", border: "1px solid #4ade80", padding: "8px", borderRadius: 4, cursor: "pointer", fontWeight: "bold" }}>Guardar</button>
+        <div className="bg-surfaceHighlight/10 p-4 rounded-xl border border-dashed border-border mb-4 animate-fadeIn">
+          <div className="grid gap-4">
+            <input type="file" onChange={handleFileSelect} className="text-sm text-textMuted file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-primary file:text-white hover:file:bg-primaryHover" />
+            <Input placeholder="Nombre (ej. OCT OD)" value={form.name} onChange={e => setForm({...form, name: e.target.value})} />
+            <div className="text-xs text-textMuted">* En esta demo, se usa una URL local temporal.</div>
+            <div className="text-right">
+                <Button onClick={handleAdd} className="bg-emerald-600 hover:bg-emerald-700 text-white">Guardar</Button>
+            </div>
           </div>
         </div>
       )}
 
-      <div style={styles.list}>
-        {attachments.length === 0 && <p style={{ color: "#666", fontStyle: "italic", fontSize: "0.9em" }}>Sin adjuntos.</p>}
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+        {attachments.length === 0 && <p className="text-textMuted italic text-sm col-span-full text-center py-4">Sin adjuntos.</p>}
+        
         {attachments.map(file => (
-          <div key={file.id} style={styles.item}>
-            <div style={{ display: "flex", alignItems: "center" }}>
-              {file.type === "IMAGE" ? <img src={file.url} style={styles.preview} alt="preview" /> : <div style={{...styles.preview, display:"flex", alignItems:"center", justifyContent:"center"}}>📄</div>}
-              <div style={styles.fileInfo}>
-                <div style={{ fontWeight: "bold", color: "#ddd", fontSize: "0.9em" }}>{file.name}</div>
-                <div style={{ fontSize: "0.8em", color: "#888" }}>{new Date(file.createdAt).toLocaleDateString()}</div>
-              </div>
+          <div key={file.id} className="bg-surface border border-border rounded-xl p-3 flex items-center gap-3 relative group hover:border-primary/50 transition-colors">
+            <div className="w-10 h-10 rounded bg-black/40 flex items-center justify-center overflow-hidden flex-shrink-0">
+               {file.type === "IMAGE" ? <img src={file.url} className="w-full h-full object-cover" alt="preview" /> : <span className="text-xl">📄</span>}
             </div>
-            <div style={styles.actions}>
-              <a href={file.url} target="_blank" rel="noreferrer" style={{ color: "#60a5fa", fontSize: "0.9em", textDecoration: "none" }}>Ver</a>
-              <button onClick={() => handleRemove(file.id)} style={{ color: "#f87171", background: "none", border: "none", cursor: "pointer" }}>✕</button>
+            <div className="flex-1 min-w-0">
+                <div className="font-bold text-white text-sm truncate" title={file.name}>{file.name}</div>
+                <div className="text-[10px] text-textMuted">{new Date(file.createdAt).toLocaleDateString()}</div>
+            </div>
+            <div className="flex gap-2">
+                <a href={file.url} target="_blank" rel="noreferrer" className="text-blue-400 hover:text-white text-xs">Ver</a>
+                <button onClick={() => handleRemove(file.id)} className="text-textMuted hover:text-red-400 text-xs">✕</button>
             </div>
           </div>
         ))}

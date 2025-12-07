@@ -1,20 +1,7 @@
-// src/components/consultation/PhysicalExamNeuroForm.jsx
 import React, { useState } from "react";
 import { PE_NEURO_CONFIG, getNeuroDefaults } from "@/utils/physicalExamNeuroConfig";
-
-const styles = {
-  container: { border: "1px solid #444", borderRadius: 8, overflow: "hidden", marginBottom: 15 },
-  header: { background: "#1f2937", padding: "10px 15px", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center" },
-  blockContainer: { padding: 15, background: "#111", borderTop: "1px solid #333" },
-  sectionBlock: { marginBottom: 15, border: "1px solid #333", borderRadius: 6, overflow: "hidden" },
-  sectionHeader: { padding: "8px 12px", background: "#222", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center" },
-  sectionContent: { padding: 12, background: "#161616", borderTop: "1px solid #333", display:"grid", gap:10 },
-  input: { width: "100%", padding: 6, background: "#222", border: "1px solid #444", color: "white", borderRadius: 4, fontSize: "0.9em" },
-  select: { padding: 6, background: "#222", border: "1px solid #444", color: "white", borderRadius: 4, fontSize: "0.9em" },
-  row: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, paddingBottom: 8, borderBottom: "1px dashed #333" },
-  toggleGroup: { display: "flex", alignItems: "center", gap: 8 },
-  note: { fontSize: "0.8em", color: "#60a5fa", fontStyle: "italic", padding: "4px 8px", background: "rgba(96, 165, 250, 0.1)", borderRadius: 4 }
-};
+import Input from "@/components/ui/Input";
+import Select from "@/components/ui/Select";
 
 export default function PhysicalExamNeuroForm({ data, onChange }) {
   const [isOpen, setIsOpen] = useState(false);
@@ -37,102 +24,103 @@ export default function PhysicalExamNeuroForm({ data, onChange }) {
       onChange({ ...formData, [sectionId]: defaults });
   };
 
-  // Detectar si hay algo anormal para pintar el título de amarillo
   const hasAbnormalities = (sectionId) => {
       const sectionData = formData[sectionId] || {};
       const config = PE_NEURO_CONFIG[sectionId];
       return config.items.some(item => {
           if (item.type === "note") return false;
           const val = sectionData[item.id];
-          if (item.type === "toggle") return item.invert ? !val : val; // Invert: true es normal
+          if (item.type === "toggle") return item.invert ? !val : val; 
           if (item.default !== undefined && val !== item.default) return true;
           return false;
       });
   };
 
   return (
-    <div style={styles.container}>
-        <div onClick={() => setIsOpen(!isOpen)} style={styles.header}>
-            <div style={{fontWeight: "bold", color: "#e5e7eb"}}>3. Exploración Neurológica y Otros</div>
-            <span style={{color: "#aaa"}}>{isOpen ? "▼" : "▶"}</span>
+    <div className="border border-border rounded-xl overflow-hidden mb-6 bg-surface/50">
+        <div 
+            onClick={() => setIsOpen(!isOpen)} 
+            className="p-4 bg-surfaceHighlight/30 cursor-pointer flex justify-between items-center border-b border-border/50"
+        >
+            <div className="font-bold text-white text-lg">3. Exploración Neurológica y Otros</div>
+            <span className="text-textMuted">{isOpen ? "▼" : "▶"}</span>
         </div>
 
         {isOpen && (
-            <div style={styles.blockContainer}>
+            <div className="p-4 grid gap-3 animate-fadeIn">
                 {Object.entries(PE_NEURO_CONFIG).map(([key, config]) => {
                     const isAbnormal = hasAbnormalities(key);
+                    const isOpenSection = openSections[key];
                     return (
-                        <div key={key} style={{...styles.sectionBlock, borderColor: isAbnormal ? "#f59e0b" : "#333"}}>
-                            <div onClick={() => toggleSection(key)} style={styles.sectionHeader}>
-                                <span style={{fontWeight: "bold", color: isAbnormal ? "#fbbf24" : "#aaa", fontSize: "0.95em"}}>{config.title}</span>
-                                <div style={{display:"flex", gap:10, alignItems:"center"}}>
+                        <div key={key} className={`border rounded-xl overflow-hidden transition-all duration-200 ${isAbnormal ? "border-amber-500/50 bg-amber-900/10" : "border-border bg-background"}`}>
+                            <div 
+                                onClick={() => toggleSection(key)} 
+                                className="p-3 flex justify-between items-center cursor-pointer hover:bg-white/5"
+                            >
+                                <span className={`font-bold text-sm ${isAbnormal ? "text-amber-400" : "text-textMuted"}`}>{config.title}</span>
+                                <div className="flex gap-3 items-center">
                                     <button 
                                         onClick={(e) => { e.stopPropagation(); setSectionNormal(key); }}
-                                        style={{fontSize: "0.7em", background: "#333", border: "1px solid #555", color: "#ccc", borderRadius: 4, padding: "2px 6px", cursor: "pointer"}}
+                                        className="text-[10px] bg-surface border border-border px-2 py-1 rounded text-textMuted hover:text-white hover:border-primary transition-colors"
                                     >
                                         Normal
                                     </button>
-                                    <span style={{fontSize: "0.8em"}}>{openSections[key] ? "▲" : "▼"}</span>
+                                    <span className="text-xs text-textMuted">{isOpenSection ? "▲" : "▼"}</span>
                                 </div>
                             </div>
                             
-                            {openSections[key] && (
-                                <div style={styles.sectionContent}>
+                            {isOpenSection && (
+                                <div className="p-4 border-t border-border bg-black/20 grid gap-3">
                                     {config.items.map(item => (
-                                        <div key={item.id} style={styles.row}>
-                                            <span style={{fontSize:"0.9em", color:"#ddd", flex:1}}>{item.label}</span>
-                                            
-                                            {/* RENDERIZADO SEGÚN TIPO */}
-                                            <div style={{flex: 1.5}}>
+                                        <div key={item.id} className="flex flex-col md:flex-row md:items-center justify-between gap-2 border-b border-border/30 pb-2 last:border-0 last:pb-0">
+                                            <span className="text-sm text-gray-300 md:w-1/3">{item.label}</span>
+                                            <div className="flex-1">
                                                 {item.type === "note" ? (
-                                                    <span style={styles.note}>{item.text}</span>
+                                                    <span className="text-xs text-blue-400 italic bg-blue-900/20 px-2 py-1 rounded">{item.text}</span>
                                                 ) : item.type === "toggle" ? (
-                                                    <div style={styles.toggleGroup}>
-                                                        <label style={{display:"flex", alignItems:"center", gap:5, cursor:"pointer"}}>
-                                                            <input 
-                                                                type="checkbox" 
-                                                                checked={formData[key]?.[item.id] ?? item.default} 
-                                                                onChange={e => updateItem(key, item.id, e.target.checked)} 
-                                                            />
-                                                            <span style={{fontSize:"0.8em", color: (formData[key]?.[item.id] ?? item.default) === (item.invert) ? "#4ade80" : "#f87171"}}>
-                                                                {(formData[key]?.[item.id] ?? item.default) ? (item.invert ? "Normal" : "Positivo") : (item.invert ? "Anormal" : "Negativo")}
-                                                            </span>
-                                                        </label>
-                                                    </div>
+                                                    <label className="flex items-center gap-2 cursor-pointer bg-surfaceHighlight/20 px-3 py-1.5 rounded-lg w-fit">
+                                                        <input 
+                                                            type="checkbox" 
+                                                            className="accent-primary"
+                                                            checked={formData[key]?.[item.id] ?? item.default} 
+                                                            onChange={e => updateItem(key, item.id, e.target.checked)} 
+                                                        />
+                                                        <span className={`text-xs font-bold ${ (formData[key]?.[item.id] ?? item.default) === (item.invert) ? "text-emerald-400" : "text-red-400"}`}>
+                                                            {(formData[key]?.[item.id] ?? item.default) ? (item.invert ? "Normal" : "Positivo") : (item.invert ? "Anormal" : "Negativo")}
+                                                        </span>
+                                                    </label>
                                                 ) : item.type === "select" ? (
-                                                    <select 
+                                                    <Select 
                                                         value={formData[key]?.[item.id] || item.default} 
-                                                        onChange={e => updateItem(key, item.id, e.target.value)} 
-                                                        style={styles.select}
+                                                        onChange={e => updateItem(key, item.id, e.target.value)}
+                                                        className="!py-1.5 !text-xs"
                                                     >
                                                         {item.options.map(o => <option key={o} value={o}>{o}</option>)}
-                                                    </select>
+                                                    </Select>
                                                 ) : item.type === "textarea" ? (
                                                     <textarea 
                                                         rows={2}
                                                         value={formData[key]?.[item.id] || ""} 
                                                         onChange={e => updateItem(key, item.id, e.target.value)} 
-                                                        style={{...styles.input, resize:"vertical"}} 
+                                                        className="w-full bg-background border border-border rounded-lg p-2 text-sm text-white focus:border-primary outline-none resize-y" 
                                                     />
                                                 ) : (
-                                                    <input 
+                                                    <Input 
                                                         value={formData[key]?.[item.id] || ""} 
                                                         onChange={e => updateItem(key, item.id, e.target.value)} 
-                                                        style={styles.input} 
                                                         placeholder={item.placeholder || ""}
+                                                        className="!py-1.5 !text-xs h-8"
                                                     />
                                                 )}
                                             </div>
                                         </div>
                                     ))}
-                                    
-                                    {/* CAMPO LIBRE POR SECCIÓN PARA DETALLES */}
                                     <textarea 
                                         rows={2} 
                                         placeholder={`Detalles adicionales de ${config.title}...`} 
                                         value={formData[key]?.notas || ""} 
                                         onChange={e => updateItem(key, "notas", e.target.value)}
-                                        style={{...styles.input, resize:"vertical", marginTop:5, borderColor:"#444"}} 
+                                        className="w-full bg-background border border-border rounded-lg p-2 text-sm text-white focus:border-primary outline-none mt-2" 
                                     />
                                 </div>
                             )}

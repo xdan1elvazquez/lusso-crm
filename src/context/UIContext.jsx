@@ -9,7 +9,7 @@ export function UIProvider({ children }) {
   const addToast = useCallback((message, type = "info") => {
     const id = Date.now() + Math.random();
     setToasts((prev) => [...prev, { id, message, type }]);
-    setTimeout(() => removeToast(id), 3000); // Auto-dismiss 3s
+    setTimeout(() => removeToast(id), 3000); 
   }, []);
 
   const removeToast = (id) => {
@@ -43,7 +43,6 @@ export function UIProvider({ children }) {
     if (confirmResolver.current) confirmResolver.current(false);
   };
 
-  // --- EXPOSED API ---
   const notify = {
     success: (msg) => addToast(msg, "success"),
     error: (msg) => addToast(msg, "error"),
@@ -55,15 +54,15 @@ export function UIProvider({ children }) {
       {children}
       
       {/* RENDER TOASTS */}
-      <div style={{ position: "fixed", top: 20, right: 20, zIndex: 9999, display: "flex", flexDirection: "column", gap: 10 }}>
+      <div className="fixed top-5 right-5 z-[9999] flex flex-col gap-3">
         {toasts.map((t) => (
-          <div key={t.id} style={{
-            background: "#222", 
-            border: `1px solid ${t.type === "error" ? "#f87171" : t.type === "success" ? "#4ade80" : "#60a5fa"}`,
-            color: "white", padding: "12px 16px", borderRadius: 6, boxShadow: "0 4px 12px rgba(0,0,0,0.5)",
-            fontSize: "0.9em", minWidth: 200, animation: "fadeIn 0.2s"
-          }}>
-            <div style={{fontWeight: "bold", marginBottom: 2, textTransform: "uppercase", fontSize: "0.8em", color: t.type === "error" ? "#f87171" : t.type === "success" ? "#4ade80" : "#60a5fa"}}>{t.type}</div>
+          <div key={t.id} className={`
+            min-w-[280px] p-4 rounded-xl shadow-2xl border text-sm animate-fadeIn
+            ${t.type === "error" ? "bg-red-950/90 border-red-500/50 text-red-100" : 
+              t.type === "success" ? "bg-emerald-950/90 border-emerald-500/50 text-emerald-100" : 
+              "bg-slate-900/90 border-blue-500/50 text-blue-100"}
+          `}>
+            <div className="font-bold text-xs uppercase mb-1 opacity-80">{t.type}</div>
             {t.message}
           </div>
         ))}
@@ -71,29 +70,24 @@ export function UIProvider({ children }) {
 
       {/* RENDER CONFIRM MODAL */}
       {confirmState.isOpen && (
-        <div style={{
-          position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.8)",
-          zIndex: 10000, display: "flex", alignItems: "center", justifyContent: "center"
-        }}>
-          <div style={{ background: "#1a1a1a", padding: 25, borderRadius: 12, border: "1px solid #444", maxWidth: 400, width: "90%" }}>
-            <h3 style={{ marginTop: 0, color: "#e5e7eb" }}>{confirmState.title}</h3>
-            <p style={{ color: "#ccc", marginBottom: 25, whiteSpace: "pre-wrap" }}>{confirmState.message}</p>
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
-              <button onClick={handleCancel} style={{ background: "transparent", color: "#aaa", border: "1px solid #444", padding: "8px 16px", borderRadius: 6, cursor: "pointer" }}>
+        <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-fadeIn">
+          <div className="bg-[#1a1a1a] p-6 rounded-xl border border-border max-w-sm w-full shadow-2xl">
+            <h3 className="text-lg font-bold text-white mb-2">{confirmState.title}</h3>
+            <p className="text-textMuted mb-6 whitespace-pre-wrap">{confirmState.message}</p>
+            <div className="flex justify-end gap-3">
+              <button onClick={handleCancel} className="px-4 py-2 rounded-lg text-sm border border-border text-textMuted hover:text-white hover:bg-white/5 transition-colors">
                 {confirmState.cancelText || "Cancelar"}
               </button>
-              <button onClick={handleConfirm} style={{ background: "#2563eb", color: "white", border: "none", padding: "8px 16px", borderRadius: 6, fontWeight: "bold", cursor: "pointer" }}>
+              <button onClick={handleConfirm} className="px-4 py-2 rounded-lg text-sm bg-primary hover:bg-primaryHover text-white font-bold transition-colors shadow-glow">
                 {confirmState.confirmText || "Confirmar"}
               </button>
             </div>
           </div>
         </div>
       )}
-      <style>{`@keyframes fadeIn { from { opacity: 0; transform: translateY(-5px); } to { opacity: 1; transform: translateY(0); } }`}</style>
     </UIContext.Provider>
   );
 }
 
-// Hooks personalizados
 export const useNotify = () => useContext(UIContext).notify;
 export const useConfirm = () => useContext(UIContext).confirm;
