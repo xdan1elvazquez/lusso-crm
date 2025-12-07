@@ -1,22 +1,9 @@
-// src/components/consultation/OphthalmologyExamForm.jsx
 import React, { useState } from "react";
 import { OPHTHALMO_CONFIG, getOphthalmoDefaults } from "@/utils/ophthalmologyConfig";
 
-const styles = {
-  container: { border: "1px solid #444", borderRadius: 8, overflow: "hidden", marginBottom: 15 },
-  header: { background: "#1f2937", padding: "10px 15px", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center" },
-  blockContainer: { padding: 15, background: "#111", borderTop: "1px solid #333" },
-  sectionBlock: { marginBottom: 15, border: "1px solid #333", borderRadius: 6, overflow: "hidden" },
-  sectionHeader: { padding: "8px 12px", background: "#222", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center" },
-  sectionContent: { padding: 12, background: "#161616", borderTop: "1px solid #333" },
-  grid: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 },
-  eyeColumn: { display: "flex", flexDirection: "column", gap: 10 },
-  eyeTitle: { fontSize: "0.9em", fontWeight: "bold", textAlign: "center", paddingBottom: 5, borderBottom: "1px solid #333", marginBottom: 5 },
-  inputGroup: { marginBottom: 8 },
-  label: { display: "block", fontSize: "0.75em", color: "#aaa", marginBottom: 2 },
-  input: { width: "100%", padding: 6, background: "#222", border: "1px solid #444", color: "white", borderRadius: 4, fontSize: "0.85em" },
-  select: { width: "100%", padding: 6, background: "#222", border: "1px solid #444", color: "white", borderRadius: 4, fontSize: "0.85em" }
-};
+// UI Kit
+import Select from "@/components/ui/Select";
+import Input from "@/components/ui/Input";
 
 export default function OphthalmologyExamForm({ data, onChange }) {
   const [isOpen, setIsOpen] = useState(true);
@@ -33,7 +20,7 @@ export default function OphthalmologyExamForm({ data, onChange }) {
       ...formData,
       [sectionKey]: {
         ...sectionData,
-        isNormal: false, // Al editar, quitamos el flag de "todo normal"
+        isNormal: false,
         [eye]: { ...eyeData, [fieldId]: value }
       }
     });
@@ -49,72 +36,83 @@ export default function OphthalmologyExamForm({ data, onChange }) {
     
     if (field.type === "select") {
       return (
-        <select 
+        <Select 
           value={val} 
-          onChange={e => updateField(sectionKey, eye, field.id, e.target.value)} 
-          style={styles.select}
+          onChange={e => updateField(sectionKey, eye, field.id, e.target.value)}
+          className="!py-1.5 !text-xs h-8"
         >
-          <option value="">-- Seleccionar --</option>
+          <option value="">--</option>
           {field.options.map(o => <option key={o} value={o}>{o}</option>)}
-        </select>
+        </Select>
       );
     }
     
     return (
-      <input 
+      <Input 
         type={field.type === "number" ? "number" : "text"}
         value={val} 
         onChange={e => updateField(sectionKey, eye, field.id, e.target.value)} 
-        style={styles.input} 
         placeholder={field.placeholder || field.default || ""}
+        className="!py-1.5 !text-xs h-8"
       />
     );
   };
 
   return (
-    <div style={styles.container}>
-      <div onClick={() => setIsOpen(!isOpen)} style={styles.header}>
-        <div style={{fontWeight: "bold", color: "#60a5fa"}}>3. Exploración Oftalmológica Detallada</div>
-        <span style={{color: "#aaa"}}>{isOpen ? "▼" : "▶"}</span>
+    <div className="border border-border rounded-xl overflow-hidden mb-6 bg-surface/50">
+      <div 
+        onClick={() => setIsOpen(!isOpen)} 
+        className="p-4 bg-surfaceHighlight/30 cursor-pointer flex justify-between items-center border-b border-border/50"
+      >
+        <div className="font-bold text-blue-400 text-lg">3. Exploración Oftalmológica Detallada</div>
+        <span className="text-textMuted">{isOpen ? "▼" : "▶"}</span>
       </div>
 
       {isOpen && (
-        <div style={styles.blockContainer}>
+        <div className="p-4 space-y-4 animate-fadeIn">
           {Object.entries(OPHTHALMO_CONFIG).map(([key, config]) => {
             const isNormal = formData[key]?.isNormal;
             return (
-              <div key={key} style={{...styles.sectionBlock, borderColor: isNormal ? "#333" : "#fbbf24"}}>
-                <div onClick={() => toggleSection(key)} style={styles.sectionHeader}>
-                  <div style={{display:"flex", alignItems:"center", gap:10}}>
-                    <span style={{fontWeight: "bold", color: isNormal ? "#aaa" : "#fbbf24", fontSize: "0.95em"}}>{config.title}</span>
+              <div 
+                key={key} 
+                className={`border rounded-xl overflow-hidden transition-all ${isNormal ? "border-border bg-background" : "border-amber-500/40 bg-amber-900/5"}`}
+              >
+                <div 
+                    onClick={() => toggleSection(key)} 
+                    className="p-3 flex justify-between items-center cursor-pointer hover:bg-white/5"
+                >
+                  <div className="flex items-center gap-3">
+                    <span className={`font-bold text-sm ${isNormal ? "text-textMuted" : "text-amber-400"}`}>{config.title}</span>
                     <button 
                       onClick={(e) => { e.stopPropagation(); setSectionNormal(key); }}
-                      style={{fontSize: "0.7em", background: isNormal ? "#064e3b" : "#333", border: `1px solid ${isNormal ? "#4ade80" : "#555"}`, color: isNormal ? "#4ade80" : "#ccc", borderRadius: 4, padding: "1px 6px", cursor: "pointer"}}
+                      className={`text-[10px] px-2 py-0.5 rounded border transition-colors ${isNormal ? "bg-emerald-900/20 text-emerald-400 border-emerald-500/30" : "bg-surface text-textMuted border-border hover:text-white"}`}
                     >
                       {isNormal ? "✓ Normal" : "Marcar Normal"}
                     </button>
                   </div>
-                  <span style={{fontSize: "0.8em"}}>{openSections[key] ? "▲" : "▼"}</span>
+                  <span className="text-xs text-textMuted">{openSections[key] ? "▲" : "▼"}</span>
                 </div>
 
                 {openSections[key] && (
-                  <div style={styles.sectionContent}>
-                    <div style={styles.grid}>
-                      <div style={styles.eyeColumn}>
-                        <div style={{...styles.eyeTitle, color: "#60a5fa"}}>OD (Derecho)</div>
+                  <div className="p-4 border-t border-border bg-black/20">
+                    <div className="grid grid-cols-2 gap-6">
+                      {/* OJO DERECHO */}
+                      <div className="space-y-3">
+                        <div className="text-xs font-bold text-blue-400 text-center border-b border-blue-500/30 pb-1 mb-2">OD (Derecho)</div>
                         {config.sections.map(field => (
-                          <div key={field.id} style={styles.inputGroup}>
-                            <span style={styles.label}>{field.label}</span>
+                          <div key={field.id}>
+                            <span className="text-[10px] text-textMuted uppercase mb-1 block">{field.label}</span>
                             {renderInput(field, 'od', key)}
                           </div>
                         ))}
                       </div>
                       
-                      <div style={styles.eyeColumn}>
-                        <div style={{...styles.eyeTitle, color: "#4ade80"}}>OI (Izquierdo)</div>
+                      {/* OJO IZQUIERDO */}
+                      <div className="space-y-3">
+                        <div className="text-xs font-bold text-green-400 text-center border-b border-green-500/30 pb-1 mb-2">OI (Izquierdo)</div>
                         {config.sections.map(field => (
-                          <div key={field.id} style={styles.inputGroup}>
-                            <span style={styles.label}>{field.label}</span>
+                          <div key={field.id}>
+                            <span className="text-[10px] text-textMuted uppercase mb-1 block">{field.label}</span>
                             {renderInput(field, 'os', key)}
                           </div>
                         ))}

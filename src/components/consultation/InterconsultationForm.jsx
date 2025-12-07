@@ -1,24 +1,65 @@
 import React from "react";
+import Input from "@/components/ui/Input";
+import Select from "@/components/ui/Select";
 
 export default function InterconsultationForm({ data, onChange }) {
     if (!data.required) {
         return (
-            <button onClick={() => onChange({ ...data, required: true, createdAt: new Date().toISOString() })} style={{ background: "transparent", border: "1px dashed #60a5fa", color: "#60a5fa", padding: "8px", width: "100%", borderRadius: 6, cursor: "pointer" }}>+ Solicitar Interconsulta / Derivación</button>
+            <button 
+                type="button"
+                onClick={() => onChange({ ...data, required: true, createdAt: new Date().toISOString() })} 
+                className="w-full py-3 border border-dashed border-blue-500/40 text-blue-400 rounded-xl hover:bg-blue-500/10 transition-colors text-sm font-medium"
+            >
+                + Solicitar Interconsulta / Derivación
+            </button>
         );
     }
+    
     return (
-        <div style={{ background: "rgba(30, 58, 138, 0.2)", border: "1px solid #1e40af", borderRadius: 8, padding: 15 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10 }}>
-                <h4 style={{ margin: 0, color: "#93c5fd" }}>Solicitud de Interconsulta</h4>
-                <button onClick={() => onChange({ ...data, required: false })} style={{ background: "none", border: "none", color: "#f87171", cursor: "pointer", fontSize: 12 }}>Cancelar</button>
+        <div className="bg-blue-900/10 border border-blue-500/30 rounded-xl p-4 animate-fadeIn">
+            <div className="flex justify-between items-center mb-4 border-b border-blue-500/20 pb-2">
+                <h4 className="font-bold text-blue-300">Solicitud de Interconsulta</h4>
+                <button 
+                    onClick={() => onChange({ ...data, required: false })} 
+                    className="text-xs text-red-400 hover:text-red-300 underline"
+                >
+                    Cancelar
+                </button>
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
-                <label style={{ fontSize: 12, color: "#aaa" }}>Especialidad / Profesional Destino <input value={data.to} onChange={e => onChange({ ...data, to: e.target.value })} style={{ width: "100%", padding: 8, background: "#111", border: "1px solid #1e40af", color: "white", borderRadius: 4 }} placeholder="Ej. Retina, Medicina Interna..." /></label>
-                <label style={{ fontSize: 12, color: "#aaa" }}>Urgencia <select value={data.urgency} onChange={e => onChange({ ...data, urgency: e.target.value })} style={{ width: "100%", padding: 8, background: "#111", border: "1px solid #1e40af", color: "white", borderRadius: 4 }}><option value="NORMAL">Normal / Ordinaria</option><option value="URGENTE">Urgente</option></select></label>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                <Input 
+                    label="Especialidad / Profesional Destino" 
+                    value={data.to} 
+                    onChange={e => onChange({ ...data, to: e.target.value })} 
+                    placeholder="Ej. Retina, Medicina Interna..." 
+                    className="bg-surface/50 border-blue-500/30 focus:border-blue-400"
+                />
+                <Select 
+                    label="Urgencia" 
+                    value={data.urgency} 
+                    onChange={e => onChange({ ...data, urgency: e.target.value })}
+                    className="bg-surface/50 border-blue-500/30 focus:border-blue-400"
+                >
+                    <option value="NORMAL">Normal / Ordinaria</option>
+                    <option value="URGENTE">Urgente</option>
+                </Select>
             </div>
-            <label style={{ fontSize: 12, color: "#aaa", display: "block", marginBottom: 4 }}>Motivo de Envío</label>
-            <textarea rows={3} value={data.reason} onChange={e => onChange({ ...data, reason: e.target.value })} style={{ width: "100%", padding: 8, background: "#111", border: "1px solid #1e40af", color: "white", borderRadius: 4 }} placeholder="Describir hallazgo y motivo..." />
-            <div style={{ marginTop: 10, fontSize: 11, color: "#666" }}>Estado: <span style={{ color: "white" }}>{data.status}</span> · Solicitada: {new Date(data.createdAt).toLocaleDateString()}</div>
+            
+            <label className="block mb-2">
+                <span className="text-xs font-bold text-blue-300/80 uppercase mb-1 block">Motivo de Envío</span>
+                <textarea 
+                    rows={3} 
+                    value={data.reason} 
+                    onChange={e => onChange({ ...data, reason: e.target.value })} 
+                    className="w-full bg-surface/50 border border-blue-500/30 rounded-xl p-3 text-textMain focus:border-blue-400 outline-none resize-none text-sm" 
+                    placeholder="Describir hallazgo y motivo..." 
+                />
+            </label>
+            
+            <div className="text-right mt-2 text-xs text-blue-300/60">
+                Estado: {data.status} · Solicitada: {new Date(data.createdAt).toLocaleDateString()}
+            </div>
         </div>
     );
 }

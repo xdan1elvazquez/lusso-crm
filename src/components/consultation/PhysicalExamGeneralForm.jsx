@@ -1,19 +1,10 @@
-// src/components/consultation/PhysicalExamGeneralForm.jsx
 import React, { useState } from "react";
 import { PE_GENERAL_CONFIG, GLASGOW_OPTS, getPhysicalExamDefaults } from "@/utils/physicalExamConfig";
 
-const styles = {
-  container: { border: "1px solid #444", borderRadius: 8, overflow: "hidden", marginBottom: 15 },
-  header: { background: "#1f2937", padding: "10px 15px", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center" },
-  blockContainer: { padding: 15, background: "#111", borderTop: "1px solid #333" },
-  sectionTitle: { color: "#60a5fa", fontSize: "0.95em", borderBottom: "1px solid #333", paddingBottom: 5, marginBottom: 10, marginTop: 15 },
-  grid: { display: "grid", gap: 10, gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", marginBottom: 15 },
-  label: { fontSize: "0.8em", color: "#aaa", display: "block", marginBottom: 3 },
-  input: { width: "100%", padding: 6, background: "#222", border: "1px solid #444", color: "white", borderRadius: 4, fontSize: "0.9em" },
-  card: { background: "#1a1a1a", padding: 10, borderRadius: 6, border: "1px solid #333" },
-  glasgowTotal: { fontSize: "1.2em", fontWeight: "bold", textAlign: "center", color: "#4ade80", marginTop: 15, background: "#064e3b", padding: 5, borderRadius: 4 },
-  toggleRow: { display: "flex", flexWrap: "wrap", gap: 15, marginBottom: 10 }
-};
+// UI Kit
+import Button from "@/components/ui/Button";
+import Input from "@/components/ui/Input";
+import Select from "@/components/ui/Select";
 
 export default function PhysicalExamGeneralForm({ data, onChange }) {
   const [isOpen, setIsOpen] = useState(true);
@@ -52,150 +43,155 @@ export default function PhysicalExamGeneralForm({ data, onChange }) {
   };
 
   return (
-    <div style={styles.container}>
-        <div onClick={() => setIsOpen(!isOpen)} style={styles.header}>
-            <div style={{fontWeight: "bold", color: "#e5e7eb"}}>1. Exploración Física General</div>
-            <div style={{display:"flex", alignItems:"center", gap:10}}>
-                <button type="button" onClick={(e) => { e.stopPropagation(); setAllNormal(); }} style={{fontSize:11, padding:"2px 8px", background:"#333", border:"1px solid #555", color:"#ccc", borderRadius:4, cursor:"pointer"}}>Todo Normal</button>
-                <span style={{color: "#aaa"}}>{isOpen ? "▼" : "▶"}</span>
+    <div className="border border-border rounded-xl overflow-hidden mb-6 bg-surface/50">
+        <div 
+            onClick={() => setIsOpen(!isOpen)} 
+            className="p-4 bg-surfaceHighlight/30 cursor-pointer flex justify-between items-center border-b border-border/50"
+        >
+            <div className="font-bold text-white text-lg">1. Exploración Física General</div>
+            <div className="flex items-center gap-3">
+                <button 
+                    type="button" 
+                    onClick={(e) => { e.stopPropagation(); setAllNormal(); }} 
+                    className="text-xs px-2 py-1 bg-surface border border-border text-textMuted rounded hover:text-white hover:border-primary transition-colors"
+                >
+                    Todo Normal
+                </button>
+                <span className="text-textMuted">{isOpen ? "▼" : "▶"}</span>
             </div>
         </div>
 
         {isOpen && (
-            <div style={styles.blockContainer}>
+            <div className="p-6 space-y-8 animate-fadeIn">
                 
                 {/* 1. SIGNOS VITALES */}
-                <h4 style={{...styles.sectionTitle, marginTop:0}}>{PE_GENERAL_CONFIG.vitals.title}</h4>
-                <div style={styles.grid}>
-                    {PE_GENERAL_CONFIG.vitals.fields.map(f => (
-                        <label key={f.id} style={{gridColumn: f.width > 80 ? "span 2" : "span 1"}}>
-                            <span style={styles.label}>{f.label}</span>
-                            <input type={f.type} value={formData.vitals?.[f.id] || ""} onChange={e => updateSection("vitals", f.id, e.target.value)} style={styles.input} placeholder={f.placeholder} />
-                        </label>
-                    ))}
+                <div>
+                    <h4 className="text-sm font-bold text-blue-400 uppercase tracking-wider mb-4 border-b border-border pb-2">{PE_GENERAL_CONFIG.vitals.title}</h4>
+                    <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+                        {PE_GENERAL_CONFIG.vitals.fields.map(f => (
+                            <div key={f.id} className={f.width > 80 ? "col-span-2" : "col-span-1"}>
+                                <Input 
+                                    label={f.label} 
+                                    type={f.type} 
+                                    value={formData.vitals?.[f.id] || ""} 
+                                    onChange={e => updateSection("vitals", f.id, e.target.value)} 
+                                    placeholder={f.placeholder} 
+                                    className="h-10 text-sm"
+                                />
+                            </div>
+                        ))}
+                    </div>
                 </div>
 
                 {/* 2. ANTROPOMETRÍA */}
-                <h4 style={styles.sectionTitle}>{PE_GENERAL_CONFIG.anthro.title}</h4>
-                <div style={styles.grid}>
-                    {PE_GENERAL_CONFIG.anthro.fields.map(f => (
-                        <label key={f.id}>
-                            <span style={styles.label}>{f.label}</span>
-                            <input type={f.type} value={formData.anthro?.[f.id] || ""} onChange={e => updateSection("anthro", f.id, e.target.value)} style={{...styles.input, color: f.readOnly ? "#fbbf24" : "white"}} readOnly={f.readOnly} />
-                        </label>
-                    ))}
+                <div>
+                    <h4 className="text-sm font-bold text-emerald-400 uppercase tracking-wider mb-4 border-b border-border pb-2">{PE_GENERAL_CONFIG.anthro.title}</h4>
+                    <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+                        {PE_GENERAL_CONFIG.anthro.fields.map(f => (
+                            <div key={f.id}>
+                                <Input 
+                                    label={f.label}
+                                    type={f.type} 
+                                    value={formData.anthro?.[f.id] || ""} 
+                                    onChange={e => updateSection("anthro", f.id, e.target.value)} 
+                                    className={f.readOnly ? "text-amber-400 font-bold bg-amber-900/10 border-amber-500/30" : ""}
+                                    disabled={f.readOnly}
+                                />
+                            </div>
+                        ))}
+                    </div>
                 </div>
 
                 {/* 3. HABITUS */}
-                <h4 style={styles.sectionTitle}>{PE_GENERAL_CONFIG.habitus.title}</h4>
-                <div style={styles.grid}>
-                    {PE_GENERAL_CONFIG.habitus.fields.map(f => (
-                        <label key={f.id} style={{gridColumn: f.id==="dolor_aparente" ? "span 2" : "span 1"}}>
-                            <span style={styles.label}>{f.label}</span>
-                            {f.type === "select" ? (
-                                <select value={formData.habitus?.[f.id] || f.default} onChange={e => updateSection("habitus", f.id, e.target.value)} style={styles.input}>
-                                    {f.options.map(o => <option key={o} value={o}>{o}</option>)}
-                                </select>
-                            ) : f.type === "boolean" || f.type === "boolean_detail" ? (
-                                <div>
-                                    <div style={{display:"flex", alignItems:"center"}}>
-                                        <input type="checkbox" checked={formData.habitus?.[f.id]?.active ?? formData.habitus?.[f.id]} onChange={e => updateSection("habitus", f.id, f.type==="boolean"? e.target.checked : { active: e.target.checked, detail: "" })} />
-                                        <span style={{marginLeft:5, fontSize:"0.9em"}}>{(formData.habitus?.[f.id]?.active ?? formData.habitus?.[f.id]) ? "Sí" : "No"}</span>
+                <div>
+                    <h4 className="text-sm font-bold text-purple-400 uppercase tracking-wider mb-4 border-b border-border pb-2">{PE_GENERAL_CONFIG.habitus.title}</h4>
+                    <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                        {PE_GENERAL_CONFIG.habitus.fields.map(f => (
+                            <div key={f.id} className={f.id==="dolor_aparente" ? "col-span-2" : ""}>
+                                {f.type === "select" ? (
+                                    <Select label={f.label} value={formData.habitus?.[f.id] || f.default} onChange={e => updateSection("habitus", f.id, e.target.value)}>
+                                        {f.options.map(o => <option key={o} value={o}>{o}</option>)}
+                                    </Select>
+                                ) : f.type === "boolean" || f.type === "boolean_detail" ? (
+                                    <div className="bg-surfaceHighlight/20 p-3 rounded-lg border border-border">
+                                        <label className="flex items-center gap-3 cursor-pointer mb-2">
+                                            <input 
+                                                type="checkbox" 
+                                                className="accent-primary w-4 h-4"
+                                                checked={formData.habitus?.[f.id]?.active ?? formData.habitus?.[f.id]} 
+                                                onChange={e => updateSection("habitus", f.id, f.type==="boolean"? e.target.checked : { active: e.target.checked, detail: "" })} 
+                                            />
+                                            <span className="text-sm font-medium text-white">{f.label}</span>
+                                        </label>
+                                        {f.type === "boolean_detail" && formData.habitus?.[f.id]?.active && (
+                                            <Input 
+                                                placeholder={f.detailLabel} 
+                                                value={formData.habitus?.[f.id]?.detail || ""} 
+                                                onChange={e => updateSection("habitus", f.id, { active: true, detail: e.target.value })} 
+                                                className="h-8 text-xs"
+                                            />
+                                        )}
                                     </div>
-                                    {f.type === "boolean_detail" && formData.habitus?.[f.id]?.active && (
-                                        <input placeholder={f.detailLabel} value={formData.habitus?.[f.id]?.detail || ""} onChange={e => updateSection("habitus", f.id, { active: true, detail: e.target.value })} style={{...styles.input, marginTop:5}} />
-                                    )}
-                                </div>
-                            ) : (
-                                <input value={formData.habitus?.[f.id] || f.default} onChange={e => updateSection("habitus", f.id, e.target.value)} style={styles.input} placeholder={f.placeholder} />
-                            )}
-                        </label>
-                    ))}
+                                ) : (
+                                    <Input label={f.label} value={formData.habitus?.[f.id] || f.default} onChange={e => updateSection("habitus", f.id, e.target.value)} placeholder={f.placeholder} />
+                                )}
+                            </div>
+                        ))}
+                    </div>
                 </div>
 
                 {/* 4. MENTAL */}
-                <h4 style={styles.sectionTitle}>{PE_GENERAL_CONFIG.mental.title}</h4>
-                <div style={{display:"grid", gridTemplateColumns: "1fr 1fr", gap: 20}}>
-                    <div style={styles.card}>
-                        <div style={{fontSize:"0.9em", fontWeight:"bold", color:"#a78bfa", marginBottom:10}}>Escala de Glasgow</div>
-                        <div style={{display:"grid", gap:8}}>
-                            {["eye", "verbal", "motor"].map(k => (
-                                <label key={k} style={styles.label}>{k.toUpperCase()}
-                                    <select value={formData.mental?.glasgow?.[k.charAt(0)] || 4} onChange={e => handleGlasgowChange(k.charAt(0), e.target.value)} style={styles.input}>
+                <div>
+                    <h4 className="text-sm font-bold text-amber-400 uppercase tracking-wider mb-4 border-b border-border pb-2">{PE_GENERAL_CONFIG.mental.title}</h4>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                        
+                        {/* GLASGOW CARD */}
+                        <div className="bg-surface border border-border rounded-xl p-4">
+                            <div className="text-sm font-bold text-purple-400 mb-4">Escala de Glasgow</div>
+                            <div className="space-y-3">
+                                {["eye", "verbal", "motor"].map(k => (
+                                    <Select 
+                                        key={k} 
+                                        label={k.toUpperCase()} 
+                                        value={formData.mental?.glasgow?.[k.charAt(0)] || 4} 
+                                        onChange={e => handleGlasgowChange(k.charAt(0), e.target.value)}
+                                    >
                                         {GLASGOW_OPTS[k].map(o => <option key={o.val} value={o.val}>{o.label}</option>)}
-                                    </select>
-                                </label>
-                            ))}
-                            <div style={styles.glasgowTotal}>Total: {formData.mental?.glasgow?.total || 15} / 15</div>
-                        </div>
-                    </div>
-                    <div>
-                        <div style={{marginBottom:10}}>
-                            <span style={styles.label}>Orientación (Marcar si está orientado)</span>
-                            <div style={{display:"flex", gap:10, marginTop:5}}>
-                                {PE_GENERAL_CONFIG.mental.orientation.map(o => (
-                                    <label key={o.id} style={{cursor:"pointer", display:"flex", alignItems:"center", fontSize:"0.85em"}}>
-                                        <input type="checkbox" checked={formData.mental?.orientacion?.[o.id] ?? true} onChange={e => handleOrientationChange(o.id, e.target.checked)} /> {o.label}
-                                    </label>
+                                    </Select>
                                 ))}
+                                <div className="mt-4 p-2 bg-emerald-900/30 text-emerald-400 text-center font-bold rounded-lg border border-emerald-500/30">
+                                    Total: {formData.mental?.glasgow?.total || 15} / 15
+                                </div>
                             </div>
                         </div>
-                        <div style={{display:"grid", gap:8}}>
-                            {PE_GENERAL_CONFIG.mental.functions.map(f => (
-                                <label key={f.id}>
-                                    <span style={styles.label}>{f.label}</span>
-                                    {f.type === "select" ? (
-                                        <select value={formData.mental?.[f.id] || f.default} onChange={e => updateSection("mental", f.id, e.target.value)} style={styles.input}>
-                                            {f.options.map(o => <option key={o} value={o}>{o}</option>)}
-                                        </select>
-                                    ) : <input value={formData.mental?.[f.id] || f.default} onChange={e => updateSection("mental", f.id, e.target.value)} style={styles.input} />}
-                                </label>
-                            ))}
-                        </div>
-                    </div>
-                </div>
 
-                {/* 5. PIEL Y FANERAS */}
-                <h4 style={styles.sectionTitle}>{PE_GENERAL_CONFIG.skin.title}</h4>
-                <div style={{display:"grid", gridTemplateColumns:"2fr 1fr", gap:20}}>
-                    <div>
-                        <div style={styles.grid}>
-                            {PE_GENERAL_CONFIG.skin.skinFields.map(f => (
-                                <label key={f.id}><span style={styles.label}>{f.label}</span><input value={formData.skin?.[f.id] || f.default} onChange={e => updateSection("skin", f.id, e.target.value)} style={styles.input} /></label>
-                            ))}
-                        </div>
-                        <div style={styles.toggleRow}>
-                            {PE_GENERAL_CONFIG.skin.skinToggles.map(t => {
-                                const val = formData.skin?.[t.id] ?? t.default ?? false;
-                                const isNormal = t.invertLogic ? val : !val; 
-                                return (
-                                    <label key={t.id} style={{display:"flex", alignItems:"center", gap:6, cursor:"pointer", background:"#222", padding:"4px 8px", borderRadius:4, border: isNormal ? "1px solid #444" : "1px solid #f87171"}}>
-                                        <input type="checkbox" checked={val} onChange={e => updateSection("skin", t.id, e.target.checked)} />
-                                        <span style={{fontSize:"0.85em", color: isNormal ? "#ddd" : "#f87171"}}>{t.label}</span>
-                                    </label>
-                                );
-                            })}
-                        </div>
-                        {(formData.skin?.lesiones || formData.skin?.detalles) && (
-                            <input placeholder="Detalles de lesiones..." value={formData.skin?.detalles || ""} onChange={e => updateSection("skin", "detalles", e.target.value)} style={{...styles.input, marginTop:10}} />
-                        )}
-                    </div>
-                    
-                    <div style={{background:"#1a1a1a", padding:10, borderRadius:6}}>
-                        <strong style={{fontSize:"0.9em", color:"#ccc", display:"block", marginBottom:10}}>Faneras</strong>
-                        <div style={{display:"grid", gap:8}}>
-                            {PE_GENERAL_CONFIG.skin.fanerasFields.map(f => (
-                                <label key={f.id}><span style={styles.label}>{f.label}</span><input value={formData.skin?.[f.id] || f.default} onChange={e => updateSection("skin", f.id, e.target.value)} style={styles.input} /></label>
-                            ))}
-                            {PE_GENERAL_CONFIG.skin.hairFields.map(f => (
-                                <label key={f.id}><span style={styles.label}>Cabello: {f.label}</span><input value={formData.skin?.hair?.[f.id] || f.default} onChange={e => updateSection("skin", "hair", {...formData.skin.hair, [f.id]: e.target.value})} style={styles.input} /></label>
-                            ))}
-                            <div style={{display:"flex", gap:10, marginTop:5}}>
-                                {PE_GENERAL_CONFIG.skin.hairToggles.map(t => (
-                                    <label key={t.id} style={{fontSize:"0.85em", display:"flex", gap:5, cursor:"pointer"}}>
-                                        <input type="checkbox" checked={formData.skin?.[t.id] || false} onChange={e => updateSection("skin", t.id, e.target.checked)} />
-                                        {t.label}
-                                    </label>
+                        <div className="space-y-6">
+                            <div>
+                                <span className="text-xs font-bold text-textMuted uppercase mb-2 block">Orientación</span>
+                                <div className="flex gap-4">
+                                    {PE_GENERAL_CONFIG.mental.orientation.map(o => (
+                                        <label key={o.id} className="flex items-center gap-2 cursor-pointer bg-surfaceHighlight/30 px-3 py-2 rounded-lg border border-border hover:border-primary/50 transition-colors">
+                                            <input 
+                                                type="checkbox" 
+                                                className="accent-primary"
+                                                checked={formData.mental?.orientacion?.[o.id] ?? true} 
+                                                onChange={e => handleOrientationChange(o.id, e.target.checked)} 
+                                            /> 
+                                            <span className="text-sm text-white">{o.label}</span>
+                                        </label>
+                                    ))}
+                                </div>
+                            </div>
+                            
+                            <div className="grid grid-cols-2 gap-4">
+                                {PE_GENERAL_CONFIG.mental.functions.map(f => (
+                                    <div key={f.id}>
+                                        {f.type === "select" ? (
+                                            <Select label={f.label} value={formData.mental?.[f.id] || f.default} onChange={e => updateSection("mental", f.id, e.target.value)}>
+                                                {f.options.map(o => <option key={o} value={o}>{o}</option>)}
+                                            </Select>
+                                        ) : <Input label={f.label} value={formData.mental?.[f.id] || f.default} onChange={e => updateSection("mental", f.id, e.target.value)} />}
+                                    </div>
                                 ))}
                             </div>
                         </div>

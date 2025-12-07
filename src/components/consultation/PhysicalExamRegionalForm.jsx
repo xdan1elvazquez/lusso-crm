@@ -1,19 +1,7 @@
-// src/components/consultation/PhysicalExamRegionalForm.jsx
 import React, { useState } from "react";
 import { PE_REGIONS_CONFIG, getRegionalExamDefaults } from "@/utils/physicalExamRegionsConfig";
-
-const styles = {
-  container: { border: "1px solid #444", borderRadius: 8, overflow: "hidden", marginBottom: 15 },
-  header: { background: "#1f2937", padding: "10px 15px", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center" },
-  blockContainer: { padding: 15, background: "#111", borderTop: "1px solid #333" },
-  regionBlock: { marginBottom: 15, border: "1px solid #333", borderRadius: 6, overflow: "hidden" },
-  regionHeader: { padding: "8px 12px", background: "#222", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center" },
-  regionContent: { padding: 12, background: "#161616", borderTop: "1px solid #333", display:"grid", gap:10 },
-  input: { width: "100%", padding: 6, background: "#222", border: "1px solid #444", color: "white", borderRadius: 4, fontSize: "0.9em" },
-  select: { padding: 6, background: "#222", border: "1px solid #444", color: "white", borderRadius: 4, fontSize: "0.9em" },
-  row: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, paddingBottom: 8, borderBottom: "1px dashed #333" },
-  toggleGroup: { display: "flex", alignItems: "center", gap: 8 }
-};
+import Input from "@/components/ui/Input";
+import Select from "@/components/ui/Select";
 
 export default function PhysicalExamRegionalForm({ data, onChange }) {
   const [isOpen, setIsOpen] = useState(false);
@@ -46,64 +34,74 @@ export default function PhysicalExamRegionalForm({ data, onChange }) {
   };
 
   return (
-    <div style={styles.container}>
-        <div onClick={() => setIsOpen(!isOpen)} style={styles.header}>
-            <div style={{fontWeight: "bold", color: "#e5e7eb"}}>2. Exploración por Regiones (Céfalo-Caudal)</div>
-            <span style={{color: "#aaa"}}>{isOpen ? "▼" : "▶"}</span>
+    <div className="border border-border rounded-xl overflow-hidden mb-6 bg-surface/50">
+        <div 
+            onClick={() => setIsOpen(!isOpen)} 
+            className="p-4 bg-surfaceHighlight/30 cursor-pointer flex justify-between items-center border-b border-border/50"
+        >
+            <div className="font-bold text-white text-lg">2. Exploración por Regiones</div>
+            <span className="text-textMuted">{isOpen ? "▼" : "▶"}</span>
         </div>
 
         {isOpen && (
-            <div style={styles.blockContainer}>
+            <div className="p-4 grid gap-3 animate-fadeIn">
                 {Object.values(PE_REGIONS_CONFIG).map(region => {
                     const isAbnormal = hasAbnormalities(region.id);
+                    const isRegionOpen = openRegions[region.id];
+                    
                     return (
-                        <div key={region.id} style={{...styles.regionBlock, borderColor: isAbnormal ? "#f59e0b" : "#333"}}>
-                            <div onClick={() => toggleRegion(region.id)} style={styles.regionHeader}>
-                                <span style={{fontWeight: "bold", color: isAbnormal ? "#fbbf24" : "#aaa"}}>{region.title}</span>
-                                <div style={{display:"flex", gap:10, alignItems:"center"}}>
+                        <div 
+                            key={region.id} 
+                            className={`border rounded-xl overflow-hidden transition-all duration-200 ${isAbnormal ? "border-amber-500/50 bg-amber-900/10" : "border-border bg-background"}`}
+                        >
+                            <div 
+                                onClick={() => toggleRegion(region.id)} 
+                                className="p-3 flex justify-between items-center cursor-pointer hover:bg-white/5"
+                            >
+                                <span className={`font-bold text-sm ${isAbnormal ? "text-amber-400" : "text-textMuted"}`}>{region.title}</span>
+                                <div className="flex gap-3 items-center">
                                     <button 
                                         onClick={(e) => { e.stopPropagation(); setRegionNormal(region.id); }}
-                                        style={{fontSize: "0.7em", background: "#333", border: "1px solid #555", color: "#ccc", borderRadius: 4, padding: "2px 6px", cursor: "pointer"}}
+                                        className="text-[10px] bg-surface border border-border px-2 py-1 rounded text-textMuted hover:text-white hover:border-primary transition-colors"
                                     >
                                         Normal
                                     </button>
-                                    <span style={{fontSize: "0.8em"}}>{openRegions[region.id] ? "▲" : "▼"}</span>
+                                    <span className="text-xs text-textMuted">{isRegionOpen ? "▲" : "▼"}</span>
                                 </div>
                             </div>
                             
-                            {openRegions[region.id] && (
-                                <div style={styles.regionContent}>
+                            {isRegionOpen && (
+                                <div className="p-4 border-t border-border bg-black/20 grid gap-3">
                                     {region.items.map(item => (
-                                        <div key={item.id} style={styles.row}>
-                                            <span style={{fontSize:"0.9em", color:"#ddd", flex:1}}>{item.label}</span>
-                                            <div style={{flex: 1.5}}>
+                                        <div key={item.id} className="flex flex-col md:flex-row md:items-center justify-between gap-2 border-b border-border/30 pb-2 last:border-0 last:pb-0">
+                                            <span className="text-sm text-gray-300 md:w-1/3">{item.label}</span>
+                                            <div className="flex-1">
                                                 {item.type === "toggle" ? (
-                                                    <div style={styles.toggleGroup}>
-                                                        <label style={{display:"flex", alignItems:"center", gap:5, cursor:"pointer"}}>
-                                                            <input 
-                                                                type="checkbox" 
-                                                                checked={formData[region.id]?.[item.id] ?? item.default} 
-                                                                onChange={e => updateItem(region.id, item.id, e.target.checked)} 
-                                                            />
-                                                            <span style={{fontSize:"0.8em", color: (formData[region.id]?.[item.id] ?? item.default) === (item.invert) ? "#4ade80" : "#f87171"}}>
-                                                                {(formData[region.id]?.[item.id] ?? item.default) ? (item.invert ? "Normal" : "Presente") : (item.invert ? "Anormal" : "Ausente")}
-                                                            </span>
-                                                        </label>
-                                                    </div>
+                                                    <label className="flex items-center gap-2 cursor-pointer bg-surfaceHighlight/20 px-3 py-1.5 rounded-lg w-fit">
+                                                        <input 
+                                                            type="checkbox" 
+                                                            className="accent-primary"
+                                                            checked={formData[region.id]?.[item.id] ?? item.default} 
+                                                            onChange={e => updateItem(region.id, item.id, e.target.checked)} 
+                                                        />
+                                                        <span className={`text-xs font-bold ${ (formData[region.id]?.[item.id] ?? item.default) === (item.invert) ? "text-emerald-400" : "text-red-400"}`}>
+                                                            {(formData[region.id]?.[item.id] ?? item.default) ? (item.invert ? "Normal" : "Presente") : (item.invert ? "Anormal" : "Ausente")}
+                                                        </span>
+                                                    </label>
                                                 ) : item.type === "select" ? (
-                                                    <select 
+                                                    <Select 
                                                         value={formData[region.id]?.[item.id] || item.default} 
-                                                        onChange={e => updateItem(region.id, item.id, e.target.value)} 
-                                                        style={styles.select}
+                                                        onChange={e => updateItem(region.id, item.id, e.target.value)}
+                                                        className="!py-1.5 !text-xs"
                                                     >
                                                         {item.options.map(o => <option key={o} value={o}>{o}</option>)}
-                                                    </select>
+                                                    </Select>
                                                 ) : (
-                                                    <input 
+                                                    <Input 
                                                         value={formData[region.id]?.[item.id] || ""} 
                                                         onChange={e => updateItem(region.id, item.id, e.target.value)} 
-                                                        style={styles.input} 
                                                         placeholder={item.default ? `(Default: ${item.default})` : ""}
+                                                        className="!py-1.5 !text-xs h-8"
                                                     />
                                                 )}
                                             </div>
@@ -111,10 +109,10 @@ export default function PhysicalExamRegionalForm({ data, onChange }) {
                                     ))}
                                     <textarea 
                                         rows={2} 
-                                        placeholder="Notas adicionales de esta región..." 
+                                        placeholder="Notas adicionales..." 
                                         value={formData[region.id]?.notas || ""} 
                                         onChange={e => updateItem(region.id, "notas", e.target.value)}
-                                        style={{...styles.input, resize:"vertical", marginTop:5}} 
+                                        className="w-full bg-background border border-border rounded-lg p-2 text-sm text-white focus:border-primary outline-none mt-2" 
                                     />
                                 </div>
                             )}

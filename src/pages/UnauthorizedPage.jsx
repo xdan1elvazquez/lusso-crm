@@ -2,6 +2,8 @@ import React, { useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { createEmployee } from "@/services/employeesStorage";
+import Card from "@/components/ui/Card";
+import Button from "@/components/ui/Button";
 
 export default function UnauthorizedPage() {
   const { user, role } = useAuth();
@@ -9,10 +11,8 @@ export default function UnauthorizedPage() {
 
   const handleSelfPromote = async () => {
     if (!user || !user.email) return;
-    
     setIsProcessing(true);
     try {
-      // Te creamos como empleado con permisos de DIOS (Admin)
       await createEmployee({
         name: user.displayName || "Admin Inicial",
         email: user.email,
@@ -20,53 +20,37 @@ export default function UnauthorizedPage() {
         baseSalary: 0,
         commissionPercent: 0
       });
-      
-      alert(`¡Listo! Ahora el usuario ${user.email} es ADMIN.\n\nEl sistema se recargará para aplicar los permisos.`);
-      window.location.href = "/dashboard"; // Recarga forzada para refrescar el AuthContext
+      alert(`¡Listo! Ahora el usuario ${user.email} es ADMIN.\n\nRecargando...`);
+      window.location.href = "/dashboard";
     } catch (error) {
       console.error(error);
-      alert("Error al asignar permisos: " + error.message);
+      alert("Error: " + error.message);
       setIsProcessing(false);
     }
   };
 
   return (
-    <div style={{ 
-      height: "80vh", display: "flex", flexDirection: "column", 
-      alignItems: "center", justifyContent: "center", textAlign: "center", color: "#ccc" 
-    }}>
-      <div style={{ fontSize: "4rem", marginBottom: 20 }}>🚫</div>
-      <h1 style={{ color: "#e5e7eb" }}>Acceso Restringido</h1>
-      <p style={{ maxWidth: 400, marginBottom: 30 }}>
-        No tienes permisos para ver esta sección.<br/>
-        Tu rol actual es: <strong style={{ color: "#f87171" }}>{role}</strong>
-      </p>
+    <div className="min-h-[80vh] flex items-center justify-center p-4">
+      <Card className="max-w-md w-full text-center border-red-500/30 bg-red-900/5 p-10">
+        <div className="text-6xl mb-6 opacity-80">🚫</div>
+        <h1 className="text-2xl font-bold text-white mb-2">Acceso Restringido</h1>
+        <p className="text-textMuted mb-6">
+          No tienes permisos para ver esta sección.<br/>
+          Tu rol actual es: <strong className="text-red-400">{role}</strong>
+        </p>
 
-      <div style={{ display: "flex", gap: 15 }}>
-        <Link to="/dashboard" style={{ padding: "10px 20px", borderRadius: 6, border: "1px solid #555", color: "white", textDecoration: "none" }}>
-          Volver al Dashboard
-        </Link>
-        
-        {/* BOTÓN DE RESCATE (Solo visible si eres GUEST) */}
-        {role === "GUEST" && (
-            <button 
-                onClick={handleSelfPromote} 
-                disabled={isProcessing}
-                style={{ 
-                    padding: "10px 20px", borderRadius: 6, border: "none", 
-                    background: "#2563eb", color: "white", fontWeight: "bold", cursor: "pointer" 
-                }}
-            >
-                {isProcessing ? "Procesando..." : "👑 Soy el Dueño (Auto-asignar Admin)"}
-            </button>
-        )}
-      </div>
-      
-      {role === "GUEST" && (
-          <p style={{marginTop: 20, fontSize: "0.8em", color: "#666"}}>
-              * Este botón es una herramienta de desarrollo para el primer uso.
-          </p>
-      )}
+        <div className="flex flex-col gap-3">
+          <Link to="/dashboard">
+             <Button variant="secondary" className="w-full">Volver al Dashboard</Button>
+          </Link>
+          
+          {role === "GUEST" && (
+              <Button onClick={handleSelfPromote} disabled={isProcessing} className="w-full bg-blue-600 hover:bg-blue-500 text-white">
+                  {isProcessing ? "Procesando..." : "👑 Soy el Dueño (Auto-asignar Admin)"}
+              </Button>
+          )}
+        </div>
+      </Card>
     </div>
   );
 }

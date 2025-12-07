@@ -1,4 +1,5 @@
 import React from "react";
+import ErrorState from "./ErrorState";
 
 export default class ErrorBoundary extends React.Component {
   constructor(props) {
@@ -16,19 +17,8 @@ export default class ErrorBoundary extends React.Component {
 
   render() {
     if (this.state.hasError) {
-      return (
-        <div style={{ padding: 24, fontFamily: "system-ui, -apple-system, Segoe UI, Roboto" }}>
-          <h2 style={{ margin: 0, marginBottom: 8 }}>Something went wrong</h2>
-          <p style={{ marginTop: 0, color: "#666" }}>
-            Refresh the page. If it keeps happening, tell the admin.
-          </p>
-          <pre style={{ whiteSpace: "pre-wrap", background: "#111", color: "#eee", padding: 12, borderRadius: 8 }}>
-            {String(this.state.error || "")}
-          </pre>
-        </div>
-      );
+      return <ErrorState error={this.state.error} message="La aplicación encontró un error inesperado." />;
     }
-
     return this.props.children;
   }
 }

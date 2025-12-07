@@ -1,6 +1,10 @@
 import React, { useState } from "react";
-// 🟢 CAMBIO: Importamos el nuevo catálogo CIE-11
+// 🟢 Lógica original intacta
 import { searchDiagnosis } from "@/utils/cie11Catalog";
+
+// 👇 UI Kit
+import Input from "@/components/ui/Input";
+import Badge from "@/components/ui/Badge";
 
 export default function DiagnosisManager({ diagnoses, onChange }) {
     const [query, setQuery] = useState("");
@@ -9,7 +13,6 @@ export default function DiagnosisManager({ diagnoses, onChange }) {
     const handleSearch = (e) => {
         const val = e.target.value;
         setQuery(val);
-        // Buscamos si hay más de 1 caracter para agilizar
         if (val.length > 1) {
             setResults(searchDiagnosis(val));
         } else {
@@ -18,11 +21,9 @@ export default function DiagnosisManager({ diagnoses, onChange }) {
     };
 
     const addDiagnosis = (item) => {
-        // Evitar duplicados
         const exists = diagnoses.find(d => d.code === item.code);
         if (exists) return setQuery("");
         
-        // El primero siempre es PRINCIPAL, los demás SECONDARY
         const type = diagnoses.length === 0 ? "PRINCIPAL" : "SECONDARY";
         const newDx = { code: item.code, name: item.name, type, notes: "" };
         
@@ -33,7 +34,6 @@ export default function DiagnosisManager({ diagnoses, onChange }) {
 
     const removeDiagnosis = (idx) => {
         const next = diagnoses.filter((_, i) => i !== idx);
-        // Si borramos el principal, el siguiente en la lista se vuelve principal
         if (next.length > 0 && !next.find(d => d.type === "PRINCIPAL")) {
             next[0].type = "PRINCIPAL";
         }
@@ -49,47 +49,63 @@ export default function DiagnosisManager({ diagnoses, onChange }) {
     };
 
     return (
-        <div style={{ display: "grid", gap: 10 }}>
-            <div style={{ position: "relative" }}>
-                {/* 🟢 CAMBIO: Placeholder actualizado para CIE-11 */}
-                <input 
+        <div className="space-y-4">
+            <div className="relative z-10">
+                <Input 
                     placeholder="🔍 Buscar CIE-11 (ej. Miopía, 9D00...)" 
                     value={query} 
                     onChange={handleSearch} 
-                    style={{ width: "100%", padding: 10, background: "#222", border: "1px solid #444", color: "white", borderRadius: 6 }} 
+                    className="bg-surface"
                 />
                 
                 {results.length > 0 && (
-                    <div style={{ position: "absolute", top: "100%", left: 0, right: 0, background: "#333", border: "1px solid #555", zIndex: 50, maxHeight: 200, overflowY: "auto", borderRadius: 6 }}>
+                    <div className="absolute top-full left-0 right-0 mt-2 bg-surface border border-border rounded-xl shadow-2xl max-h-60 overflow-y-auto custom-scrollbar animate-fadeIn">
                         {results.map(r => (
-                            <div key={r.code} onClick={() => addDiagnosis(r)} style={{ padding: "8px 12px", borderBottom: "1px solid #444", cursor: "pointer", fontSize: "0.9em" }}>
-                                <strong style={{ color: "#60a5fa" }}>{r.code}</strong> {r.name}
+                            <div 
+                                key={r.code} 
+                                onClick={() => addDiagnosis(r)} 
+                                className="p-3 border-b border-border last:border-0 hover:bg-surfaceHighlight cursor-pointer transition-colors"
+                            >
+                                <div className="text-sm text-textMain">
+                                    <strong className="text-blue-400 font-mono mr-2">{r.code}</strong> 
+                                    {r.name}
+                                </div>
                             </div>
                         ))}
                     </div>
                 )}
             </div>
 
-            <div style={{ display: "grid", gap: 8 }}>
+            <div className="space-y-2">
                 {diagnoses.map((dx, i) => (
-                    <div key={dx.code} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: dx.type==="PRINCIPAL"?"rgba(16, 185, 129, 0.1)":"#222", border: dx.type==="PRINCIPAL"?"1px solid #10b981":"1px solid #444", borderRadius: 6, padding: 10 }}>
-                        <div>
-                            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                                <span style={{ fontWeight: "bold", color: "#fff" }}>{dx.code}</span>
-                                <span style={{ fontSize: "0.9em", color: "#ddd" }}>{dx.name}</span>
-                                {dx.type === "PRINCIPAL" && <span style={{ fontSize: 9, background: "#10b981", color: "black", padding: "2px 4px", borderRadius: 4, fontWeight: "bold" }}>PRINCIPAL</span>}
+                    <div 
+                        key={dx.code} 
+                        className={`flex justify-between items-center p-3 rounded-lg border transition-colors ${dx.type==="PRINCIPAL" ? "bg-emerald-900/10 border-emerald-500/30" : "bg-surface border-border"}`}
+                    >
+                        <div className="flex gap-3 items-center">
+                            <span className="font-mono font-bold text-white bg-black/20 px-2 py-1 rounded text-xs">{dx.code}</span>
+                            <div>
+                                <div className="text-sm text-textMain">{dx.name}</div>
+                                {dx.type === "PRINCIPAL" && <Badge color="green" className="mt-1 text-[10px] py-0">PRINCIPAL</Badge>}
                             </div>
                         </div>
-                        <div style={{ display: "flex", gap: 8 }}>
-                            {dx.type !== "PRINCIPAL" && <button onClick={() => setPrincipal(i)} style={{ fontSize: 10, background: "transparent", border: "1px solid #aaa", color: "#aaa", cursor: "pointer", padding: "2px 6px", borderRadius: 4 }}>Hacer Principal</button>}
-                            <button onClick={() => removeDiagnosis(i)} style={{ color: "#f87171", background: "none", border: "none", cursor: "pointer", fontWeight: "bold" }}>✕</button>
+                        <div className="flex items-center gap-3">
+                            {dx.type !== "PRINCIPAL" && (
+                                <button 
+                                    onClick={() => setPrincipal(i)} 
+                                    className="text-xs text-textMuted hover:text-white underline decoration-dotted"
+                                >
+                                    Hacer Principal
+                                </button>
+                            )}
+                            <button onClick={() => removeDiagnosis(i)} className="text-textMuted hover:text-red-400 p-1">✕</button>
                         </div>
                     </div>
                 ))}
                 
                 {diagnoses.length === 0 && (
-                    <div style={{ fontSize: 13, color: "#666", fontStyle: "italic", textAlign: "center", padding: 10 }}>
-                        Sin diagnósticos CIE-11 seleccionados.
+                    <div className="text-center py-4 text-textMuted text-xs italic bg-surfaceHighlight/10 rounded-lg border border-dashed border-border">
+                        Sin diagnósticos seleccionados.
                     </div>
                 )}
             </div>

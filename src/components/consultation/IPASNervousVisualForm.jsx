@@ -1,18 +1,6 @@
-// src/components/consultation/IPASNervousVisualForm.jsx
 import React, { useState } from "react";
 import { IPAS_NV_CONFIG, MUNK_SCALE, INTENSITY_SCALE, ZONES } from "@/utils/ipasNervousVisualConfig";
-
-const styles = {
-  container: { border: "1px solid #444", borderRadius: 8, overflow: "hidden", marginBottom: 15 },
-  header: { background: "#1f2937", padding: "10px 15px", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center" },
-  blockContainer: { padding: 15, background: "#111", borderTop: "1px solid #333" },
-  subHeader: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, borderBottom: "1px solid #333", paddingBottom: 5 },
-  row: { display: "flex", flexWrap: "wrap", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: "1px dashed #333" },
-  checkLabel: { minWidth: 200, display: "flex", alignItems: "center", gap: 8, cursor: "pointer", color: "#ddd" },
-  input: { background: "#222", border: "1px solid #444", color: "white", padding: "4px 8px", borderRadius: 4, fontSize: "0.85em" },
-  select: { background: "#222", border: "1px solid #444", color: "white", padding: "4px 8px", borderRadius: 4, fontSize: "0.85em" },
-  detailGroup: { display: "flex", gap: 8, flexWrap: "wrap", flex: 1, animation: "fadeIn 0.3s" }
-};
+import Select from "@/components/ui/Select";
 
 export default function IPASNervousVisualForm({ data, onChange }) {
   const [isOpen, setIsOpen] = useState(true);
@@ -24,22 +12,17 @@ export default function IPASNervousVisualForm({ data, onChange }) {
     
     const nextSymptom = { ...symptomData, [field]: value };
     if (field === "present" && value === true) {
-        // Inicializar defaults si se marca como presente
         if (!nextSymptom.intensity) nextSymptom.intensity = "";
         if (!nextSymptom.zone) nextSymptom.zone = "";
     }
 
     onChange({
       ...formData,
-      [blockId]: {
-        ...blockData,
-        [symptomId]: nextSymptom
-      }
+      [blockId]: { ...blockData, [symptomId]: nextSymptom }
     });
   };
 
   const handleNegateBlock = (blockId) => {
-    // Elimina todas las entradas de ese bloque (vuelve a estado limpio/negado)
     const nextData = { ...formData };
     delete nextData[blockId];
     onChange(nextData);
@@ -50,39 +33,59 @@ export default function IPASNervousVisualForm({ data, onChange }) {
     if (!sData.present) return null;
 
     return (
-      <div style={styles.detailGroup}>
-        {/* CAMPOS BASE */}
-        <select value={sData.zone} onChange={e => updateSymptom(blockId, symptom.id, "zone", e.target.value)} style={styles.select}>
-            <option value="">-- Zona/Ojo --</option>
+      <div className="flex flex-wrap gap-2 flex-1 animate-fadeIn items-center mt-2 md:mt-0">
+        <select 
+            value={sData.zone} 
+            onChange={e => updateSymptom(blockId, symptom.id, "zone", e.target.value)} 
+            className="bg-surface border border-border rounded-lg px-2 py-1 text-xs text-white focus:border-primary outline-none h-8"
+        >
+            <option value="">-- Zona --</option>
             {ZONES.map(z => <option key={z} value={z}>{z}</option>)}
         </select>
 
         {symptom.special === "MUNK" ? (
-             <select value={sData.munk} onChange={e => updateSymptom(blockId, symptom.id, "munk", e.target.value)} style={{...styles.select, borderColor: "#60a5fa"}}>
-                <option value="">Escala Munk</option>
+             <select 
+                value={sData.munk} 
+                onChange={e => updateSymptom(blockId, symptom.id, "munk", e.target.value)} 
+                className="bg-surface border border-blue-500/50 rounded-lg px-2 py-1 text-xs text-white focus:border-primary outline-none h-8"
+             >
+                <option value="">Munk</option>
                 {MUNK_SCALE.map(m => <option key={m} value={m}>Munk {m}</option>)}
              </select>
         ) : (
-            <select value={sData.intensity} onChange={e => updateSymptom(blockId, symptom.id, "intensity", e.target.value)} style={styles.select}>
-                <option value="">-- Intensidad --</option>
+            <select 
+                value={sData.intensity} 
+                onChange={e => updateSymptom(blockId, symptom.id, "intensity", e.target.value)} 
+                className="bg-surface border border-border rounded-lg px-2 py-1 text-xs text-white focus:border-primary outline-none h-8"
+            >
+                <option value="">Intensidad</option>
                 {INTENSITY_SCALE.map(i => <option key={i} value={i}>{i}</option>)}
             </select>
         )}
 
-        <input placeholder="Desde cuándo..." value={sData.duration || ""} onChange={e => updateSymptom(blockId, symptom.id, "duration", e.target.value)} style={{...styles.input, width: 120}} />
-        <input placeholder="Condición / Momento..." value={sData.condition || ""} onChange={e => updateSymptom(blockId, symptom.id, "condition", e.target.value)} style={{...styles.input, flex: 1, minWidth: 150}} />
+        <input 
+            placeholder="Tiempo..." 
+            value={sData.duration || ""} 
+            onChange={e => updateSymptom(blockId, symptom.id, "duration", e.target.value)} 
+            className="bg-surface border border-border rounded-lg px-2 py-1 text-xs text-white focus:border-primary outline-none h-8 w-24"
+        />
+        <input 
+            placeholder="Condición / Detalles..." 
+            value={sData.condition || ""} 
+            onChange={e => updateSymptom(blockId, symptom.id, "condition", e.target.value)} 
+            className="bg-surface border border-border rounded-lg px-2 py-1 text-xs text-white focus:border-primary outline-none h-8 flex-1 min-w-[150px]"
+        />
 
-        {/* CAMPOS ESPECIALES */}
         {symptom.special === "LEGANAS" && (
             <>
-                <input placeholder="Color" value={sData.color || ""} onChange={e => updateSymptom(blockId, symptom.id, "color", e.target.value)} style={{...styles.input, width: 80, borderColor: "#fbbf24"}} />
-                <input placeholder="Consistencia" value={sData.consistency || ""} onChange={e => updateSymptom(blockId, symptom.id, "consistency", e.target.value)} style={{...styles.input, width: 100, borderColor: "#fbbf24"}} />
+                <input placeholder="Color" value={sData.color || ""} onChange={e => updateSymptom(blockId, symptom.id, "color", e.target.value)} className="bg-surface border border-amber-500/50 rounded-lg px-2 py-1 text-xs text-white h-8 w-20" />
+                <input placeholder="Consist." value={sData.consistency || ""} onChange={e => updateSymptom(blockId, symptom.id, "consistency", e.target.value)} className="bg-surface border border-amber-500/50 rounded-lg px-2 py-1 text-xs text-white h-8 w-24" />
             </>
         )}
         {symptom.special === "ESCOTOMAS" && (
             <>
-                <input placeholder="Forma" value={sData.shape || ""} onChange={e => updateSymptom(blockId, symptom.id, "shape", e.target.value)} style={{...styles.input, width: 80, borderColor: "#a78bfa"}} />
-                <input placeholder="Color" value={sData.color || ""} onChange={e => updateSymptom(blockId, symptom.id, "color", e.target.value)} style={{...styles.input, width: 80, borderColor: "#a78bfa"}} />
+                <input placeholder="Forma" value={sData.shape || ""} onChange={e => updateSymptom(blockId, symptom.id, "shape", e.target.value)} className="bg-surface border border-purple-500/50 rounded-lg px-2 py-1 text-xs text-white h-8 w-20" />
+                <input placeholder="Color" value={sData.color || ""} onChange={e => updateSymptom(blockId, symptom.id, "color", e.target.value)} className="bg-surface border border-purple-500/50 rounded-lg px-2 py-1 text-xs text-white h-8 w-20" />
             </>
         )}
       </div>
@@ -90,41 +93,45 @@ export default function IPASNervousVisualForm({ data, onChange }) {
   };
 
   return (
-    <div style={styles.container}>
-        <div onClick={() => setIsOpen(!isOpen)} style={styles.header}>
-            <div style={{fontWeight: "bold", color: "#60a5fa"}}>🧠 IPAS: Nervioso y Visual</div>
-            <span style={{color: "#aaa"}}>{isOpen ? "▼" : "▶"}</span>
+    <div className="border border-border rounded-xl overflow-hidden mb-6 bg-surface/50">
+        <div 
+            onClick={() => setIsOpen(!isOpen)} 
+            className="p-4 bg-surfaceHighlight/30 cursor-pointer flex justify-between items-center border-b border-border/50"
+        >
+            <div className="font-bold text-blue-400 text-lg">🧠 IPAS: Nervioso y Visual</div>
+            <span className="text-textMuted">{isOpen ? "▼" : "▶"}</span>
         </div>
 
         {isOpen && (
-            <div style={styles.blockContainer}>
+            <div className="p-4 space-y-6 animate-fadeIn">
                 {Object.values(IPAS_NV_CONFIG).map(block => {
                     const hasPositives = formData[block.id] && Object.values(formData[block.id]).some(s => s.present);
                     
                     return (
-                        <div key={block.id} style={{ marginBottom: 20 }}>
-                            <div style={styles.subHeader}>
-                                <strong style={{color: hasPositives ? "#fbbf24" : "#9ca3af", fontSize:"0.95em"}}>{block.title}</strong>
+                        <div key={block.id} className={`border rounded-xl p-4 transition-all ${hasPositives ? "border-amber-500/30 bg-amber-900/5" : "border-border bg-background"}`}>
+                            <div className="flex justify-between items-center mb-4 border-b border-border/30 pb-2">
+                                <strong className={`text-sm ${hasPositives ? "text-amber-400" : "text-textMuted"}`}>{block.title}</strong>
                                 <button 
                                     type="button" 
                                     onClick={() => handleNegateBlock(block.id)}
-                                    style={{fontSize: "0.75em", background: "#064e3b", color: "#4ade80", border: "1px solid #4ade80", borderRadius: 4, padding: "2px 8px", cursor: "pointer"}}
+                                    className="text-[10px] bg-emerald-900/20 text-emerald-400 border border-emerald-500/30 px-2 py-1 rounded hover:bg-emerald-900/40 transition-colors"
                                 >
                                     ✓ Todo Negado
                                 </button>
                             </div>
-                            <div>
+                            <div className="space-y-2">
                                 {block.symptoms.map(sym => {
                                     const isPresent = formData[block.id]?.[sym.id]?.present || false;
                                     return (
-                                        <div key={sym.id} style={styles.row}>
-                                            <label style={{...styles.checkLabel, color: isPresent ? "white" : "#888"}}>
+                                        <div key={sym.id} className="flex flex-col md:flex-row md:items-center gap-3 border-b border-border/20 last:border-0 pb-2 last:pb-0">
+                                            <label className="flex items-center gap-2 cursor-pointer min-w-[200px]">
                                                 <input 
                                                     type="checkbox" 
+                                                    className="accent-blue-500 w-4 h-4 rounded"
                                                     checked={isPresent} 
                                                     onChange={e => updateSymptom(block.id, sym.id, "present", e.target.checked)} 
                                                 />
-                                                {sym.label}
+                                                <span className={`text-sm ${isPresent ? "text-white" : "text-textMuted"}`}>{sym.label}</span>
                                             </label>
                                             {renderFields(block.id, sym)}
                                         </div>
@@ -136,7 +143,6 @@ export default function IPASNervousVisualForm({ data, onChange }) {
                 })}
             </div>
         )}
-        <style>{`@keyframes fadeIn { from { opacity:0; } to { opacity:1; } }`}</style>
     </div>
   );
 }
