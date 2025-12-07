@@ -3,30 +3,26 @@ import {
   createAnamnesis, 
   updateAnamnesis, 
   deleteAnamnesis, 
-  getAnamnesisByPatientId, 
-  getLastAnamnesis 
+  getAnamnesisByPatientId 
 } from "@/services/anamnesisStorage";
 import { PATHOLOGICAL_CONFIG, LEGACY_MAPPING } from "@/utils/anamnesisConfig";
-import { NON_PATHOLOGICAL_SECTIONS } from "@/utils/anamnesisNonPathConfig"; //
-import { RELATIVES_CONFIG } from "@/utils/anamnesisFamilyConfig"; //
-import { OCULAR_DISEASES } from "@/utils/anamnesisOcularConfig"; //
+import { NON_PATHOLOGICAL_SECTIONS } from "@/utils/anamnesisNonPathConfig"; 
+import { RELATIVES_CONFIG } from "@/utils/anamnesisFamilyConfig"; 
+import { OCULAR_DISEASES } from "@/utils/anamnesisOcularConfig"; 
 
 import SpecialDiseaseForm from "./SpecialDiseaseForm";
 import FamilyHistoryForm from "./consultation/FamilyHistoryForm";
 import OcularHistoryForm from "./consultation/OcularHistoryForm";
 
-const styles = {
-  sectionHeader: { background: "#262626", padding: "10px 15px", borderRadius: 6, cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center", border: "1px solid #404040", marginBottom: 5 },
-  activeTag: { fontSize: "0.75em", background: "#064e3b", color: "#4ade80", padding: "2px 6px", borderRadius: 4, marginLeft: 10 },
-  input: { width: "100%", padding: 8, background: "#111", border: "1px solid #444", color: "white", borderRadius: 4, fontSize: "0.9em" },
-  label: { fontSize: "0.8em", color: "#aaa", display: "block", marginBottom: 2 },
-  checkboxRow: { display: "flex", alignItems: "center", gap: 10, marginBottom: 8 },
-  // Badges
-  badge: { padding: "4px 8px", borderRadius: 4, fontSize: "0.75em", fontWeight: "bold", marginLeft: 10, display: "inline-flex", alignItems:"center", gap:5 },
-  badgeValid: { background: "rgba(74, 222, 128, 0.1)", color: "#4ade80", border: "1px solid #4ade80" },
-  badgeExpired: { background: "rgba(248, 113, 113, 0.1)", color: "#f87171", border: "1px solid #f87171" },
-  badgeHistory: { background: "#333", color: "#aaa", border: "1px solid #555" }
-};
+// 👇 UI Kit Nuevo
+import Card from "@/components/ui/Card";
+import Button from "@/components/ui/Button";
+import Input from "@/components/ui/Input";
+import Badge from "@/components/ui/Badge";
+import ModalWrapper from "@/components/ui/ModalWrapper";
+
+// 👇 ESTA LÍNEA ES LA QUE FALTABA Y CAUSA EL ERROR
+import LoadingState from "@/components/LoadingState";
 
 // --- CALCULADORA DE VIGENCIA ---
 const checkVigencia = (dateString) => {
@@ -40,32 +36,113 @@ const checkVigencia = (dateString) => {
 
 // --- COMPONENTES UI AUXILIARES ---
 const Accordion = ({ title, isOpen, onToggle, children, activeCount }) => (
-  <div style={{ marginBottom: 5 }}>
-    <div onClick={onToggle} style={styles.sectionHeader}>
-      <span style={{fontWeight: "bold", color: isOpen ? "white" : "#ccc"}}>{title}</span>
-      <div style={{display:"flex", alignItems:"center"}}>
-        {activeCount > 0 && <span style={styles.activeTag}>{activeCount} Datos</span>}
-        <span style={{marginLeft: 10, color: "#666"}}>{isOpen ? "▲" : "▼"}</span>
+  <div className={`border border-border rounded-xl overflow-hidden mb-3 transition-colors ${isOpen ? "bg-surfaceHighlight/10 border-primary/30" : "bg-surface"}`}>
+    <div 
+        onClick={onToggle} 
+        className="p-4 cursor-pointer flex justify-between items-center hover:bg-white/5 select-none transition-colors"
+    >
+      <div className="flex items-center gap-3">
+          <span className={`font-bold text-sm ${isOpen ? "text-primary" : "text-white"}`}>{title}</span>
+          {activeCount > 0 && <Badge color="green" className="text-[10px]">{activeCount} Datos</Badge>}
       </div>
+      <span className="text-textMuted text-xs">{isOpen ? "▲" : "▼"}</span>
     </div>
-    {isOpen && <div style={{padding: "10px", background: "rgba(0,0,0,0.2)", borderRadius: 6}}>{children}</div>}
+    {isOpen && <div className="p-4 border-t border-border bg-black/20 animate-[fadeIn_0.2s_ease-out]">{children}</div>}
   </div>
 );
 
 const DynamicField = ({ field, value, onChange }) => {
     const val = value || "";
-    if (field.type === "boolean") return <div style={{marginBottom: 10}}><label style={{display:"flex", alignItems:"center", gap:10, cursor:"pointer"}}><input type="checkbox" checked={value === true} onChange={e => onChange(e.target.checked)} /><span style={{color: value ? "white" : "#aaa"}}>{field.label}</span></label></div>;
-    if (field.type === "boolean_detail") { const isChecked = val?.active === true; return <div style={{marginBottom: 10, borderLeft: isChecked ? "2px solid #fbbf24" : "2px solid transparent", paddingLeft: isChecked?8:0}}><label style={{display:"flex", alignItems:"center", gap:10, cursor:"pointer"}}><input type="checkbox" checked={isChecked} onChange={e => onChange({ ...val, active: e.target.checked })} /><span style={{color: isChecked ? "white" : "#aaa"}}>{field.label}</span></label>{isChecked && <input placeholder={field.detailLabel || "Detalles..."} value={val?.detail || ""} onChange={e => onChange({ ...val, detail: e.target.value })} style={{...styles.input, marginTop: 5, fontSize: "0.85em"}} />}</div>; }
-    if (field.type === "select") return <label style={{display:"block", marginBottom: 10, width: field.width || "100%"}}><span style={styles.label}>{field.label}</span><select value={val} onChange={e => onChange(e.target.value)} style={styles.input}><option value="">-- Seleccionar --</option>{field.options.map(opt => <option key={opt} value={opt}>{opt}</option>)}</select></label>;
-    if (field.type === "textarea") return <label style={{display:"block", marginBottom: 10}}><span style={styles.label}>{field.label}</span><textarea rows={field.rows || 2} value={val} onChange={e => onChange(e.target.value)} style={{...styles.input, resize:"vertical"}} /></label>;
-    return <label style={{display:"block", marginBottom: 10, width: field.width || "100%"}}><span style={styles.label}>{field.label}</span><input type={field.type==="number"?"number":field.type==="date"?"date":"text"} placeholder={field.placeholder||""} value={val} onChange={e => onChange(e.target.value)} style={styles.input} /></label>;
+    
+    if (field.type === "boolean") {
+        return (
+            <div className="mb-3">
+                <label className="flex items-center gap-3 cursor-pointer group">
+                    <input 
+                        type="checkbox" 
+                        checked={value === true} 
+                        onChange={e => onChange(e.target.checked)} 
+                        className="w-4 h-4 accent-blue-500 rounded cursor-pointer"
+                    />
+                    <span className={`text-sm transition-colors ${value ? "text-white font-medium" : "text-textMuted group-hover:text-gray-300"}`}>{field.label}</span>
+                </label>
+            </div>
+        );
+    }
+
+    if (field.type === "boolean_detail") { 
+        const isChecked = val?.active === true; 
+        return (
+            <div className={`mb-3 pl-3 border-l-2 transition-all ${isChecked ? "border-amber-500" : "border-transparent"}`}>
+                <label className="flex items-center gap-3 cursor-pointer group mb-2">
+                    <input 
+                        type="checkbox" 
+                        checked={isChecked} 
+                        onChange={e => onChange({ ...val, active: e.target.checked })} 
+                        className="w-4 h-4 accent-amber-500 rounded cursor-pointer"
+                    />
+                    <span className={`text-sm transition-colors ${isChecked ? "text-white font-medium" : "text-textMuted group-hover:text-gray-300"}`}>{field.label}</span>
+                </label>
+                {isChecked && (
+                    <input 
+                        placeholder={field.detailLabel || "Detalles..."} 
+                        value={val?.detail || ""} 
+                        onChange={e => onChange({ ...val, detail: e.target.value })} 
+                        className="w-full bg-surface border border-border rounded-lg px-3 py-2 text-sm text-white focus:border-amber-500 outline-none animate-[fadeIn_0.2s]"
+                    />
+                )}
+            </div>
+        ); 
+    }
+
+    if (field.type === "select") {
+        return (
+            <div className="mb-4" style={{ width: field.width || "100%" }}>
+                <span className="block text-xs font-bold text-textMuted uppercase mb-1 ml-1">{field.label}</span>
+                <select 
+                    value={val} 
+                    onChange={e => onChange(e.target.value)} 
+                    className="w-full bg-surface border border-border rounded-xl px-3 py-2 text-sm text-white focus:border-primary outline-none appearance-none cursor-pointer"
+                >
+                    <option value="">-- Seleccionar --</option>
+                    {field.options.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                </select>
+            </div>
+        );
+    }
+
+    if (field.type === "textarea") {
+        return (
+            <div className="mb-4">
+                <span className="block text-xs font-bold text-textMuted uppercase mb-1 ml-1">{field.label}</span>
+                <textarea 
+                    rows={field.rows || 2} 
+                    value={val} 
+                    onChange={e => onChange(e.target.value)} 
+                    className="w-full bg-surface border border-border rounded-xl px-3 py-2 text-sm text-white focus:border-primary outline-none resize-y"
+                />
+            </div>
+        );
+    }
+
+    return (
+        <div className="mb-4" style={{ width: field.width || "100%" }}>
+            <Input 
+                label={field.label}
+                type={field.type==="number"?"number":field.type==="date"?"date":"text"}
+                placeholder={field.placeholder||""} 
+                value={val} 
+                onChange={e => onChange(e.target.value)} 
+                className="bg-surface"
+            />
+        </div>
+    );
 };
 
 export default function AnamnesisPanel({ patientId }) {
   const [loading, setLoading] = useState(true);
   const [historyList, setHistoryList] = useState([]);
   
-  // ESTADO QUE FALTABA O SE PERDIÓ:
   const [viewAnamnesis, setViewAnamnesis] = useState(null); 
 
   const [formMode, setFormMode] = useState(null); 
@@ -81,7 +158,6 @@ export default function AnamnesisPanel({ patientId }) {
   const [family, setFamily] = useState({});
   const [observations, setObservations] = useState("");
 
-  // Flattened labels para No Patológicos
   const nonPathLabels = useMemo(() => {
       const map = {};
       if(NON_PATHOLOGICAL_SECTIONS) NON_PATHOLOGICAL_SECTIONS.forEach(sec => sec.fields.forEach(f => map[f.id] = f.label));
@@ -173,144 +249,198 @@ export default function AnamnesisPanel({ patientId }) {
   };
 
   return (
-    <section style={{ marginTop: 28, display: "grid", gap: 14, background: "#1a1a1a", padding: 20, borderRadius: 12, border: "1px solid #333" }}>
+    <Card className="border-t-4 border-t-amber-500 shadow-glow transition-all duration-300">
       
       {/* HEADER Y BOTONES */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
         <div>
-            <h2 style={{ margin: 0, fontSize: "1.2em", color: "#e5e7eb", display: "inline-flex", alignItems: "center" }}>
+            <h2 className="text-xl font-bold text-white flex items-center gap-3">
                 Antecedentes Clínicos
             </h2>
             {latestRecord ? (
-                <span style={{ ...styles.badge, ...(vigencia.isExpired ? styles.badgeExpired : styles.badgeValid) }}>
-                    {vigencia.isExpired ? "⚠️" : "✅"} {vigencia.label} (v{latestRecord.version || 1})
-                </span>
+                <div className="mt-1">
+                    <Badge color={vigencia.isExpired ? "red" : "green"}>
+                        {vigencia.isExpired ? "⚠️" : "✅"} {vigencia.label} (v{latestRecord.version || 1})
+                    </Badge>
+                </div>
             ) : (
-                <span style={{ ...styles.badge, ...styles.badgeHistory }}>Sin Historial</span>
+                <Badge color="gray" className="mt-1">Sin Historial</Badge>
             )}
         </div>
 
         {!formMode && (
-            <div style={{display:"flex", gap:10}}>
-                {!latestRecord && <button onClick={handleNew} style={{ fontSize: "0.9em", background: "#2563eb", color: "white", border: "none", padding: "6px 12px", borderRadius: 6, cursor: "pointer", fontWeight:"bold" }}>+ Nuevo Historial</button>}
-                {latestRecord && vigencia.isExpired && <button onClick={handleRenew} style={{ fontSize: "0.9em", background: "#f59e0b", color: "black", border: "none", padding: "6px 12px", borderRadius: 6, cursor: "pointer", fontWeight:"bold" }}>↻ Renovar Anamnesis</button>}
-                {latestRecord && !vigencia.isExpired && <button onClick={handleEditLatest} style={{ fontSize: "0.9em", background: "#333", color: "#fff", border: "1px solid #666", padding: "6px 12px", borderRadius: 6, cursor: "pointer" }}>✎ Editar Vigente</button>}
+            <div className="flex gap-2">
+                {!latestRecord && <Button onClick={handleNew} variant="primary">+ Nuevo Historial</Button>}
+                {latestRecord && vigencia.isExpired && <Button onClick={handleRenew} variant="primary" className="bg-amber-600 hover:bg-amber-700">↻ Renovar</Button>}
+                {latestRecord && !vigencia.isExpired && <Button onClick={handleEditLatest} variant="ghost" className="border border-border">✎ Editar Vigente</Button>}
             </div>
         )}
       </div>
 
-      {/* FORMULARIO (EDICIÓN/CREACIÓN) */}
-      {formMode && (
-        <form onSubmit={onSubmit} style={{ display: "grid", gap: 10, background: "#0a0a0a", padding: 15, borderRadius: 10, border: `1px dashed ${formMode==="UPDATE" ? "#4ade80" : "#f59e0b"}`, position:"relative" }}>
-          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom: 10, borderBottom:"1px solid #333", paddingBottom:10 }}>
-              <div style={{ color: formMode==="UPDATE" ? "#4ade80" : "#f59e0b", fontSize: "0.95em", fontWeight: "bold" }}>
-                  {formMode === "UPDATE" ? "MODO EDICIÓN: Corrigiendo registro vigente" : "MODO ACTUALIZACIÓN: Creando nueva versión"}
-              </div>
-              <button type="button" onClick={handleCancel} style={{ fontSize: "0.8em", background: "transparent", color: "#aaa", border: "1px solid #555", padding: "4px 10px", borderRadius: 6, cursor: "pointer" }}>Cancelar</button>
-          </div>
-
-          {formMode === "CREATE" && (
-              <div style={{marginBottom:15}}>
-                  <label style={styles.label}>Motivo de la actualización / Resumen</label>
-                  <input autoFocus value={summaryNote} onChange={e => setSummaryNote(e.target.value)} style={styles.input} placeholder="Ej. Revisión anual, cambio de medicación..." />
-              </div>
-          )}
-
-          <Accordion title="1. Personales Patológicos" isOpen={openSections.path} onToggle={() => setOpenSections(p => ({...p, path: !p.path}))} activeCount={countActivePath(pathological)}>
-             {PATHOLOGICAL_CONFIG.map(cat => (
-                <div key={cat.id} style={{marginBottom:10, borderLeft:"2px solid #333", paddingLeft:10}}>
-                   <div style={{color:"#71717a", fontWeight:"bold", fontSize:"0.9em", marginBottom:5, cursor:"pointer"}} onClick={() => setOpenSubSections(p => ({...p, [cat.id]: !p[cat.id]}))}>{openSubSections[cat.id] ? "▼" : "▶"} {cat.title}</div>
-                   {openSubSections[cat.id] && cat.items.map(item => (
-                      <div key={item.id} style={{marginBottom:5}}>
-                          <div style={styles.checkboxRow}><input type="checkbox" checked={pathological[item.id]?.active || false} onChange={(e) => setPathological(prev => ({ ...prev, [item.id]: { ...prev[item.id], active: e.target.checked } }))} /><span style={{color: pathological[item.id]?.active ? "white" : "#888"}}>{item.label}</span></div>
-                          {pathological[item.id]?.active && (
-                              <div style={{marginLeft: 26, animation:"fadeIn 0.2s"}}>
-                                  {item.isSpecial ? <SpecialDiseaseForm type={item.type} data={pathological[item.id]?.specialData || {}} onChange={(newData) => setPathological(prev => ({ ...prev, [item.id]: { active: true, specialData: newData } }))} /> : <input placeholder="Detalles..." value={pathological[item.id]?.notes || ""} onChange={(e) => setPathological(prev => ({ ...prev, [item.id]: { active: true, notes: e.target.value } }))} style={{...styles.input, background:"transparent", borderBottom:"1px solid #444", borderTop:"none", borderLeft:"none", borderRight:"none", borderRadius:0}} />}
-                              </div>
-                          )}
-                      </div>
-                   ))}
+      {/* RENDERIZADO DE CARGA */}
+      {loading ? (
+        <div className="py-8">
+            <LoadingState />
+        </div>
+      ) : (
+        <>
+            {/* FORMULARIO (EDICIÓN/CREACIÓN) */}
+            {formMode && (
+                <form onSubmit={onSubmit} className="space-y-6 animate-[fadeIn_0.3s_ease-out]">
+                <div className={`p-4 rounded-xl border border-dashed flex justify-between items-center ${formMode==="UPDATE" ? "bg-emerald-900/10 border-emerald-500/30" : "bg-amber-900/10 border-amber-500/30"}`}>
+                    <div className={`font-bold text-sm ${formMode==="UPDATE" ? "text-emerald-400" : "text-amber-400"}`}>
+                        {formMode === "UPDATE" ? "EDITANDO REGISTRO VIGENTE" : "CREANDO NUEVA VERSIÓN"}
+                    </div>
+                    <Button onClick={handleCancel} variant="ghost" className="text-xs py-1 px-3 h-auto">Cancelar</Button>
                 </div>
-             ))}
-          </Accordion>
 
-          <Accordion title="2. Personales No Patológicos" isOpen={openSections.nonPath} onToggle={() => setOpenSections(p => ({...p, nonPath: !p.nonPath}))} activeCount={countActiveNonPath(nonPathological)}>
-             <div style={{display:"grid", gap:15}}>
-                 {NON_PATHOLOGICAL_SECTIONS.map(section => (
-                     <div key={section.id} style={{background:"#161616", padding:12, borderRadius:8, border:"1px solid #333"}}>
-                         <div style={{color:"#a1a1aa", fontWeight:"bold", fontSize:"0.95em", marginBottom:10, cursor:"pointer"}} onClick={() => setOpenSubSections(p => ({...p, [section.id]: !p[section.id]}))}>{openSubSections[section.id] ? "▼" : "▶"} {section.title}</div>
-                         {openSubSections[section.id] && <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(200px, 1fr))", gap:15, animation:"fadeIn 0.2s"}}>{section.fields.map(field => <DynamicField key={field.id} field={field} value={nonPathological[field.id]} onChange={(val) => setNonPathological(prev => ({ ...prev, [field.id]: val }))} />)}</div>}
-                     </div>
-                 ))}
-             </div>
-          </Accordion>
+                {formMode === "CREATE" && (
+                    <Input label="Motivo de actualización / Resumen" value={summaryNote} onChange={e => setSummaryNote(e.target.value)} placeholder="Ej. Revisión anual..." autoFocus />
+                )}
 
-          <Accordion title="3. Antecedentes Oculares" isOpen={openSections.ocular} onToggle={() => setOpenSections(p => ({...p, ocular: !p.ocular}))} activeCount={countActiveOcular(ocular)}>
-             <OcularHistoryForm data={ocular} onChange={setOcular} />
-          </Accordion>
+                <Accordion title="1. Personales Patológicos" isOpen={openSections.path} onToggle={() => setOpenSections(p => ({...p, path: !p.path}))} activeCount={countActivePath(pathological)}>
+                    {PATHOLOGICAL_CONFIG.map(cat => (
+                        <div key={cat.id} className="mb-4 pl-3 border-l-2 border-border">
+                        <div 
+                                className="text-xs font-bold text-textMuted uppercase mb-3 cursor-pointer hover:text-white flex items-center gap-1"
+                                onClick={() => setOpenSubSections(p => ({...p, [cat.id]: !p[cat.id]}))}
+                        >
+                                {openSubSections[cat.id] ? "▼" : "▶"} {cat.title}
+                        </div>
+                        
+                        {openSubSections[cat.id] && cat.items.map(item => (
+                            <div key={item.id} className="mb-2 animate-[fadeIn_0.1s]">
+                                <label className="flex items-center gap-3 cursor-pointer">
+                                    <input 
+                                        type="checkbox" 
+                                        checked={pathological[item.id]?.active || false} 
+                                        onChange={(e) => setPathological(prev => ({ ...prev, [item.id]: { ...prev[item.id], active: e.target.checked } }))} 
+                                        className="w-4 h-4 accent-red-500 rounded"
+                                    />
+                                    <span className={`text-sm ${pathological[item.id]?.active ? "text-white font-medium" : "text-textMuted"}`}>{item.label}</span>
+                                </label>
+                                
+                                {pathological[item.id]?.active && (
+                                    <div className="ml-7 mt-2 animate-[fadeIn_0.2s]">
+                                        {item.isSpecial ? (
+                                            <SpecialDiseaseForm type={item.type} data={pathological[item.id]?.specialData || {}} onChange={(newData) => setPathological(prev => ({ ...prev, [item.id]: { active: true, specialData: newData } }))} />
+                                        ) : (
+                                            <input 
+                                                placeholder="Detalles..." 
+                                                value={pathological[item.id]?.notes || ""} 
+                                                onChange={(e) => setPathological(prev => ({ ...prev, [item.id]: { active: true, notes: e.target.value } }))} 
+                                                className="w-full bg-transparent border-b border-border text-sm text-white px-2 py-1 focus:border-primary outline-none"
+                                            />
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+                        ))}
+                        </div>
+                    ))}
+                </Accordion>
 
-          <Accordion title="4. Heredofamiliares" isOpen={openSections.fam} onToggle={() => setOpenSections(p => ({...p, fam: !p.fam}))} activeCount={countActiveFam(family)}>
-             <FamilyHistoryForm data={family} onChange={setFamily} />
-          </Accordion>
+                <Accordion title="2. Personales No Patológicos" isOpen={openSections.nonPath} onToggle={() => setOpenSections(p => ({...p, nonPath: !p.nonPath}))} activeCount={countActiveNonPath(nonPathological)}>
+                    <div className="grid gap-4">
+                        {NON_PATHOLOGICAL_SECTIONS.map(section => (
+                            <div key={section.id} className="bg-surfaceHighlight/20 p-4 rounded-xl border border-border/50">
+                                <div 
+                                    className="text-xs font-bold text-textMuted uppercase mb-3 cursor-pointer hover:text-white flex items-center gap-1"
+                                    onClick={() => setOpenSubSections(p => ({...p, [section.id]: !p[section.id]}))}
+                                >
+                                    {openSubSections[section.id] ? "▼" : "▶"} {section.title}
+                                </div>
+                                {openSubSections[section.id] && (
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 animate-[fadeIn_0.2s]">
+                                        {section.fields.map(field => (
+                                            <DynamicField key={field.id} field={field} value={nonPathological[field.id]} onChange={(val) => setNonPathological(prev => ({ ...prev, [field.id]: val }))} />
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        ))}
+                    </div>
+                </Accordion>
 
-          <label style={{marginTop:10}}><span style={styles.label}>Observaciones Generales</span><textarea rows={3} value={observations} onChange={e => setObservations(e.target.value)} style={styles.input} /></label>
-          <button type="submit" style={{ background: formMode==="UPDATE" ? "#4ade80" : "#f59e0b", color: "black", border: "none", padding: "12px", borderRadius: 6, fontWeight: "bold", cursor: "pointer", fontSize: "1em", marginTop: 10 }}>{formMode === "UPDATE" ? "Guardar Cambios" : "Guardar Nueva Versión"}</button>
-        </form>
+                <Accordion title="3. Antecedentes Oculares" isOpen={openSections.ocular} onToggle={() => setOpenSections(p => ({...p, ocular: !p.ocular}))} activeCount={countActiveOcular(ocular)}>
+                    <OcularHistoryForm data={ocular} onChange={setOcular} />
+                </Accordion>
+
+                <Accordion title="4. Heredofamiliares" isOpen={openSections.fam} onToggle={() => setOpenSections(p => ({...p, fam: !p.fam}))} activeCount={countActiveFam(family)}>
+                    <FamilyHistoryForm data={family} onChange={setFamily} />
+                </Accordion>
+
+                <div className="mt-4">
+                    <label className="block text-xs font-bold text-textMuted uppercase mb-2">Observaciones Generales</label>
+                    <textarea 
+                        rows={3} 
+                        value={observations} 
+                        onChange={e => setObservations(e.target.value)} 
+                        className="w-full bg-surface border border-border rounded-xl p-3 text-textMain focus:border-primary outline-none" 
+                    />
+                </div>
+
+                <Button type="submit" variant={formMode==="UPDATE"?"primary":"primary"} className={`w-full py-3 ${formMode==="UPDATE"?"bg-emerald-600 hover:bg-emerald-700":"bg-amber-600 hover:bg-amber-700"}`}>
+                    {formMode === "UPDATE" ? "Guardar Cambios" : "Guardar Nueva Versión"}
+                </Button>
+                </form>
+            )}
+
+            {/* --- LISTADO HISTÓRICO --- */}
+            {!formMode && historyList.length > 0 && (
+                <div className="mt-8 pt-6 border-t border-border">
+                    <div className="text-xs font-bold text-textMuted uppercase mb-4 tracking-wider">Historial de Versiones</div>
+                    <div className="space-y-2 max-h-60 overflow-y-auto custom-scrollbar pr-2">
+                        {historyList.map((entry, index) => {
+                            const isLatest = index === 0;
+                            return (
+                                <div 
+                                    key={entry.id} 
+                                    onClick={() => handleViewHistory(entry)} 
+                                    className={`p-3 rounded-lg border flex justify-between items-center cursor-pointer transition-all group ${isLatest ? "bg-surface border-primary/30" : "bg-transparent border-border hover:bg-surfaceHighlight"}`}
+                                >
+                                    <div>
+                                        <div className={`text-sm font-medium ${isLatest ? "text-white" : "text-textMuted group-hover:text-gray-300"}`}>
+                                            Versión {entry.version || 1} {isLatest && <span className="text-xs text-emerald-400 font-bold ml-2">(Vigente)</span>}
+                                        </div>
+                                        <div className="text-xs text-textMuted opacity-70 mt-0.5">
+                                            {new Date(entry.createdAt).toLocaleDateString()} · {entry.summary || "Sin resumen"}
+                                        </div>
+                                    </div>
+                                    <span className="text-textMuted group-hover:text-white text-sm">Ver 👁️</span>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+            )}
+        </>
       )}
 
-      {/* --- LISTADO HISTÓRICO --- */}
-      {!formMode && historyList.length > 0 && (
-          <div style={{ borderTop:"1px solid #333", paddingTop:15, marginTop:5 }}>
-              <div style={{ fontSize: "0.9em", color: "#888", marginBottom: 10 }}>Historial de Versiones (Click para ver detalle)</div>
-              <div style={{ display: "grid", gap: 8, maxHeight: 300, overflowY: "auto" }}>
-                  {historyList.map((entry, index) => {
-                      const isLatest = index === 0;
-                      return (
-                          <div key={entry.id} onClick={() => handleViewHistory(entry)} style={{ display: "flex", justifyContent: "space-between", alignItems:"center", padding: "8px 12px", background: "#111", border: isLatest ? "1px solid #333" : "1px solid #222", borderRadius: 6, cursor: "pointer", opacity: isLatest ? 1 : 0.7 }}>
-                              <div>
-                                  <div style={{color: isLatest ? "#fff" : "#aaa", fontWeight: isLatest?"bold":"normal", fontSize:"0.9em"}}>
-                                      Versión {entry.version || 1} {isLatest && <span style={{fontSize:"0.8em", color:"#4ade80", marginLeft:5}}>(Vigente)</span>}
-                                  </div>
-                                  <div style={{fontSize:"0.8em", color:"#666"}}>{new Date(entry.createdAt).toLocaleDateString()} · {entry.summary || "Sin resumen"}</div>
-                              </div>
-                              <span style={{fontSize:"1.2em", color:"#666"}}>👁️</span>
-                          </div>
-                      );
-                  })}
-              </div>
-          </div>
-      )}
-
-      {/* --- MODAL LECTURA ESTRICTO (Solo lo que existe) --- */}
+      {/* --- MODAL LECTURA ESTRICTO --- */}
       {viewAnamnesis && (
-        <div style={{position:"fixed", top:0, left:0, right:0, bottom:0, background:"rgba(0,0,0,0.8)", zIndex:300, display:"flex", justifyContent:"center", alignItems:"center"}}>
-           <div style={{background:"#111", width:700, maxHeight:"85vh", overflowY:"auto", padding:25, borderRadius:10, border:"1px solid #444"}}>
-              <h3 style={{marginTop:0, color:"#fbbf24"}}>Detalle Historial (v{viewAnamnesis.version||1})</h3>
-              <div style={{marginBottom:15, color:"#888"}}>{new Date(viewAnamnesis.createdAt).toLocaleString()}</div>
-              
-              <div style={{display:"grid", gap:15}}>
-                 
-                 {/* 1. Patológicos (SOLO si hay activos) */}
+        <ModalWrapper title={`Historial v${viewAnamnesis.version||1}`} onClose={()=>setViewAnamnesis(null)} width="700px">
+           <div className="mb-4 text-xs text-textMuted">Creado: {new Date(viewAnamnesis.createdAt).toLocaleString()}</div>
+           
+           <div className="space-y-4">
+                 {/* 1. Patológicos */}
                  {(() => {
-                     // Lógica compatible con legacy 'systemic' y nuevo 'pathological'
                      const pathData = viewAnamnesis.pathological || viewAnamnesis.systemic || {};
                      const activeItems = Object.entries(pathData).filter(([_,v]) => v.active);
-                     
                      if (activeItems.length === 0) return null;
-
                      return (
-                         <div style={{border:"1px solid #333", padding:15, borderRadius:6}}>
-                            <strong style={{color:"#f87171", display:"block", marginBottom:10}}>Patológicos</strong>
+                         <div className="border border-border rounded-lg p-4 bg-surface/50">
+                            <strong className="text-sm text-red-400 block mb-2 uppercase tracking-wide">Patológicos</strong>
                             {activeItems.map(([k,v]) => (
-                                <div key={k} style={{marginBottom:5, fontSize:"0.9em"}}>
-                                    • <strong style={{textTransform:"capitalize"}}>{k.replace(/_/g, ' ')}</strong>: {v.notes || (v.specialData ? "Datos detallados" : "")}
+                                <div key={k} className="text-sm text-textMuted mb-1">
+                                    • <strong className="text-white capitalize">{k.replace(/_/g, ' ')}</strong>: {v.notes || (v.specialData ? "Datos detallados" : "")}
                                 </div>
                             ))}
                          </div>
                      );
                  })()}
 
-                 {/* 2. No Patológicos (SOLO si tienen valor) */}
+                 {/* 2. No Patológicos */}
                  {(() => {
                      if (!viewAnamnesis.nonPathological) return null;
                      const activeEntries = Object.entries(viewAnamnesis.nonPathological).filter(([k,v]) => {
@@ -318,89 +448,68 @@ export default function AnamnesisPanel({ patientId }) {
                          if (typeof v === 'object' && !v.active) return false;
                          return true;
                      });
-
                      if (activeEntries.length === 0) return null;
-
                      return (
-                         <div style={{border:"1px solid #333", padding:15, borderRadius:6}}>
-                            <strong style={{color:"#60a5fa", display:"block", marginBottom:10}}>No Patológicos</strong>
+                         <div className="border border-border rounded-lg p-4 bg-surface/50">
+                            <strong className="text-sm text-blue-400 block mb-2 uppercase tracking-wide">No Patológicos</strong>
                             {activeEntries.map(([k,v]) => {
                                 let valStr = typeof v === 'object' ? (v.detail || "Sí") : v;
                                 const label = nonPathLabels[k] || k.replace(/_/g, ' ');
-                                return <div key={k} style={{fontSize:"0.9em"}}>• <strong>{label}:</strong> {valStr}</div>;
+                                return <div key={k} className="text-sm text-textMuted mb-1">• <strong className="text-white">{label}:</strong> {valStr}</div>;
                             })}
                          </div>
                      );
                  })()}
 
-                 {/* 3. Oculares (SOLO si hay positivos) */}
+                 {/* 3. Oculares */}
                  {(() => {
                      const d = viewAnamnesis.ocular || {};
-                     const hasData = d.glasses?.uses || d.contactLenses?.uses || d.surgeries?.active || d.trauma?.active || Object.values(d.diseases || {}).some(x => x.active) || d.meds?.some(m => m.name) || d.symptoms?.some;
-                     
-                     if (!hasData && !d.glasses?.uses) return null; // Simple check
-
+                     const hasData = d.glasses?.uses || d.contactLenses?.uses || d.surgeries?.active || d.trauma?.active || Object.values(d.diseases || {}).some(x => x.active) || d.meds?.some(m => m.name);
+                     if (!hasData) return null;
                      return (
-                         <div style={{border:"1px solid #333", padding:15, borderRadius:6}}>
-                            <strong style={{color:"#4ade80", display:"block", marginBottom:10}}>Oculares</strong>
-                            
-                            {d.glasses?.uses && <div style={{fontSize:"0.9em"}}>• Usa Lentes {d.glasses.since ? `(Desde: ${d.glasses.since})` : ""}</div>}
-                            {d.contactLenses?.uses && <div style={{fontSize:"0.9em"}}>• Usa Lentes de Contacto {d.contactLenses.type ? `(${d.contactLenses.type})` : ""}</div>}
-                            {d.surgeries?.active && <div style={{fontSize:"0.9em"}}>• Cx Ocular: {d.surgeries.details}</div>}
-                            {d.trauma?.active && <div style={{fontSize:"0.9em"}}>• Trauma: {d.trauma.details}</div>}
-                            
+                         <div className="border border-border rounded-lg p-4 bg-surface/50">
+                            <strong className="text-sm text-emerald-400 block mb-2 uppercase tracking-wide">Oculares</strong>
+                            {d.glasses?.uses && <div className="text-sm text-textMuted mb-1">• Usa Lentes {d.glasses.since ? `(Desde: ${d.glasses.since})` : ""}</div>}
+                            {d.contactLenses?.uses && <div className="text-sm text-textMuted mb-1">• Usa Lentes de Contacto {d.contactLenses.type ? `(${d.contactLenses.type})` : ""}</div>}
+                            {d.surgeries?.active && <div className="text-sm text-textMuted mb-1">• Cx Ocular: {d.surgeries.details}</div>}
                             {Object.entries(d.diseases || {}).filter(([_,v])=>v.active).map(([k,v]) => {
                                 const diseaseName = OCULAR_DISEASES?.find(dis => dis.id === k)?.label || k;
-                                return <div key={k} style={{fontSize:"0.9em"}}>• {diseaseName}: {v.notes || "Sí"}</div>
+                                return <div key={k} className="text-sm text-textMuted mb-1">• {diseaseName}: {v.notes || "Sí"}</div>
                             })}
-
-                            {d.meds?.[0]?.name && <div style={{fontSize:"0.9em"}}>• Gotas: {d.meds[0].name} {d.meds[0].dose}</div>}
                          </div>
                      );
                  })()}
 
-                 {/* 4. Heredofamiliares (SOLO si no están negados) */}
+                 {/* 4. Heredofamiliares */}
                  {(() => {
                      const d = viewAnamnesis.family || {};
                      const activeRelatives = Object.entries(d.relatives || {}).filter(([_,v]) => !v.negated);
-                     const activeOphthalmic = Object.entries(d.ophthalmic || {}).filter(([_,v]) => !v.negated);
-
-                     if (activeRelatives.length === 0 && activeOphthalmic.length === 0) return null;
-
+                     if (activeRelatives.length === 0) return null;
                      return (
-                         <div style={{border:"1px solid #333", padding:15, borderRadius:6}}>
-                            <strong style={{color:"#a78bfa", display:"block", marginBottom:10}}>Heredofamiliares</strong>
-                            
+                         <div className="border border-border rounded-lg p-4 bg-surface/50">
+                            <strong className="text-sm text-purple-400 block mb-2 uppercase tracking-wide">Heredofamiliares</strong>
                             {activeRelatives.map(([k,v]) => {
                                 const relLabel = RELATIVES_CONFIG?.find(r => r.id === k)?.label || k;
-                                return (
-                                    <div key={k} style={{fontSize:"0.9em"}}>
-                                        • <strong>{relLabel}:</strong> {v.vitalStatus === "DECEASED" ? "Finado" : "Vivo"} — {v.diseases || "Sin patologías reportadas"}
-                                    </div>
-                                );
-                            })}
-
-                            {activeOphthalmic.length > 0 && <div style={{marginTop:10, fontStyle:"italic", color:"#aaa", fontSize:"0.8em"}}>Antecedentes Oculares Familiares:</div>}
-                            {activeOphthalmic.map(([k,v]) => {
-                                const relLabel = RELATIVES_CONFIG?.find(r => r.id === k)?.label || k;
-                                return <div key={`oph-${k}`} style={{fontSize:"0.9em"}}>• {relLabel}: {v.condition}</div>
+                                return <div key={k} className="text-sm text-textMuted mb-1">• <strong className="text-white">{relLabel}:</strong> {v.vitalStatus === "DECEASED" ? "Finado" : "Vivo"} — {v.diseases || "Sin patologías"}</div>;
                             })}
                          </div>
                      );
                  })()}
 
-                 {/* Observaciones (Siempre mostrar si hay) */}
+                 {/* Observaciones */}
                  {viewAnamnesis.observations && (
-                     <div style={{background:"#222", padding:10, borderRadius:6}}>
-                         <div style={{color:"#aaa", fontSize:"0.8em"}}>OBSERVACIONES:</div>
-                         <div>{viewAnamnesis.observations}</div>
+                     <div className="p-4 bg-surfaceHighlight/30 rounded-lg border border-border">
+                         <div className="text-xs font-bold text-textMuted uppercase mb-1">Observaciones</div>
+                         <div className="text-sm text-white whitespace-pre-wrap">{viewAnamnesis.observations}</div>
                      </div>
                  )}
-              </div>
-              <button onClick={()=>setViewAnamnesis(null)} style={{marginTop:20, width:"100%", padding:10, background:"#333", color:"white", border:"none", borderRadius:6, cursor:"pointer"}}>Cerrar</button>
            </div>
-        </div>
+           
+           <div className="mt-6 flex justify-end">
+               <Button variant="ghost" onClick={()=>setViewAnamnesis(null)}>Cerrar</Button>
+           </div>
+        </ModalWrapper>
       )}
-    </section>
+    </Card>
   );
 }

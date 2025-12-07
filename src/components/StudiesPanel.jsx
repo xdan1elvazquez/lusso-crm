@@ -1,131 +1,93 @@
 import React, { useState, useEffect } from "react";
 import { createStudy, deleteStudy, getStudiesByPatient } from "@/services/studiesStorage";
+import Card from "@/components/ui/Card";
+import Button from "@/components/ui/Button";
+import Input from "@/components/ui/Input";
+import Select from "@/components/ui/Select";
 
 const FILE_TYPES = [
-  { id: "IMAGE", label: "Imagen (JPG/PNG)", icon: "🖼️" },
-  { id: "PDF", label: "Documento (PDF)", icon: "📄" },
-  { id: "VIDEO", label: "Video (MP4)", icon: "🎥" },
-  { id: "AUDIO", label: "Audio (MP3)", icon: "🎵" },
+  { id: "IMAGE", label: "Imagen", icon: "🖼️" },
+  { id: "PDF", label: "PDF", icon: "📄" },
+  { id: "VIDEO", label: "Video", icon: "🎥" },
+  { id: "AUDIO", label: "Audio", icon: "🎵" },
 ];
 
 export default function StudiesPanel({ patientId, consultationId = null }) {
   const [loading, setLoading] = useState(true);
   const [studies, setStudies] = useState([]);
   const [isUploading, setIsUploading] = useState(false);
-  
-  const [form, setForm] = useState({
-    name: "",
-    type: "IMAGE",
-    url: "", 
-    notes: ""
-  });
+  const [form, setForm] = useState({ name: "", type: "IMAGE", url: "", notes: "" });
 
   const refreshData = async () => {
       setLoading(true);
       try {
           const data = await getStudiesByPatient(patientId);
-          // Si estamos en una consulta específica, filtramos aquí
-          if (consultationId) {
-              setStudies(data.filter(s => s.consultationId === consultationId));
-          } else {
-              setStudies(data);
-          }
-      } catch (error) {
-          console.error(error);
-      } finally {
-          setLoading(false);
-      }
+          setStudies(consultationId ? data.filter(s => s.consultationId === consultationId) : data);
+      } catch (error) { console.error(error); } finally { setLoading(false); }
   };
 
   useEffect(() => { refreshData(); }, [patientId, consultationId]);
 
   const handleUpload = async (e) => {
     e.preventDefault();
-    if (!form.name) return alert("Escribe un nombre para el estudio");
-
-    await createStudy({
-        patientId,
-        consultationId,
-        ...form,
-        url: form.url || "https://via.placeholder.com/150" 
-    });
-
+    if (!form.name) return;
+    await createStudy({ patientId, consultationId, ...form, url: "https://via.placeholder.com/150" });
     setForm({ name: "", type: "IMAGE", url: "", notes: "" });
     setIsUploading(false);
     refreshData();
   };
 
-  const handleDelete = async (id) => {
-      if(confirm("¿Eliminar estudio?")) {
-          await deleteStudy(id);
-          refreshData();
-      }
-  };
+  const handleDelete = async (id) => { if(confirm("¿Eliminar?")) { await deleteStudy(id); refreshData(); } };
 
   return (
-    <section style={{ background: "#1a1a1a", padding: 20, borderRadius: 12, border: "1px solid #333", marginTop: 20 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 15 }}>
-        <h3 style={{ margin: 0, color: "#e5e7eb", fontSize: "1.1em" }}>
-            {consultationId ? "Estudios de esta Consulta" : "Expediente de Estudios y Gabinete"}
+    <Card className="mt-8 border-t-4 border-t-purple-500">
+      <div className="flex justify-between items-center mb-6">
+        <h3 className="text-lg font-bold text-white">
+            📁 {consultationId ? "Estudios de esta Consulta" : "Expediente de Estudios"}
         </h3>
-        <button 
-            onClick={() => setIsUploading(!isUploading)}
-            style={{ background: isUploading ? "#333" : "#2563eb", color: "white", border: "none", padding: "6px 12px", borderRadius: 6, cursor: "pointer", fontSize: "0.9em" }}
-        >
-            {isUploading ? "Cancelar" : "+ Adjuntar Estudio"}
-        </button>
+        <Button onClick={() => setIsUploading(!isUploading)} variant={isUploading ? "ghost" : "primary"}>
+            {isUploading ? "Cancelar" : "+ Adjuntar"}
+        </Button>
       </div>
 
       {isUploading && (
-          <form onSubmit={handleUpload} style={{ background: "#111", padding: 15, borderRadius: 8, border: "1px dashed #555", marginBottom: 20, display: "grid", gap: 10 }}>
-              <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 10 }}>
-                  <label style={{fontSize:12, color:"#aaa"}}>Nombre del Estudio
-                     <input autoFocus value={form.name} onChange={e => setForm({...form, name: e.target.value})} placeholder="Ej. OCT Macular OD" style={{width:"100%", padding:8, background:"#222", border:"1px solid #444", color:"white", borderRadius:4, marginTop:4}} />
-                  </label>
-                  <label style={{fontSize:12, color:"#aaa"}}>Tipo
-                     <select value={form.type} onChange={e => setForm({...form, type: e.target.value})} style={{width:"100%", padding:8, background:"#222", border:"1px solid #444", color:"white", borderRadius:4, marginTop:4}}>
-                        {FILE_TYPES.map(t => <option key={t.id} value={t.id}>{t.icon} {t.label}</option>)}
-                     </select>
-                  </label>
+          <form onSubmit={handleUpload} className="bg-surfaceHighlight/20 p-5 rounded-xl border border-dashed border-border mb-6 animate-fadeIn space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="md:col-span-2"><Input label="Nombre del Estudio" value={form.name} onChange={e => setForm({...form, name: e.target.value})} autoFocus /></div>
+                  <Select label="Tipo" value={form.type} onChange={e => setForm({...form, type: e.target.value})}>
+                      {FILE_TYPES.map(t => <option key={t.id} value={t.id}>{t.icon} {t.label}</option>)}
+                  </Select>
               </div>
-              <label style={{fontSize:12, color:"#aaa"}}>Notas / Descripción
-                 <textarea rows={2} value={form.notes} onChange={e => setForm({...form, notes: e.target.value})} placeholder="Hallazgos..." style={{width:"100%", padding:8, background:"#222", border:"1px solid #444", color:"white", borderRadius:4, marginTop:4}} />
-              </label>
-              
-              <div style={{fontSize:11, color:"#666", fontStyle:"italic"}}>* En esta demo, solo guardamos el registro. En producción aquí iría la subida real del archivo.</div>
-
-              <button type="submit" style={{ background: "#4ade80", color: "black", border: "none", padding: "8px", borderRadius: 4, fontWeight: "bold", cursor: "pointer", marginTop:5 }}>
-                  Guardar Registro
-              </button>
+              <Input label="Notas" value={form.notes} onChange={e => setForm({...form, notes: e.target.value})} />
+              <div className="text-right">
+                  <Button type="submit">Guardar Registro</Button>
+              </div>
           </form>
       )}
 
-      {loading ? <div style={{padding:20, color:"#666"}}>Cargando estudios...</div> : (
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 15 }}>
-              {studies.length === 0 && <p style={{ opacity: 0.5, fontSize: 13 }}>No hay estudios adjuntos.</p>}
+      {loading ? <div className="text-center text-textMuted">Cargando...</div> : (
+          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
+              {studies.length === 0 && <p className="col-span-full text-textMuted italic text-sm">No hay estudios adjuntos.</p>}
               
               {studies.map(study => {
                   const typeInfo = FILE_TYPES.find(t => t.id === study.type) || FILE_TYPES[0];
                   return (
-                      <div key={study.id} style={{ background: "#111", border: "1px solid #333", borderRadius: 8, padding: 12, position: "relative" }}>
-                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start", marginBottom: 8 }}>
-                              <span style={{ fontSize: "2em" }}>{typeInfo.icon}</span>
-                              <button onClick={() => handleDelete(study.id)} style={{ background: "none", border: "none", color: "#666", cursor: "pointer" }}>✕</button>
-                          </div>
-                          <div style={{ fontWeight: "bold", fontSize: "0.95em", color: "#ddd" }}>{study.name}</div>
-                          <div style={{ fontSize: "0.8em", color: "#888", marginTop: 4 }}>{new Date(study.createdAt).toLocaleDateString()}</div>
-                          {study.notes && <div style={{ fontSize: "0.8em", color: "#aaa", marginTop: 6, fontStyle: "italic", background:"#222", padding:4, borderRadius:4 }}>"{study.notes}"</div>}
+                      <div key={study.id} className="bg-background border border-border rounded-xl p-4 relative group hover:border-purple-500/50 transition-colors flex flex-col items-center text-center">
+                          <div className="text-4xl mb-3 grayscale group-hover:grayscale-0 transition-all">{typeInfo.icon}</div>
+                          <div className="font-bold text-white text-sm truncate w-full">{study.name}</div>
+                          <div className="text-xs text-textMuted mt-1">{new Date(study.createdAt).toLocaleDateString()}</div>
                           
-                          {study.consultationId && !consultationId && (
-                              <div style={{ position: "absolute", top: 10, right: 30, fontSize: "0.7em", background: "#1e3a8a", color: "#bfdbfe", padding: "2px 6px", borderRadius: 4 }}>
-                                  En Consulta
-                              </div>
-                          )}
+                          <button 
+                            onClick={() => handleDelete(study.id)} 
+                            className="absolute top-2 right-2 text-textMuted hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                          >
+                              ✕
+                          </button>
                       </div>
                   )
               })}
           </div>
       )}
-    </section>
+    </Card>
   );
 }

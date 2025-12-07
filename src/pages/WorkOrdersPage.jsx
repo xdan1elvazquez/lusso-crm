@@ -17,28 +17,15 @@ import Card from "@/components/ui/Card";
 import Badge from "@/components/ui/Badge";
 import { useConfirm, useNotify } from "@/context/UIContext";
 
-const STATUS_LABELS = { 
-  ON_HOLD: "En Espera",
-  TO_PREPARE: "Por Preparar", 
-  SENT_TO_LAB: "En Laboratorio", 
-  QUALITY_CHECK: "Control Calidad",
-  READY: "Listo Entrega", 
-  DELIVERED: "Entregado", 
-  CANCELLED: "Cancelado" 
-};
-
-// Mapeo de estados de negocio a colores del Badge
-const STATUS_BADGE_COLOR = { 
-  ON_HOLD: "gray", 
-  TO_PREPARE: "yellow", 
-  SENT_TO_LAB: "blue", 
-  QUALITY_CHECK: "purple", 
-  READY: "green", 
-  DELIVERED: "gray", 
-  CANCELLED: "red" 
-};
-
-const STATUS_TABS = ["ALL", "ON_HOLD", "TO_PREPARE", "SENT_TO_LAB", "QUALITY_CHECK", "READY", "DELIVERED"];
+// Configuración de columnas ACTIVAS (El flujo de trabajo)
+// Nota: Quitamos DELIVERED y CANCELLED de aquí para manejarlos aparte
+const ACTIVE_COLS = [
+  { id: "ON_HOLD", title: "⏳ En Espera", color: "border-slate-600", bg: "bg-slate-900/50" },
+  { id: "TO_PREPARE", title: "🛠️ Por Preparar", color: "border-amber-500", bg: "bg-amber-900/10" },
+  { id: "SENT_TO_LAB", title: "🚚 En Laboratorio", color: "border-blue-500", bg: "bg-blue-900/10" },
+  { id: "QUALITY_CHECK", title: "🔍 Control Calidad", color: "border-purple-500", bg: "bg-purple-900/10" },
+  { id: "READY", title: "✅ Listo Entrega", color: "border-emerald-500", bg: "bg-emerald-900/10" }
+];
 
 export default function WorkOrdersPage() {
   const confirm = useConfirm();
@@ -46,7 +33,8 @@ export default function WorkOrdersPage() {
 
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState("ALL");
+  // Estado para colapsar/expandir el historial de entregados
+  const [showHistory, setShowHistory] = useState(false);
   
   // Datos
   const [workOrders, setWorkOrders] = useState([]);
@@ -84,12 +72,42 @@ export default function WorkOrdersPage() {
     return sales.reduce((acc, s) => ({ ...acc, [s.id]: s }), {});
   }, [sales]);
 
-  const filtered = useMemo(() => {
+  // Agrupación Inteligente para Kanban
+  const { groupedOrders, historyOrders } = useMemo(() => {
     const q = query.toLowerCase();
-    return workOrders.filter(w => (statusFilter === "ALL" || w.status === statusFilter) && (
+    
+    // 1. Filtrar
+    const filtered = workOrders.filter(w => 
       (patientMap[w.patientId]?.firstName + " " + w.labName + " " + w.type).toLowerCase().includes(q)
-    )).sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
-  }, [workOrders, statusFilter, query, patientMap]);
+    );
+
+    // 2. Inicializar grupos activos
+    const activeGroups = {};
+    ACTIVE_COLS.forEach(col => activeGroups[col.id] = []);
+    
+    const history = []; // Para DELIVERED y CANCELLED
+
+    filtered.forEach(order => {
+        if (order.status === "DELIVERED" || order.status === "CANCELLED") {
+            history.push(order);
+        } else if (activeGroups[order.status]) {
+            activeGroups[order.status].push(order);
+        } else {
+            // Fallback para estados desconocidos o legacy
+            if (!activeGroups["ON_HOLD"]) activeGroups["ON_HOLD"] = [];
+            activeGroups["ON_HOLD"].push(order);
+        }
+    });
+
+    // Ordenar: Más antiguos primero para FIFO en activos, más recientes primero en historial
+    Object.keys(activeGroups).forEach(key => {
+        activeGroups[key].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+    });
+    
+    history.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+
+    return { groupedOrders: activeGroups, historyOrders: history };
+  }, [workOrders, query, patientMap]);
 
   // Handlers
   const handleDelete = async (id) => {
@@ -121,50 +139,7 @@ export default function WorkOrdersPage() {
     }
   };
 
-  // --- COMPONENTE INTERNO PARA FORMATEAR LA RX (Visualizador JSON) ---
-  const RxDisplay = ({ notes }) => {
-    if (!notes) return <span className="text-gray-500 italic text-xs">Sin datos Rx</span>;
-
-    // Intentamos detectar si es JSON
-    if (notes.trim().startsWith("{")) {
-        try {
-            const rx = JSON.parse(notes);
-            return (
-                <div className="bg-slate-950 p-3 rounded border border-slate-800 text-xs mt-2 font-mono">
-                    <div className="grid gap-1">
-                        <div className="flex gap-2">
-                            <span className="text-blue-400 font-bold w-6">OD:</span> 
-                            <span className="text-gray-300">
-                                {rx.od?.sph} / {rx.od?.cyl} x {rx.od?.axis}° 
-                                {rx.od?.add && <span className="text-gray-500 ml-2">Add: {rx.od.add}</span>}
-                            </span>
-                        </div>
-                        <div className="flex gap-2">
-                            <span className="text-blue-400 font-bold w-6">OI:</span> 
-                            <span className="text-gray-300">
-                                {rx.os?.sph} / {rx.os?.cyl} x {rx.os?.axis}° 
-                                {rx.os?.add && <span className="text-gray-500 ml-2">Add: {rx.os.add}</span>}
-                            </span>
-                        </div>
-                    </div>
-                    {rx.notes && (
-                        <div className="mt-2 pt-2 border-t border-slate-800 text-gray-500 italic">
-                            "{rx.notes}"
-                        </div>
-                    )}
-                </div>
-            );
-        } catch (e) {
-            // Si falla el parseo, mostramos texto plano
-            return <div className="mt-2 bg-slate-950 p-2 rounded text-xs text-gray-400 border border-slate-800 font-mono truncate">{notes}</div>;
-        }
-    }
-    // Texto normal
-    return <div className="mt-2 bg-slate-950 p-2 rounded text-xs text-gray-400 border border-slate-800 font-mono truncate">{notes}</div>;
-  };
-
   // --- SUB-COMPONENTES DE MODAL ---
-
   const SendLabModalContent = ({ order, onClose }) => {
     const [courier, setCourier] = useState("");
     const handleSend = async () => {
@@ -179,9 +154,9 @@ export default function WorkOrdersPage() {
               {employees.map(e => <option key={e.id} value={e.name}>{e.name}</option>)}
               <option value="Externo">Servicio Externo / Paquetería</option>
           </Select>
-          <div className="flex justify-end gap-3 mt-4">
+          <div className="flex justify-end gap-3 mt-4 pt-4 border-t border-border">
              <Button variant="ghost" onClick={onClose}>Cancelar</Button>
-             <Button onClick={handleSend}>Confirmar Envío</Button>
+             <Button onClick={handleSend} variant="primary">Confirmar Envío</Button>
           </div>
       </div>
     );
@@ -199,9 +174,9 @@ export default function WorkOrdersPage() {
     return (
       <div className="space-y-4">
           <label className="block w-full">
-             <span className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-1.5">Motivo de Garantía</span>
+             <span className="block text-xs font-medium text-textMuted uppercase tracking-wide mb-1.5">Motivo de Garantía</span>
              <textarea 
-                className="w-full px-3 py-2.5 bg-slate-900 border border-slate-700 rounded-lg text-white placeholder-gray-500 text-sm focus:outline-none focus:border-blue-500 resize-none"
+                className="w-full px-3 py-2.5 bg-background border border-border rounded-lg text-white placeholder-textMuted/50 text-sm focus:outline-none focus:border-primary resize-none"
                 placeholder="Descripción del defecto..." 
                 value={reason} 
                 onChange={e => setReason(e.target.value)} 
@@ -209,7 +184,7 @@ export default function WorkOrdersPage() {
              />
           </label>
           <Input label="Costo Extra ($)" type="number" value={extraCost} onChange={e => setExtraCost(e.target.value)} placeholder="Opcional" />
-          <div className="flex justify-end gap-3 mt-4">
+          <div className="flex justify-end gap-3 mt-4 pt-4 border-t border-border">
              <Button variant="ghost" onClick={onClose}>Cancelar</Button>
              <Button variant="danger" onClick={handleApply}>Aplicar Garantía</Button>
           </div>
@@ -233,18 +208,18 @@ export default function WorkOrdersPage() {
       };
       return (
         <div className="space-y-4">
-            <div className="bg-slate-900 p-4 rounded-lg text-center border border-slate-800">
-                <div className="text-sm text-gray-400">Monto a Pagar</div>
-                <div className="text-2xl font-bold text-emerald-400">${order.labCost?.toLocaleString()}</div>
+            <div className="bg-surfaceHighlight/30 p-6 rounded-lg text-center border border-border">
+                <div className="text-sm text-textMuted uppercase mb-1">Monto a Pagar</div>
+                <div className="text-3xl font-bold text-emerald-400">${order.labCost?.toLocaleString()}</div>
             </div>
             <Select label="Método de Pago" value={method} onChange={e => setMethod(e.target.value)}>
                 <option value="EFECTIVO">Efectivo</option>
                 <option value="TRANSFERENCIA">Transferencia</option>
                 <option value="TARJETA">Tarjeta</option>
             </Select> 
-            <div className="flex justify-end gap-3 mt-4">
+            <div className="flex justify-end gap-3 mt-4 pt-4 border-t border-border">
                 <Button variant="ghost" onClick={onClose}>Cancelar</Button>
-                <Button variant="primary" onClick={handlePay} className="bg-emerald-600 hover:bg-emerald-700">Registrar Pago</Button>
+                <Button variant="primary" onClick={handlePay} className="!bg-emerald-600 hover:!bg-emerald-700">Registrar Pago</Button>
             </div>
         </div>
       );
@@ -270,9 +245,9 @@ export default function WorkOrdersPage() {
                 <option value="">-- Seleccionar --</option>
                 {employees.map(e => <option key={e.id} value={e.name}>{e.name}</option>)}
             </Select>
-            <div className="flex justify-end gap-3 mt-4">
+            <div className="flex justify-end gap-3 mt-4 pt-4 border-t border-border">
                 <Button variant="ghost" onClick={onClose}>Cancelar</Button>
-                <Button variant="primary" onClick={handleConfirm} className="bg-purple-600 hover:bg-purple-700">Confirmar Recepción</Button>
+                <Button variant="primary" onClick={handleConfirm} className="!bg-purple-600 hover:!bg-purple-700">Confirmar Recepción</Button>
             </div>
         </div>
       );
@@ -281,153 +256,197 @@ export default function WorkOrdersPage() {
   if (loading && workOrders.length === 0) return <LoadingState />;
 
   return (
-    <div className="page-container">
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-3xl font-bold text-white">Work Orders</h1>
-        <Button variant="outline" onClick={refreshData}>🔄 Actualizar</Button>
+    <div className="page-container h-[calc(100vh-100px)] flex flex-col">
+      {/* HEADER FIJO */}
+      <div className="flex justify-between items-center mb-6 flex-shrink-0">
+        <div>
+           <h1 className="text-3xl font-bold text-white tracking-tight">Tablero de Trabajos</h1>
+           <p className="text-textMuted text-sm">Flujo de laboratorio en tiempo real</p>
+        </div>
+        <div className="flex gap-4 items-center">
+            <Input 
+                placeholder="🔍 Buscar orden..." 
+                value={query} 
+                onChange={e => setQuery(e.target.value)} 
+                className="w-64 bg-surface"
+            />
+            <Button variant="ghost" onClick={refreshData} title="Actualizar">🔄</Button>
+        </div>
       </div>
       
       {/* MODALES */}
-      {sendLabModal && (
-          <ModalWrapper title="Enviar a Laboratorio" onClose={() => setSendLabModal(null)} width="400px">
-              <SendLabModalContent order={sendLabModal} onClose={() => setSendLabModal(null)} />
-          </ModalWrapper>
-      )}
-      {warrantyModal && (
-          <ModalWrapper title="Reportar Garantía" onClose={() => setWarrantyModal(null)} width="400px">
-              <WarrantyModalContent order={warrantyModal} onClose={() => setWarrantyModal(null)} />
-          </ModalWrapper>
-      )}
-      {payLabModal && (
-          <ModalWrapper title="Pagar Proveedor" onClose={() => setPayLabModal(null)} width="350px">
-              <PayLabModalContent order={payLabModal} onClose={() => setPayLabModal(null)} />
-          </ModalWrapper>
-      )}
-      {revisionModal && (
-          <ModalWrapper title="Recepción de Trabajo" onClose={() => setRevisionModal(null)} width="450px">
-              <RevisionModalContent order={revisionModal} onClose={() => setRevisionModal(null)} />
-          </ModalWrapper>
-      )}
+      {sendLabModal && <ModalWrapper title="Enviar a Laboratorio" onClose={() => setSendLabModal(null)} width="400px"><SendLabModalContent order={sendLabModal} onClose={() => setSendLabModal(null)} /></ModalWrapper>}
+      {warrantyModal && <ModalWrapper title="Reportar Garantía" onClose={() => setWarrantyModal(null)} width="400px"><WarrantyModalContent order={warrantyModal} onClose={() => setWarrantyModal(null)} /></ModalWrapper>}
+      {payLabModal && <ModalWrapper title="Pagar Proveedor" onClose={() => setPayLabModal(null)} width="350px"><PayLabModalContent order={payLabModal} onClose={() => setPayLabModal(null)} /></ModalWrapper>}
+      {revisionModal && <ModalWrapper title="Recepción de Trabajo" onClose={() => setRevisionModal(null)} width="450px"><RevisionModalContent order={revisionModal} onClose={() => setRevisionModal(null)} /></ModalWrapper>}
       {viewSale && <SaleDetailModal sale={viewSale} patient={patientMap[viewSale.patientId]} onClose={() => setViewSale(null)} onUpdate={refreshData} />}
 
-      {/* FILTROS */}
-      <div className="flex flex-col md:flex-row gap-4 mb-6">
-          <Input 
-            placeholder="Buscar por paciente, folio o laboratorio..." 
-            value={query} 
-            onChange={e => setQuery(e.target.value)} 
-            className="md:w-1/3"
-          />
-          <div className="flex gap-2 overflow-x-auto pb-2 md:pb-0 custom-scrollbar">
-            {STATUS_TABS.map((tab) => (
-              <button
-                key={tab}
-                onClick={() => setStatusFilter(tab)}
-                className={`
-                  px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-colors border
-                  ${statusFilter === tab 
-                    ? "bg-slate-700 text-white border-slate-500" 
-                    : "bg-transparent text-gray-500 border-slate-800 hover:border-slate-600 hover:text-gray-300"}
-                `}
-              >
-                {STATUS_LABELS[tab] || "Todos"}
-              </button>
-            ))}
+      {/* KANBAN BOARD (Scroll Horizontal) */}
+      {/* Usamos flex-1 para que ocupe el espacio, pero si hay historial abajo, se ajustará */}
+      <div className="flex-1 overflow-x-auto pb-4 custom-scrollbar mb-4">
+          <div className="flex gap-4 min-w-max h-full">
+              {ACTIVE_COLS.map(col => {
+                  const orders = groupedOrders[col.id] || [];
+                  
+                  // 🔥 AUTO-OCULTAR COLUMNA VACÍA
+                  // Excepción: Siempre mostrar "En Espera" y "Por Preparar" para que no se vea vacío el inicio
+                  if (orders.length === 0 && col.id !== "ON_HOLD" && col.id !== "TO_PREPARE") {
+                      return null; 
+                  }
+
+                  return (
+                      <div key={col.id} className="w-80 flex flex-col h-full bg-surface rounded-xl border border-border overflow-hidden transition-all duration-300">
+                          {/* Col Header */}
+                          <div className={`p-3 border-b-2 ${col.color} bg-surfaceHighlight/50 flex justify-between items-center`}>
+                              <span className="font-bold text-sm text-white uppercase tracking-wide">{col.title}</span>
+                              <Badge color="gray" className="bg-background text-xs">{orders.length}</Badge>
+                          </div>
+                          
+                          {/* Col Body (Scroll Vertical) */}
+                          <div className={`flex-1 overflow-y-auto p-2 space-y-3 custom-scrollbar ${col.bg}`}>
+                              {orders.length === 0 ? (
+                                  <div className="flex flex-col items-center justify-center h-20 text-textMuted text-xs italic opacity-50">
+                                      Sin órdenes
+                                  </div>
+                              ) : (
+                                  orders.map(o => (
+                                      <KanbanCard 
+                                          key={o.id} 
+                                          order={o} 
+                                          patient={patientMap[o.patientId]}
+                                          sale={salesMap[o.saleId]}
+                                          onAdvance={() => handleStatusChange(o.id, o.status, 'next')}
+                                          onRegress={() => handleStatusChange(o.id, o.status, 'prev')}
+                                          onWarranty={() => setWarrantyModal(o)}
+                                          onDelete={() => handleDelete(o.id)}
+                                          onViewSale={() => setViewSale(salesMap[o.saleId])}
+                                          onPayLab={() => setPayLabModal(o)}
+                                      />
+                                  ))
+                              )}
+                          </div>
+                      </div>
+                  );
+              })}
           </div>
       </div>
-      
-      {/* GRID */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {filtered.map((o) => {
-          const patient = patientMap[o.patientId];
-          const sale = salesMap[o.saleId];
-          const item = sale?.items?.find(it => it.id === o.saleItemId);
-          const profit = (item?.unitPrice || 0) - (o.labCost || 0);
-          
-          return (
-            <Card key={o.id} className="relative group hover:border-slate-600 transition-colors" noPadding>
-              {/* Barra de estado lateral */}
-              <div className={`absolute left-0 top-0 bottom-0 w-1 ${
-                  o.status === "READY" ? "bg-emerald-500" : 
-                  o.status === "SENT_TO_LAB" ? "bg-blue-500" : 
-                  o.status === "TO_PREPARE" ? "bg-amber-500" : "bg-slate-700"
-              }`}></div>
-              
-              <div className="p-4 pl-6">
-                  {/* Header */}
-                  <div className="flex justify-between items-start mb-3">
-                     <div>
-                        <div className="font-bold text-white text-lg truncate w-48" title={`${patient?.firstName} ${patient?.lastName}`}>
-                            {patient ? `${patient.firstName} ${patient.lastName}` : "Paciente"}
-                        </div>
-                        <div className="text-sm text-gray-400">{item?.description || o.type}</div>
-                        <div className="mt-2">
-                            <Badge color={STATUS_BADGE_COLOR[o.status]}>{STATUS_LABELS[o.status]}</Badge>
-                        </div>
-                     </div>
-                     
-                     <div className="flex flex-col gap-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
-                        {o.status !== "CANCELLED" && o.status !== "DELIVERED" && (
-                          <div className="flex gap-1">
-                            {o.status !== "ON_HOLD" && o.status !== "TO_PREPARE" && (
-                                <button onClick={() => handleStatusChange(o.id, o.status, 'prev')} className="p-1.5 text-gray-500 hover:text-white bg-slate-800 rounded hover:bg-slate-700" title="Regresar Estado">⬅</button>
-                            )}
-                            <button onClick={() => handleStatusChange(o.id, o.status, 'next')} className="p-1.5 text-blue-400 hover:text-white bg-slate-800 rounded hover:bg-blue-600" title="Avanzar Estado">➡</button>
-                          </div>
-                        )}
-                        {o.status !== "CANCELLED" && (
-                            <button onClick={() => setWarrantyModal(o)} className="text-xs text-red-400 hover:underline text-right">Garantía</button>
-                        )}
-                     </div>
-                  </div>
-                  
-                  {/* Detalles */}
-                  <div className="border-t border-slate-800 pt-3 mt-2 grid grid-cols-2 gap-4 text-sm">
-                      <div>
-                          <div className="text-xs text-gray-500 uppercase font-bold mb-1">Logística</div>
-                          <div className="text-gray-300">🏭 {o.labName || "Interno"}</div>
-                          {o.courier && <div className="text-gray-400 text-xs mt-1">🚚 {o.courier}</div>}
-                          
-                          {sale && (
-                            <div 
-                                onClick={() => setViewSale(sale)} 
-                                className={`mt-2 cursor-pointer text-xs font-bold flex items-center gap-1 ${sale.balance > 0 ? "text-red-400" : "text-emerald-400"}`}
-                            >
-                                {sale.balance > 0 ? `Debe $${sale.balance}` : "Venta Pagada"} ↗
-                            </div>
-                          )}
-                      </div>
-                      <div>
-                          <div className="text-xs text-gray-500 uppercase font-bold mb-1">Finanzas</div>
-                          <div className={profit >= 0 ? "text-emerald-400" : "text-red-400"}>
-                              Util: ${profit.toLocaleString()}
-                          </div>
-                          
-                          {o.labCost > 0 && !o.isPaid && o.status !== "CANCELLED" && (
-                              <button 
-                                  onClick={() => setPayLabModal(o)} 
-                                  className="mt-2 text-xs bg-emerald-900/30 text-emerald-400 border border-emerald-800 px-2 py-1 rounded hover:bg-emerald-900/50 w-full"
-                              >
-                                  Pagar ${o.labCost}
-                              </button>
-                          )}
-                          {o.isPaid && <div className="mt-2 text-xs text-gray-500 flex items-center gap-1">✅ Lab Pagado</div>}
-                      </div>
-                  </div>
 
-                  {/* Notas Técnicas / Rx (RESTAURADO CON ESTILOS) */}
-                  <div className="mt-3">
-                      <RxDisplay notes={o.rxNotes} />
-                  </div>
-                  
-                  <div className="mt-2 text-right">
-                      <button onClick={() => handleDelete(o.id)} className="text-xs text-gray-600 hover:text-red-500 transition-colors">Eliminar Orden</button>
-                  </div>
-              </div>
-            </Card>
-          );
-        })}
+      {/* HISTORIAL DE ENTREGADOS (Sección Inferior) */}
+      <div className="border-t border-border pt-4 mt-auto">
+          <button 
+             onClick={() => setShowHistory(!showHistory)}
+             className="flex items-center gap-2 text-sm font-bold text-textMuted hover:text-white transition-colors mb-4 w-full"
+          >
+              <span>{showHistory ? "▼" : "▶"}</span>
+              Historial de Entregas y Cancelaciones ({historyOrders.length})
+          </button>
+          
+          {showHistory && (
+             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 animate-fadeIn max-h-60 overflow-y-auto custom-scrollbar pr-2">
+                 {historyOrders.map(o => {
+                     const patient = patientMap[o.patientId];
+                     const sale = salesMap[o.saleId];
+                     const item = sale?.items?.find(it => it.id === o.saleItemId);
+                     return (
+                         <div key={o.id} className={`p-3 rounded-lg border border-border flex justify-between items-center ${o.status === "CANCELLED" ? "bg-red-900/10 opacity-70" : "bg-surface"}`}>
+                             <div>
+                                 <div className="font-bold text-sm text-white">{patient?.firstName} {patient?.lastName}</div>
+                                 <div className="text-xs text-textMuted">{item?.description || o.type}</div>
+                             </div>
+                             <div className="text-right">
+                                 <Badge color={o.status==="DELIVERED" ? "gray" : "red"}>{o.status === "DELIVERED" ? "Entregado" : "Cancelado"}</Badge>
+                                 <div className="text-[10px] text-textMuted mt-1">{new Date(o.updatedAt).toLocaleDateString()}</div>
+                             </div>
+                         </div>
+                     );
+                 })}
+                 {historyOrders.length === 0 && <p className="text-textMuted text-xs italic">No hay historial reciente.</p>}
+             </div>
+          )}
       </div>
     </div>
   );
+}
+
+// --- TARJETA DE TRABAJO (Diseño Detallado) ---
+function KanbanCard({ order, patient, sale, onAdvance, onRegress, onWarranty, onDelete, onViewSale, onPayLab }) {
+    const item = sale?.items?.find(it => it.id === order.saleItemId);
+    
+    // Parseo seguro de Rx
+    const renderRx = (notes) => {
+        if (!notes) return null;
+        if (notes.trim().startsWith("{")) {
+            try {
+                const rx = JSON.parse(notes);
+                return (
+                    <div className="mt-2 text-[10px] font-mono text-blue-200 bg-blue-900/20 p-1.5 rounded border border-blue-500/20 grid grid-cols-1 gap-0.5">
+                        <div className="truncate">OD: {rx.od?.sph} / {rx.od?.cyl} x {rx.od?.axis}°</div>
+                        <div className="truncate">OI: {rx.os?.sph} / {rx.os?.cyl} x {rx.os?.axis}°</div>
+                    </div>
+                );
+            } catch (e) { return <div className="mt-2 text-[10px] text-textMuted truncate italic">{notes}</div>; }
+        }
+        return <div className="mt-2 text-[10px] text-textMuted truncate italic">{notes}</div>;
+    };
+
+    return (
+        <div 
+            onClick={onViewSale}
+            className="bg-background border border-border rounded-lg p-3 shadow-sm hover:border-primary/50 transition-colors group relative">
+            
+            {/* Header: Paciente y Producto */}
+            <div className="flex justify-between items-start mb-2">
+                <div className="w-full pr-6">
+                    <div className="font-bold text-white text-sm truncate" title={patient ? `${patient.firstName} ${patient.lastName}` : "Paciente"}>
+                        {patient ? `${patient.firstName} ${patient.lastName}` : "Paciente"}
+                    </div>
+                    <div className="text-xs text-textMuted truncate">{item?.description || order.type}</div>
+                </div>
+                {/* Botón Borrar (esquina) */}
+                <button onClick={onDelete} className="absolute top-2 right-2 text-textMuted hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">×</button>
+            </div>
+
+            {/* Datos Clave */}
+            <div className="grid grid-cols-2 gap-2 text-[10px] text-textMuted mb-2">
+                <div className="bg-surfaceHighlight rounded px-1.5 py-1">
+                    <span className="block uppercase font-bold opacity-70 text-[9px]">Lab</span>
+                    <span className="text-gray-300 truncate">{order.labName || "Interno"}</span>
+                </div>
+                <div className="bg-surfaceHighlight rounded px-1.5 py-1 text-right">
+                    <span className="block uppercase font-bold opacity-70 text-[9px]">Entrega</span>
+                    <span className="text-gray-300">{order.dueDate ? new Date(order.dueDate).toLocaleDateString() : "N/D"}</span>
+                </div>
+            </div>
+
+            {/* Rx Preview */}
+            {renderRx(order.rxNotes)}
+
+            {/* Footer de Acciones */}
+            <div className="flex justify-between items-center pt-2 mt-2 border-t border-border border-dashed">
+                {/* Navegación de Estados */}
+                <div className="flex gap-1">
+                    {order.status !== "ON_HOLD" && order.status !== "TO_PREPARE" && (
+                        <button onClick={onRegress} className="p-1 rounded bg-surface border border-border text-textMuted hover:text-white hover:bg-surfaceHighlight" title="Regresar">←</button>
+                    )}
+                    {order.status !== "READY" && (
+                        <button onClick={onAdvance} className="p-1 rounded bg-blue-600 text-white hover:bg-blue-500 shadow-glow" title="Avanzar">➡</button>
+                    )}
+                </div>
+
+                {/* Acciones Secundarias */}
+                <div className="flex gap-3 text-[10px] font-medium items-center">
+                    <button onClick={onWarranty} className="text-red-400 hover:underline">Garantía</button>
+                    {/* Indicadores Financieros */}
+                    <div className="flex gap-1">
+                        {sale && sale.balance > 0 && (
+                            <span onClick={onViewSale} className="cursor-pointer w-2.5 h-2.5 rounded-full bg-red-500 border border-background" title={`Saldo Pendiente: $${sale.balance}`}></span>
+                        )}
+                        {order.labCost > 0 && !order.isPaid && (
+                            <span onClick={onPayLab} className="cursor-pointer w-2.5 h-2.5 rounded-full bg-amber-500 border border-background animate-pulse" title={`Pago Lab Pendiente: $${order.labCost}`}></span>
+                        )}
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
 }
