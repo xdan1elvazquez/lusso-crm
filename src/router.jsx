@@ -27,8 +27,23 @@ import SalesHistoryPage from "@/pages/SalesHistoryPage.jsx";
 import SuppliersPage from "@/pages/SuppliersPage.jsx";
 import ShiftPage from "@/pages/ShiftPage.jsx";
 
+import ClientLayout from "@/layouts/ClientLayout";
+import ClientLoginPage from "@/pages/client/ClientLoginPage";
+import ClientTrackerPage from "@/pages/client/ClientTrackerPage";
+
 const router = createBrowserRouter([
   { path: "/login", element: <LoginPage /> },
+
+  {
+    path: "/portal",
+    element: <ClientLayout />,
+    children: [
+        { index: true, element: <Navigate to="login" replace /> },
+        { path: "login", element: <ClientLoginPage /> },
+        { path: "tracker", element: <ClientTrackerPage /> }
+    ]
+  },
+
   {
     path: "/",
     element: <AppLayout />, // El Layout maneja la estructura visual
