@@ -22,15 +22,20 @@ export function usePOS(patientId, terminals, refreshCallback) {
   const total = Math.max(0, subtotal - discountAmount);
 
   // Acciones Carrito
-  const addToCart = (item) => setCart(prev => [...prev, { ...item, _tempId: Date.now() + Math.random() }]);
-  const removeFromCart = (id) => setCart(prev => prev.filter(i => i._tempId !== id));
+  const addToCart = (item) => {
+      // 🟢 FIX CRÍTICO: Generamos un ID persistente aquí mismo
+      const uniqueId = crypto.randomUUID();
+      setCart(prev => [...prev, { ...item, id: uniqueId, _tempId: uniqueId }]);
+  };
+
+  const removeFromCart = (id) => setCart(prev => prev.filter(i => i.id !== id));
+  
   const clearCart = () => {
       setCart([]);
       setPayment(p => ({ ...p, initial: 0, discount: "" }));
       setLogistics({ boxNumber: "", soldBy: "" });
   };
 
-  // 🧠 LÓGICA CORE: Checkout con Split
   const handleCheckout = async () => {
     if (cart.length === 0) return;
 
@@ -42,7 +47,7 @@ export function usePOS(patientId, terminals, refreshCallback) {
     if (needsSplit) {
         const ok = await confirm({
             title: "Venta Mixta Detectada",
-            message: "Se detectaron productos de Taller y de Mostrador.\n\nEl sistema generará 2 tickets separados automáticamente para control de inventario y laboratorio.",
+            message: "Se detectaron productos de Taller y de Mostrador.\n\nEl sistema generará 2 tickets separados automáticamente.",
             confirmText: "Proceder", cancelText: "Cancelar"
         });
         if (!ok) return;
@@ -52,17 +57,15 @@ export function usePOS(patientId, terminals, refreshCallback) {
     try {
         const paymentAmount = Number(payment.initial) || 0;
 
-        // Función interna para crear una venta parcial
+        // Función interna para crear venta parcial
         const createPartialSale = async (items, allocatedPayment, descOverride) => {
             if (items.length === 0) return;
             
-            // Recalcular proporciones
             const groupGross = items.reduce((sum, i) => sum + (i.qty * i.unitPrice), 0);
             const ratio = subtotal > 0 ? groupGross / subtotal : 0;
             const groupDiscount = discountAmount * ratio;
             const groupTotal = Math.max(0, groupGross - groupDiscount);
 
-            // Construir objeto de pago
             let payObj = null;
             if (allocatedPayment > 0) {
                 payObj = { amount: allocatedPayment, method: payment.method, paidAt: new Date().toISOString() };
@@ -82,12 +85,11 @@ export function usePOS(patientId, terminals, refreshCallback) {
                 payments: payObj ? [payObj] : [],
                 description: descOverride,
                 subtotalGross: groupGross,
-                items: items
+                items: items // Los items ya llevan su ID generado arriba
             });
         };
 
         if (needsSplit) {
-            // Prioridad de pago: 1. Mostrador (Simple), 2. Taller (Lab)
             const simpleGross = simpleItems.reduce((s, i) => s + (i.qty * i.unitPrice), 0);
             const simpleRatio = subtotal > 0 ? simpleGross / subtotal : 0;
             const simpleTotal = Math.max(0, simpleGross - (discountAmount * simpleRatio));
@@ -97,9 +99,8 @@ export function usePOS(patientId, terminals, refreshCallback) {
 
             await createPartialSale(simpleItems, paySimple, "Venta Mostrador (Auto)");
             await createPartialSale(labItems, payLab, "Venta Óptica (Auto)");
-            notify.success("Se generaron 2 tickets correctamente.");
+            notify.success("Tickets generados correctamente.");
         } else {
-            // Venta única
             await createPartialSale(cart, paymentAmount, null);
             notify.success("Venta registrada.");
         }
