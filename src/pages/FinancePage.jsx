@@ -4,6 +4,7 @@ import { getFinancialReport, getProfitabilityReport } from "@/services/salesStor
 import { getExpensesReport } from "@/services/expensesStorage";
 import { getAllShifts } from "@/services/shiftsStorage"; 
 import LoadingState from "@/components/LoadingState";
+import TerminalsManager from "@/components/settings/TerminalsManager";
 
 // UI Kit
 import Card from "@/components/ui/Card";
@@ -26,6 +27,8 @@ export default function FinancePage() {
   const [loading, setLoading] = useState(true);
   const [filterType, setFilterType] = useState("MONTH");
   const [filterValue, setFilterValue] = useState(getMonthStr());
+
+  const [showTerminals, setShowTerminals] = useState(false);
   
   const [financialReport, setFinancial] = useState({ totalIncome: 0, totalSales: 0 });
   const [profitabilityReport, setProfitability] = useState({ global: {sales:0, cost:0, profit:0}, byCategory: {} });
@@ -88,6 +91,11 @@ export default function FinancePage() {
         </div>
         
         <div className="flex items-center gap-2 bg-surface p-1.5 rounded-xl border border-border">
+
+            <Button variant="secondary" onClick={() => setShowTerminals(true)} className="text-xs h-9 mr-2 border-dashed border-primary/40 text-primary hover:text-white hover:bg-primary/20">
+               ⚙️ Terminales
+            </Button>
+
             <div className="flex bg-background rounded-lg p-1">
                 <button 
                     onClick={() => { setFilterType("DAY"); setFilterValue(getTodayStr()); }} 
@@ -256,6 +264,8 @@ export default function FinancePage() {
               {cuts.length === 0 && <p className="text-textMuted text-sm italic">No hay cierres registrados.</p>}
           </div>
       </div>
+      
+      {showTerminals && <TerminalsManager onClose={() => setShowTerminals(false)} />}
     </div>
   );
 }
