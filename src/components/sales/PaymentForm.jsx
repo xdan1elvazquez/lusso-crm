@@ -2,7 +2,8 @@ import React from "react";
 import { preventNegativeKey, sanitizeMoney, formatMoneyBlur } from "@/utils/inputHandlers";
 import Button from "@/components/ui/Button";
 
-const PAYMENT_METHODS = ["EFECTIVO", "TARJETA", "TRANSFERENCIA", "OTRO"];
+// 🟢 AGREGAMOS "PUNTOS" AQUI
+const PAYMENT_METHODS = ["EFECTIVO", "TARJETA", "TRANSFERENCIA", "PUNTOS", "OTRO"];
 
 export default function PaymentForm({ 
     subtotal, 
@@ -34,7 +35,6 @@ export default function PaymentForm({
 
   const calculatedFee = payment.method === "TARJETA" ? (Number(payment.initial) * Number(payment.feePercent) / 100) : 0;
   
-  // Estilo común para inputs/selects pequeños
   const controlClass = "w-full bg-background border border-border rounded-lg px-3 py-2 text-sm text-white focus:border-primary outline-none";
 
   return (
@@ -93,8 +93,15 @@ export default function PaymentForm({
                     {PAYMENT_METHODS.map(m => <option key={m} value={m}>{m}</option>)}
                 </select>
             </div>
+            
+            {/* Mensaje Informativo si selecciona Puntos */}
+            {payment.method === "PUNTOS" && (
+                <div className="text-[10px] text-yellow-400 bg-yellow-400/10 p-2 rounded border border-yellow-400/20">
+                    ⚠️ Se validará que el cliente tenga suficientes puntos al cobrar (1 Punto = $1 Peso).
+                </div>
+            )}
 
-            {/* Opciones Tarjeta (Expandible) */}
+            {/* Opciones Tarjeta */}
             {payment.method === "TARJETA" && (
                 <div className="bg-background p-3 rounded-lg border border-border animate-[fadeIn_0.2s_ease-out]">
                     <select value={payment.terminalId} onChange={handleTerminalChange} className={`${controlClass} mb-2`}>

@@ -5,16 +5,21 @@ import { getAllSales } from "@/services/salesStorage";
 import { getAllWorkOrders } from "@/services/workOrdersStorage";
 import LoadingState from "@/components/LoadingState";
 
-// 👇 IMPORTANTE: El panel de reparación que agregamos
-import FinanceRepairPanel from "@/components/admin/FinanceRepairPanel";
+// 👇 NUEVO: Importar el Panel de Lealtad
+import LoyaltyManager from "@/components/settings/LoyaltyManager";
+// Panel de reparación (puedes comentarlo si ya no lo usas)
+// import FinanceRepairPanel from "@/components/admin/FinanceRepairPanel";
 
-// 👇 UI Kit Nuevo
 import Card from "@/components/ui/Card";
 import Badge from "@/components/ui/Badge";
 import Button from "@/components/ui/Button"; 
 
 export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
+  
+  // Estado para mostrar el modal de lealtad
+  const [showLoyalty, setShowLoyalty] = useState(false);
+
   const [stats, setStats] = useState({
     totalPatients: 0,
     totalConsultations: 0,
@@ -33,22 +38,19 @@ export default function DashboardPage() {
                 getPatients(), getAllConsultations(), getAllSales(), getAllWorkOrders()
             ]);
 
-            // Ordenar consultas recientes
             const sortedConsultations = [...consultations].sort(
               (a, b) => new Date(b.visitDate || b.createdAt).getTime() - new Date(a.visitDate || a.createdAt).getTime()
             );
 
-            // Calcular ventas pendientes
             const pendingSales = sales
               .map((s) => {
                 const paidAmount = s.paidAmount ?? (Array.isArray(s.payments) ? s.payments.reduce((acc, p) => acc + (Number(p.amount) || 0), 0) : 0);
                 const balance = s.balance ?? Math.max((Number(s.total) || 0) - paidAmount, 0);
                 return { ...s, paidAmount, balance };
               })
-              .filter((s) => s.balance > 0.01) // Solo deudores
+              .filter((s) => s.balance > 0.01)
               .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
-            // Agrupar órdenes por estado
             const workOrdersByStatus = workOrders.reduce((acc, w) => {
               const key = w.status || "UNKNOWN";
               acc[key] = (acc[key] || 0) + 1;
@@ -79,14 +81,19 @@ export default function DashboardPage() {
   return (
     <div className="page-container space-y-8">
       
-      {/* 🔧 PANEL DE REPARACIÓN (Solo visible aquí para mantenimiento) */}
-      <FinanceRepairPanel />
-
-      {/* HEADER */}
-      <div>
-        <h1 className="text-3xl font-bold text-white tracking-tight">Dashboard</h1>
-        <p className="text-textMuted text-sm">Resumen general de la clínica</p>
+      {/* HEADER con Botón de Configuración */}
+      <div className="flex justify-between items-center">
+        <div>
+            <h1 className="text-3xl font-bold text-white tracking-tight">Dashboard</h1>
+            <p className="text-textMuted text-sm">Resumen general de la clínica</p>
+        </div>
+        <Button onClick={() => setShowLoyalty(true)} variant="secondary" className="shadow-sm">
+            💎 Configurar Puntos
+        </Button>
       </div>
+
+      {/* MODAL DE LEALTAD */}
+      {showLoyalty && <LoyaltyManager onClose={() => setShowLoyalty(false)} />}
 
       {/* KPI CARDS - GRID PRINCIPAL */}
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">

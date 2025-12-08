@@ -4,29 +4,28 @@ import {
   getPatientById, 
   updatePatient, 
   getPatientsRecommendedBy,
-  touchPatientView 
+  touchPatientView,
+  setPatientPoints // 👈 Importante para edición manual
 } from "@/services/patientsStorage";
 import { getReferralSources } from "@/services/settingsStorage";
 
-// Paneles Clínicos (Lógica original intacta)
+// Paneles Clínicos
 import ConsultationsPanel from "@/components/ConsultationsPanel";
 import EyeExamsPanel from "@/components/EyeExamsPanel";
 import AnamnesisPanel from "@/components/AnamnesisPanel";
 import SalesPanel from "@/components/SalesPanel";
 import StudiesPanel from "@/components/StudiesPanel";
 import { handlePhoneInput } from "@/utils/inputHandlers";
-
-// 👇 AQUÍ ESTABA EL ERROR: Faltaba esta línea
 import LoadingState from "@/components/LoadingState";
 
-// UI Components Nuevos (Tailwind)
+// UI Components
 import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
 import Input from "@/components/ui/Input";
 import Select from "@/components/ui/Select";
 import Badge from "@/components/ui/Badge";
 
-// --- HELPERS ORIGINALES ---
+// --- HELPERS ---
 function toDateInput(isoString) {
   if (!isoString) return "";
   const date = new Date(isoString);
@@ -52,7 +51,6 @@ function getPatientAge(dateString) {
 export default function PatientDetailPage() {
   const { id } = useParams();
   
-  // --- ESTADO Y LÓGICA ORIGINAL ---
   const [loading, setLoading] = useState(true);
   const [patient, setPatient] = useState(null);
   const [referrerName, setReferrerName] = useState("");
@@ -63,7 +61,11 @@ export default function PatientDetailPage() {
   const [form, setForm] = useState({});
   const [sources, setSources] = useState([]);
 
-  const calculatedAge = getPatientAge(form?.dob); // Protección opcional ?.
+  // Estado para Edición de Puntos
+  const [editingPoints, setEditingPoints] = useState(false);
+  const [newPointsVal, setNewPointsVal] = useState("");
+
+  const calculatedAge = getPatientAge(form?.dob);
 
   useEffect(() => {
     async function loadData() {
@@ -78,7 +80,6 @@ export default function PatientDetailPage() {
             
             if (p) {
                 touchPatientView(id);
-                // 1. CARGA DE ESTADO COMPLETA
                 setForm({ 
                     firstName: p.firstName, lastName: p.lastName, email: p.email,
                     phone: p.phone, homePhone: p.homePhone || "", 
@@ -153,6 +154,19 @@ export default function PatientDetailPage() {
       }, 100);
   };
 
+  // 🟢 MANEJO DE PUNTOS MANUAL
+  const handleUpdatePoints = async () => {
+    if (newPointsVal === "") return;
+    try {
+        await setPatientPoints(id, newPointsVal);
+        setPatient(prev => ({ ...prev, points: Number(newPointsVal) }));
+        setEditingPoints(false);
+        alert("Puntos actualizados manualmente.");
+    } catch (e) {
+        alert("Error: " + e.message);
+    }
+  };
+
   if (loading) return <LoadingState />;
   if (!patient) return <div className="p-10 text-center text-textMuted">Paciente no encontrado.</div>;
 
@@ -185,9 +199,15 @@ export default function PatientDetailPage() {
                         )}
                         <span className="text-textMuted text-sm flex items-center gap-1">🎂 {form.dob || "N/A"}</span>
                         <span className="text-textMuted text-sm flex items-center gap-1">📱 {patient.phone}</span>
-                        <Badge color="yellow" className="text-yellow-300 border-yellow-500/30 font-bold">
-                            💎 {patient.points || 0} Puntos
-                        </Badge>
+                        
+                        {/* BADGE DE PUNTOS CLICKABLE */}
+                        <div className="relative group cursor-pointer" onClick={() => { setNewPointsVal(patient.points); setEditingPoints(true); }}>
+                            <Badge color="yellow" className="text-yellow-300 border-yellow-500/30 font-bold hover:bg-yellow-500/20 transition-colors">
+                                💎 {patient.points?.toLocaleString() || 0} Puntos
+                                <span className="ml-2 text-[10px] opacity-0 group-hover:opacity-100">✏️ Editar</span>
+                            </Badge>
+                        </div>
+
                     </div>
                 </div>
              </div>
@@ -368,6 +388,29 @@ export default function PatientDetailPage() {
            <SalesPanel patientId={id} prefillData={salePrefill} onClearPrefill={() => setSalePrefill(null)} />
         </div>
       </div>
+
+      {/* MODAL EDICIÓN DE PUNTOS */}
+      {editingPoints && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+              <div className="bg-surface border border-border p-6 rounded-xl w-full max-w-sm shadow-2xl">
+                  <h3 className="text-lg font-bold text-white mb-4">Ajuste Manual de Puntos</h3>
+                  <p className="text-sm text-textMuted mb-4">
+                      Usa esto para corregir errores o asignar bonificaciones manuales.
+                  </p>
+                  <Input 
+                      label="Nuevos Puntos Totales" 
+                      type="number" 
+                      value={newPointsVal} 
+                      onChange={e => setNewPointsVal(e.target.value)} 
+                      className="font-bold text-lg"
+                  />
+                  <div className="flex justify-end gap-3 mt-6">
+                      <Button variant="ghost" onClick={() => setEditingPoints(false)}>Cancelar</Button>
+                      <Button onClick={handleUpdatePoints}>Guardar</Button>
+                  </div>
+              </div>
+          </div>
+      )}
     </div>
   );
 }

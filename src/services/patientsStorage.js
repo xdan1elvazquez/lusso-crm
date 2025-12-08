@@ -15,6 +15,11 @@ import {
 
 const COLLECTION_NAME = "patients";
 
+export async function setPatientPoints(id, newTotal) {
+  const docRef = doc(db, COLLECTION_NAME, id);
+  await updateDoc(docRef, { points: Number(newTotal) });
+}
+
 // --- LECTURA ---
 export async function getPatients() {
   // 🛡️ SOFT DELETE: Filtramos solo los que NO han sido borrados

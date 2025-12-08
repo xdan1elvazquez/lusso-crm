@@ -6,7 +6,7 @@ import { getLoyaltySettings } from "./settingsStorage";
 import { getCurrentShift } from "./shiftsStorage"; 
 import { createWorkOrder, deleteWorkOrdersBySaleId, cancelWorkOrderBySaleItem } from "./workOrdersStorage"; 
 import { adjustStock } from "./inventoryStorage";
-import { adjustPatientPoints } from "./patientsStorage"; 
+import { adjustPatientPoints, getPatientById } from "./patientsStorage"; 
 
 const COLLECTION_NAME = "sales";
 const COLLECTION_PRODUCTS = "products";
@@ -35,18 +35,22 @@ export async function getSalesByPatientId(id) {
     .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 }
 
-// METRICAS CORTE
 export async function getSalesMetricsByShift(shiftId) {
     if (!shiftId) return { totalIncome: 0, incomeByMethod: {} };
     const q = query(collection(db, COLLECTION_NAME), where("shiftId", "==", shiftId));
     const snapshot = await getDocs(q);
     let totalIncome = 0;
-    const incomeByMethod = { EFECTIVO: 0, TARJETA: 0, TRANSFERENCIA: 0, CHEQUE: 0, OTRO: 0 };
+    const incomeByMethod = { EFECTIVO: 0, TARJETA: 0, TRANSFERENCIA: 0, CHEQUE: 0, PUNTOS: 0, OTRO: 0 };
+    
     snapshot.forEach(doc => {
         const sale = doc.data();
         if (Array.isArray(sale.payments)) {
             sale.payments.forEach(pay => {
                 if (pay.shiftId === shiftId) {
+                    // Nota: Los pagos con "PUNTOS" no suman al efectivo en caja, pero sí a la venta.
+                    // Si quieres que el corte de caja NO cuente puntos como dinero físico, 
+                    // simplemente los ignoramos en 'totalIncome' si es necesario.
+                    // Aquí los sumamos para saber cuánto se vendió, pero en el desglose se verá "PUNTOS".
                     totalIncome += Number(pay.amount);
                     const m = (pay.method || "OTRO").toUpperCase();
                     if (incomeByMethod[m] !== undefined) incomeByMethod[m] += Number(pay.amount);
@@ -58,7 +62,6 @@ export async function getSalesMetricsByShift(shiftId) {
     return { totalIncome, incomeByMethod };
 }
 
-// REPORTES
 export async function getFinancialReport(startDate, endDate) { 
     const q = query(collection(db, COLLECTION_NAME));
     const snapshot = await getDocs(q);
@@ -206,15 +209,48 @@ export async function createSale(payload) {
     const now = new Date().toISOString();
     const hasLabItems = sanitizedItems.some(i => i.requiresLab === true);
     
-    let pointsToAward = 0;
-    if (loyalty.enabled) {
-        const method = payload.payments?.[0]?.method || "EFECTIVO";
-        const rate = loyalty.earningRates[method] !== undefined ? loyalty.earningRates[method] : loyalty.earningRates["GLOBAL"];
-        pointsToAward = Math.floor((payload.total * rate) / 100);
-    }
-
+    // --- LÓGICA DE PUNTOS ---
+    let pointsToAward = 0; // Puntos GANADOS
+    let referrerPoints = 0;
+    
+    // Preparar pagos
     const paymentsWithShift = (payload.payments || []).map(p => ({ ...p, shiftId: currentShift.id }));
     const paidAmount = paymentsWithShift.reduce((sum, p) => sum + Number(p.amount), 0);
+    
+    // 🔴 1. DESCONTAR PUNTOS SI PAGÓ CON PUNTOS (VALIDACIÓN)
+    const pointsUsed = paymentsWithShift
+        .filter(p => p.method === "PUNTOS")
+        .reduce((sum, p) => sum + Number(p.amount), 0);
+        
+    if (pointsUsed > 0) {
+        if ((patientData.points || 0) < pointsUsed) {
+            throw new Error(`Saldo insuficiente de puntos. Disponibles: ${patientData.points}, Requeridos: ${pointsUsed}`);
+        }
+        // Restar puntos inmediatamente (aunque aún no guardamos, calculamos el neto)
+        // Nota: En Firestore update se hará al final.
+    }
+
+    // 🟢 2. CALCULAR PUNTOS GANADOS (Solo si NO pagó con puntos)
+    if (loyalty.enabled) {
+        paymentsWithShift.forEach(pay => {
+            const amount = Number(pay.amount) || 0;
+            if (amount <= 0) return;
+            const method = pay.method || "EFECTIVO";
+            
+            // Regla: Pagar con PUNTOS no genera nuevos puntos (usualmente)
+            if (method !== "PUNTOS") {
+                const ownRate = loyalty.earningRates[method] !== undefined ? loyalty.earningRates[method] : loyalty.earningRates["GLOBAL"];
+                pointsToAward += Math.floor((amount * ownRate) / 100);
+
+                // Comisión Padrino
+                if (referrerSnap && referrerSnap.exists()) {
+                    const refRate = Number(loyalty.referralBonusPercent) || 0;
+                    const pointsForRef = Math.floor((amount * refRate) / 100);
+                    referrerPoints += pointsForRef;
+                }
+            }
+        });
+    }
 
     const newSaleRef = doc(collection(db, COLLECTION_NAME));
     const newSale = {
@@ -248,10 +284,15 @@ export async function createSale(payload) {
         transaction.set(logRef, { productId: update.ref.id, type: "SALE", quantity: -update.qty, finalStock: update.newStock, reference: `Venta #${newSaleRef.id.slice(0,6)}`, date: now });
     });
 
-    if (pointsToAward > 0) transaction.update(patientRef, { points: (patientData.points || 0) + pointsToAward });
-    if (referrerSnap && referrerSnap.exists()) {
-        const refPoints = Math.floor((payload.total * loyalty.referralBonusPercent) / 100);
-        if (refPoints > 0) transaction.update(referrerRef, { points: (referrerSnap.data().points || 0) + refPoints });
+    // ACTUALIZAR PUNTOS (Neto: Ganados - Gastados)
+    const netPointsChange = pointsToAward - pointsUsed;
+    if (netPointsChange !== 0) {
+        transaction.update(patientRef, { points: (Number(patientData.points) || 0) + netPointsChange });
+    }
+
+    // Actualizar Padrino
+    if (referrerPoints > 0 && referrerSnap.exists()) {
+        transaction.update(referrerRef, { points: (Number(referrerSnap.data().points) || 0) + referrerPoints });
     }
 
     return { id: newSaleRef.id, ...newSale };
@@ -261,40 +302,104 @@ export async function createSale(payload) {
   return saleResult;
 }
 
-// --- MODIFICACIÓN ---
+// --- MODIFICACIÓN (ABONOS) ---
 export async function addPaymentToSale(saleId, payment) {
   const currentShift = await getCurrentShift();
   if (!currentShift) throw new Error("⛔ CAJA CERRADA: Abre un turno para abonos.");
 
-  const saleRef = doc(db, COLLECTION_NAME, saleId);
-  const saleSnap = await getDoc(saleRef);
-  if (!saleSnap.exists()) throw new Error("Venta no encontrada");
-  
-  const saleData = saleSnap.data();
-  const currentPaid = (saleData.payments || []).reduce((sum, p) => sum + (Number(p.amount)||0), 0);
-  const balance = saleData.total - currentPaid;
-  const amountToPay = Math.min(Number(payment.amount), balance);
-  if (amountToPay <= 0) return;
+  // Usamos runTransaction para asegurar que no se descuenten puntos si alguien más modificó el paciente
+  await runTransaction(db, async (transaction) => {
+      const saleRef = doc(db, COLLECTION_NAME, saleId);
+      const saleSnap = await transaction.get(saleRef);
+      if (!saleSnap.exists()) throw new Error("Venta no encontrada");
+      
+      const saleData = saleSnap.data();
+      const currentPaid = (saleData.payments || []).reduce((sum, p) => sum + (Number(p.amount)||0), 0);
+      const balance = saleData.total - currentPaid;
+      
+      const amountToPay = Math.min(Number(payment.amount), balance);
+      if (amountToPay <= 0) return; // Nada que pagar
 
-  const newPayment = {
-      id: crypto.randomUUID(),
-      amount: amountToPay,
-      method: payment.method || "EFECTIVO",
-      paidAt: new Date().toISOString(),
-      shiftId: currentShift.id,
-      terminal: payment.terminal || null,
-      cardType: payment.cardType || null
-  };
+      const method = payment.method || "EFECTIVO";
 
-  const newPayments = [...(saleData.payments||[]), newPayment];
-  const newBalance = saleData.total - (currentPaid + amountToPay);
-  
-  await updateDoc(saleRef, {
-      payments: newPayments,
-      balance: newBalance,
-      paidAmount: currentPaid + amountToPay,
-      status: newBalance <= 0.01 ? "PAID" : "PENDING",
-      updatedAt: new Date().toISOString()
+      // 🔴 1. VALIDAR PUNTOS (Si paga con puntos)
+      let pointsUsed = 0;
+      if (method === "PUNTOS") {
+          const patientRef = doc(db, COLLECTION_PATIENTS, saleData.patientId);
+          const patientSnap = await transaction.get(patientRef);
+          if (!patientSnap.exists()) throw new Error("Paciente no encontrado para descontar puntos.");
+          const pPoints = patientSnap.data().points || 0;
+          
+          if (pPoints < amountToPay) {
+              throw new Error(`Saldo insuficiente de puntos. Tienes ${pPoints}, intentas usar ${amountToPay}.`);
+          }
+          pointsUsed = amountToPay;
+          
+          // Descontar puntos
+          transaction.update(patientRef, { points: pPoints - pointsUsed });
+      }
+
+      // 🟢 2. CALCULAR PUNTOS GANADOS (Solo si no paga con puntos)
+      let pointsToAdd = 0;
+      const loyalty = await getLoyaltySettings();
+      
+      if (loyalty.enabled && method !== "PUNTOS") {
+          const ownRate = loyalty.earningRates[method] !== undefined ? loyalty.earningRates[method] : loyalty.earningRates["GLOBAL"];
+          pointsToAdd = Math.floor((amountToPay * ownRate) / 100);
+          
+          // Sumar puntos al paciente
+          if (pointsToAdd > 0) {
+             // Nota: Si ya leímos patientRef arriba lo reusamos, si no, hay que leerlo (o hacer update atómico)
+             // Para simplificar en updateDoc (ya que transaction update requiere haber leído), usamos incrementHelper
+             // Pero como estamos en transacción, lo ideal es leer.
+             const patientRef = doc(db, COLLECTION_PATIENTS, saleData.patientId);
+             // Si ya leimos arriba (caso PUNTOS) no entramos aquí, así que hay que leer
+             const pSnap = await transaction.get(patientRef); 
+             if(pSnap.exists()) {
+                 transaction.update(patientRef, { points: (pSnap.data().points || 0) + pointsToAdd });
+             }
+          }
+
+          // Puntos al Referente
+          if (saleData.patientId) {
+             const pSnap = await transaction.get(doc(db, COLLECTION_PATIENTS, saleData.patientId));
+             if (pSnap.exists() && pSnap.data().referredBy) {
+                 const refId = pSnap.data().referredBy;
+                 const refRate = Number(loyalty.referralBonusPercent) || 0;
+                 const refPoints = Math.floor((amountToPay * refRate) / 100);
+                 if (refPoints > 0) {
+                     const refRef = doc(db, COLLECTION_PATIENTS, refId);
+                     const refSnap = await transaction.get(refRef);
+                     if (refSnap.exists()) {
+                         transaction.update(refRef, { points: (refSnap.data().points || 0) + refPoints });
+                     }
+                 }
+             }
+          }
+      }
+
+      const newPayment = {
+          id: crypto.randomUUID(),
+          amount: amountToPay,
+          method: method,
+          paidAt: new Date().toISOString(),
+          shiftId: currentShift.id,
+          terminal: payment.terminal || null,
+          cardType: payment.cardType || null
+      };
+
+      const newPayments = [...(saleData.payments||[]), newPayment];
+      const newBalance = saleData.total - (currentPaid + amountToPay);
+      const totalPointsAwarded = (saleData.pointsAwarded || 0) + pointsToAdd;
+
+      transaction.update(saleRef, {
+          payments: newPayments,
+          balance: newBalance,
+          paidAmount: currentPaid + amountToPay,
+          status: newBalance <= 0.01 ? "PAID" : "PENDING",
+          pointsAwarded: totalPointsAwarded, 
+          updatedAt: new Date().toISOString()
+      });
   });
 }
 
@@ -313,7 +418,7 @@ export async function updateSaleLogistics(id, data) {
     await updateDoc(saleRef, { soldBy: data.soldBy, updatedAt: new Date().toISOString() });
 }
 
-// 🟢 DEVOLUCIÓN QUE REPORTA ESTADO
+// 🟢 DEVOLUCIÓN CONTROLADA 
 export async function processReturn(saleId, itemId, qtyToReturn, refundMethod = "EFECTIVO", shouldRestock = true) {
     const currentShift = await getCurrentShift();
     if (!currentShift) throw new Error("⛔ CAJA CERRADA: Requieres turno para devoluciones.");
@@ -338,10 +443,10 @@ export async function processReturn(saleId, itemId, qtyToReturn, refundMethod = 
             await adjustStock(item.inventoryProductId, qtyToReturn, `Devolución Venta #${saleId.slice(0,6)}`);
         } catch (e) {
             console.error("Error devolviendo stock:", e);
-            stockError = e.message; // Guardamos el error para reportarlo
+            stockError = e.message;
         }
     } else if (shouldRestock && !item.inventoryProductId) {
-        stockError = "El ítem no tiene vínculo con inventario (no se pudo regresar).";
+        stockError = "El ítem no tiene vínculo con inventario.";
     }
 
     // 2. DINERO
@@ -357,6 +462,12 @@ export async function processReturn(saleId, itemId, qtyToReturn, refundMethod = 
             shiftId: currentShift.id,
             note: `Reembolso: ${item.description}`
         });
+
+        // 🔴 REEMBOLSO DE PUNTOS (Si devolvemos dinero al cliente en Puntos)
+        if (refundMethod === "PUNTOS") {
+            try { await adjustPatientPoints(sale.patientId, refundAmount); } 
+            catch(e) { console.error("Error devolviendo puntos al cliente", e); }
+        }
     }
 
     // 3. WORK ORDER
@@ -364,7 +475,7 @@ export async function processReturn(saleId, itemId, qtyToReturn, refundMethod = 
         try { await cancelWorkOrderBySaleItem(saleId, item.id || itemId); } catch(e){ console.error(e); }
     }
 
-    // 4. PUNTOS
+    // 4. RETIRAR PUNTOS GANADOS (CASTIGO)
     const currentTotal = sale.total || 1; 
     const refundRatio = refundAmount / currentTotal;
     const pointsToRevoke = Math.floor((sale.pointsAwarded || 0) * refundRatio);
@@ -399,7 +510,7 @@ export async function processReturn(saleId, itemId, qtyToReturn, refundMethod = 
         updatedAt: new Date().toISOString() 
     });
 
-    return { stockError }; // Retornamos estado del stock
+    return { stockError };
 }
 
 // ELIMINACIÓN FORZOSA

@@ -1,10 +1,7 @@
 import { db } from "@/firebase/config";
 import { collection, query, where, getDocs, doc, getDoc } from "firebase/firestore";
 
-// ... (clientLogin se queda igual) ...
 export async function clientLogin(email, dobRaw) {
-  // (Código anterior de login...)
-  // ... Copia la función clientLogin del paso anterior aquí ...
   const cleanEmail = email.trim().toLowerCase();
   const q = query(
     collection(db, "patients"), 
@@ -18,7 +15,7 @@ export async function clientLogin(email, dobRaw) {
   return { id: patientDoc.id, ...patientDoc.data() };
 }
 
-// NUEVO: Traer órdenes + Detalles de Venta (Precios y Conceptos)
+// TRAER ÓRDENES + DETALLES DE VENTA (Precios y Caja)
 export async function getClientOrders(patientId) {
     const q = query(
         collection(db, "work_orders"),
@@ -30,7 +27,7 @@ export async function getClientOrders(patientId) {
     const ordersWithDetails = await Promise.all(snapshot.docs.map(async (d) => {
         const order = { id: d.id, ...d.data() };
         
-        let saleDetails = { items: [], total: 0 };
+        let saleDetails = { items: [], total: 0, boxNumber: "" }; // 👈 Init boxNumber
         
         // Si hay una venta ligada, traemos los detalles públicos
         if (order.saleId) {
@@ -38,13 +35,16 @@ export async function getClientOrders(patientId) {
                 const saleSnap = await getDoc(doc(db, "sales", order.saleId));
                 if (saleSnap.exists()) {
                     const sale = saleSnap.data();
+                    
+                    saleDetails.boxNumber = sale.boxNumber || ""; // 👈 Capturamos la Caja
+                    
                     // Filtramos solo lo que el cliente debe ver
                     saleDetails.items = sale.items.map(item => ({
-                        kind: item.kind, // FRAMES, LENSES, etc.
+                        kind: item.kind,
                         description: item.description,
-                        price: item.unitPrice, // Precio al público
-                        specs: item.specs || {}, // Detalles técnicos (material, tratamiento)
-                        rx: item.rxSnapshot // Graduación guardada
+                        price: item.unitPrice,
+                        specs: item.specs || {},
+                        rx: item.rxSnapshot
                     }));
                 }
             } catch (e) { console.error("Error cargando venta", e); }
