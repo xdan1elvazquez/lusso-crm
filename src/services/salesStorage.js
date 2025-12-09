@@ -4,7 +4,7 @@ import {
 } from "firebase/firestore";
 import { getLoyaltySettings } from "./settingsStorage"; 
 import { getCurrentShift } from "./shiftsStorage"; 
-import { createWorkOrder, deleteWorkOrdersBySaleId, cancelWorkOrderBySaleItem } from "./workOrdersStorage"; 
+import { cancelWorkOrderBySaleItem } from "./workOrdersStorage"; 
 import { adjustStock } from "./inventoryStorage";
 import { adjustPatientPoints, getPatientById } from "./patientsStorage"; 
 
@@ -32,7 +32,6 @@ export async function getSaleById(id) {
 }
 
 export async function getSalesByPatientId(id) {
-  // Nota: Dejamos esto global para ver historial completo del paciente
   const q = query(collection(db, COLLECTION_NAME), where("patientId", "==", id));
   const snapshot = await getDocs(q);
   return snapshot.docs
@@ -127,73 +126,28 @@ export async function getProfitabilityReport(startDate, endDate, branchId = "lus
     return { global, byCategory }; 
 }
 
-// --- CREACIÓN ---
-async function ensureWorkOrdersForSale(sale, saleId, branchId) {
-    const total = Number(sale.total) || 0;
-    const paid = Number(sale.paidAmount) || 0;
-    const ratio = total > 0 ? paid / total : 1;
-    const initialStatus = ratio >= 0.5 ? "TO_PREPARE" : "ON_HOLD";
-
-    const lenses = sale.items.filter(i => i.kind === "LENSES");
-    const frames = sale.items.filter(i => i.kind === "FRAMES");
-    const contacts = sale.items.filter(i => i.kind === "CONTACT_LENS");
-    let availableFrames = [...frames];
-
-    for (const lens of lenses) {
-        const linkedFrame = availableFrames.shift(); 
-        const workOrderId = `wo_${saleId}_${lens.id}`; 
-        
-        await createWorkOrder({
-            id: workOrderId, 
-            branchId: branchId, // 👈 Se propaga la sucursal
-            patientId: sale.patientId,
-            saleId: saleId,
-            saleItemId: lens.id,
-            type: "LENTES",
-            status: initialStatus,
-            labName: lens.labName || "",
-            labCost: lens.cost || 0,
-            rxNotes: lens.rxSnapshot ? JSON.stringify(lens.rxSnapshot) : "",
-            frameCondition: linkedFrame ? `Nuevo: ${linkedFrame.description}` : "Propio/No especificado",
-            dueDate: lens.dueDate || null,
-            createdAt: sale.createdAt,
-        });
-    }
-
-    for (const cl of contacts) {
-        const workOrderId = `wo_${saleId}_${cl.id}`; 
-        await createWorkOrder({
-            id: workOrderId, 
-            branchId: branchId, // 👈 Se propaga la sucursal
-            patientId: sale.patientId,
-            saleId: saleId,
-            saleItemId: cl.id,
-            type: "LC",
-            status: initialStatus,
-            labName: "Lentes de Contacto",
-            labCost: cl.cost || 0,
-            rxNotes: cl.rxSnapshot ? JSON.stringify(cl.rxSnapshot) : "",
-            dueDate: cl.dueDate || null,
-            createdAt: sale.createdAt,
-        });
-    }
-}
-
+// --- CREACIÓN (ATÓMICA + VALIDACIONES) ---
 export async function createSale(payload, branchId = "lusso_main") {
   if (!payload?.patientId) throw new Error("patientId requerido");
   
-  // 👈 Obtenemos turno de la sucursal correcta
   const currentShift = await getCurrentShift(branchId);
   if (!currentShift) throw new Error("⛔ CAJA CERRADA: No hay un turno abierto en esta sucursal.");
   
   const loyalty = await getLoyaltySettings(); 
   
   const saleResult = await runTransaction(db, async (transaction) => {
+    // 1. Validar Paciente
     const patientRef = doc(db, COLLECTION_PATIENTS, payload.patientId);
     const patientSnap = await transaction.get(patientRef);
     if (!patientSnap.exists()) throw new Error("Paciente no encontrado");
+    
+    // 🟢 PARCHE 4: Bloqueo de Pacientes Eliminados
     const patientData = patientSnap.data();
+    if (patientData.deletedAt) {
+        throw new Error(`⛔ PACIENTE ELIMINADO: No se pueden crear ventas para ${patientData.firstName} ${patientData.lastName}.`);
+    }
 
+    // 2. Validar Referido
     let referrerRef = null;
     let referrerSnap = null;
     if (loyalty.enabled && patientData.referredBy) {
@@ -201,11 +155,13 @@ export async function createSale(payload, branchId = "lusso_main") {
         referrerSnap = await transaction.get(referrerRef);
     }
 
+    // 3. Sanitizar Items y Generar IDs
     const sanitizedItems = payload.items.map(i => ({
         ...i,
         id: i.id || crypto.randomUUID()
     }));
 
+    // 4. Validar Stock
     const inventoryUpdates = [];
     for (const item of sanitizedItems) {
         if (item.inventoryProductId) {
@@ -223,7 +179,7 @@ export async function createSale(payload, branchId = "lusso_main") {
     const now = new Date().toISOString();
     const hasLabItems = sanitizedItems.some(i => i.requiresLab === true);
     
-    // --- LÓGICA DE PUNTOS ---
+    // 5. Cálculos de Pagos y Puntos
     let pointsToAward = 0; 
     let referrerPoints = 0;
     
@@ -258,9 +214,10 @@ export async function createSale(payload, branchId = "lusso_main") {
         });
     }
 
+    // 6. Preparar Venta
     const newSaleRef = doc(collection(db, COLLECTION_NAME));
     const newSale = {
-        branchId: branchId, // 👈 ASIGNACIÓN DE SUCURSAL
+        branchId: branchId,
         patientId: payload.patientId,
         patientName: `${patientData.firstName} ${patientData.lastName}`.trim(),
         boxNumber: payload.boxNumber || "",
@@ -283,14 +240,85 @@ export async function createSale(payload, branchId = "lusso_main") {
     };
     if (newSale.balance <= 0.01) newSale.status = "PAID";
 
+    // 🟢 PARCHE 1: Work Orders dentro de Transacción
+    if (hasLabItems) {
+        const total = Number(newSale.total) || 0;
+        const paid = Number(newSale.paidAmount) || 0;
+        const ratio = total > 0 ? paid / total : 1;
+        const initialStatus = ratio >= 0.5 ? "TO_PREPARE" : "ON_HOLD";
+
+        const lenses = sanitizedItems.filter(i => i.kind === "LENSES");
+        const frames = sanitizedItems.filter(i => i.kind === "FRAMES");
+        const contacts = sanitizedItems.filter(i => i.kind === "CONTACT_LENS");
+        
+        let availableFrames = [...frames];
+
+        for (const lens of lenses) {
+            const linkedFrame = availableFrames.shift(); 
+            const workOrderId = `wo_${newSaleRef.id}_${lens.id}`; 
+            const workOrderRef = doc(db, "work_orders", workOrderId);
+            
+            const workOrderData = {
+                id: workOrderId, 
+                branchId: branchId,
+                patientId: payload.patientId,
+                saleId: newSaleRef.id,
+                saleItemId: lens.id,
+                type: "LENTES",
+                status: initialStatus,
+                labName: lens.labName || "",
+                labCost: Number(lens.cost) || 0,
+                rxNotes: lens.rxSnapshot ? JSON.stringify(lens.rxSnapshot) : "",
+                frameCondition: linkedFrame ? `Nuevo: ${linkedFrame.description}` : "Propio/No especificado",
+                dueDate: lens.dueDate || null,
+                createdAt: now,
+                updatedAt: now,
+                isWarranty: false,
+                warrantyHistory: [],
+                courier: "",
+                receivedBy: "",
+                jobMadeBy: "",
+                talladoBy: ""
+            };
+            transaction.set(workOrderRef, workOrderData);
+        }
+
+        for (const cl of contacts) {
+            const workOrderId = `wo_${newSaleRef.id}_${cl.id}`; 
+            const workOrderRef = doc(db, "work_orders", workOrderId);
+            
+            const workOrderData = {
+                id: workOrderId, 
+                branchId: branchId,
+                patientId: payload.patientId,
+                saleId: newSaleRef.id,
+                saleItemId: cl.id,
+                type: "LC",
+                status: initialStatus,
+                labName: "Lentes de Contacto",
+                labCost: Number(cl.cost) || 0,
+                rxNotes: cl.rxSnapshot ? JSON.stringify(cl.rxSnapshot) : "",
+                dueDate: cl.dueDate || null,
+                createdAt: now,
+                updatedAt: now,
+                isWarranty: false,
+                warrantyHistory: []
+            };
+            transaction.set(workOrderRef, workOrderData);
+        }
+    }
+
+    // 7. Guardar Venta
     transaction.set(newSaleRef, newSale);
 
+    // 8. Actualizar Inventario
     inventoryUpdates.forEach(update => {
         transaction.update(update.ref, { stock: update.newStock });
         const logRef = doc(collection(db, COLLECTION_LOGS));
         transaction.set(logRef, { productId: update.ref.id, type: "SALE", quantity: -update.qty, finalStock: update.newStock, reference: `Venta #${newSaleRef.id.slice(0,6)}`, date: now });
     });
 
+    // 9. Actualizar Puntos
     const netPointsChange = pointsToAward - pointsUsed;
     if (netPointsChange !== 0) {
         transaction.update(patientRef, { points: (Number(patientData.points) || 0) + netPointsChange });
@@ -303,22 +331,12 @@ export async function createSale(payload, branchId = "lusso_main") {
     return { id: newSaleRef.id, ...newSale };
   });
 
-  if (saleResult.saleType === "LAB") await ensureWorkOrdersForSale(saleResult, saleResult.id, branchId).catch(console.error);
   return saleResult;
 }
 
-// ... Las funciones de pago y devolución se mantienen igual que en el archivo original, 
-// ya que operan sobre ventas ya creadas (que ya tienen branchId) ...
+// --- MODIFICACIONES DE VENTA ---
+
 export async function addPaymentToSale(saleId, payment) {
-  // Nota: Deberíamos validar que el turno pertenezca a la misma sucursal que la venta,
-  // pero por ahora solo verificamos turno abierto global o pasamos branchId si es necesario.
-  // Para minimizar cambios, asumimos que el usuario solo puede operar ventas de su sucursal visualmente.
-  const currentShift = await getCurrentShift(); // Ojo: esto podría traer turno de otra branch si no filtramos
-  // Corrección segura:
-  // const sale = await getSaleById(saleId);
-  // const currentShift = await getCurrentShift(sale.branchId);
-  
-  // MANTENEMOS CÓDIGO ORIGINAL POR AHORA PARA NO ROMPER SI NO SE PASAN PARAMS
   const shift = await getCurrentShift(); 
   if (!shift) throw new Error("⛔ CAJA CERRADA: Abre un turno para abonos.");
 
@@ -328,6 +346,12 @@ export async function addPaymentToSale(saleId, payment) {
       if (!saleSnap.exists()) throw new Error("Venta no encontrada");
       
       const saleData = saleSnap.data();
+
+      // 🟢 PARCHE 5: Validación de Sucursal (Cajas Cruzadas)
+      if (saleData.branchId && shift.branchId && saleData.branchId !== shift.branchId) {
+          throw new Error(`⛔ SUCURSAL INCORRECTA: Esta venta pertenece a la sucursal "${saleData.branchId}". No puedes cobrarla desde tu turno en "${shift.branchId}".`);
+      }
+
       const currentPaid = (saleData.payments || []).reduce((sum, p) => sum + (Number(p.amount)||0), 0);
       const balance = saleData.total - currentPaid;
       
@@ -370,7 +394,6 @@ export async function addPaymentToSale(saleId, payment) {
   });
 }
 
-// ... Resto de exports (updateSalePaymentMethod, processReturn, deleteSale) igual que original ...
 export async function updateSalePaymentMethod(saleId, paymentId, newMethod) {
   const saleRef = doc(db, COLLECTION_NAME, saleId);
   const saleSnap = await getDoc(saleRef);
@@ -386,6 +409,7 @@ export async function updateSaleLogistics(id, data) {
     await updateDoc(saleRef, { soldBy: data.soldBy, updatedAt: new Date().toISOString() });
 }
 
+// --- DEVOLUCIONES (SEGURIDAD FINANCIERA) ---
 export async function processReturn(saleId, itemId, qtyToReturn, refundMethod = "EFECTIVO", shouldRestock = true) {
     const currentShift = await getCurrentShift();
     if (!currentShift) throw new Error("⛔ CAJA CERRADA: Requieres turno para devoluciones.");
@@ -404,6 +428,7 @@ export async function processReturn(saleId, itemId, qtyToReturn, refundMethod = 
     const item = sale.items[itemIndex];
     let stockError = null;
     
+    // 1. Restaurar Stock
     if (shouldRestock && item.inventoryProductId) {
         try {
             await adjustStock(item.inventoryProductId, qtyToReturn, `Devolución Venta #${saleId.slice(0,6)}`);
@@ -413,21 +438,29 @@ export async function processReturn(saleId, itemId, qtyToReturn, refundMethod = 
         }
     }
 
-    const refundAmount = item.unitPrice * qtyToReturn;
+    // 🟢 PARCHE 3: Cálculo Prorrateado (Anti-Exploit)
+    const originalSubtotal = sale.subtotalGross || sale.items.reduce((sum, i) => sum + ((i.qty + (i.returnedQty || 0)) * i.unitPrice), 0);
+    const discountRatio = originalSubtotal > 0 ? (sale.discount / originalSubtotal) : 0;
+
+    const grossRefund = item.unitPrice * qtyToReturn;
+    const discountRecapture = grossRefund * discountRatio; 
+    const netRefund = Math.round((grossRefund - discountRecapture) * 100) / 100;
+
+    // 3. Registrar Pago Negativo
     let newPayments = [...(sale.payments||[])];
     
-    if (refundAmount > 0) {
+    if (netRefund > 0) {
         newPayments.push({
             id: crypto.randomUUID(),
-            amount: -refundAmount, 
+            amount: -netRefund, 
             method: refundMethod,
             paidAt: new Date().toISOString(),
             shiftId: currentShift.id,
-            note: `Reembolso: ${item.description}`
+            note: `Reembolso: ${item.description} (Aj. Desc)`
         });
 
         if (refundMethod === "PUNTOS") {
-            try { await adjustPatientPoints(sale.patientId, refundAmount); } 
+            try { await adjustPatientPoints(sale.patientId, netRefund); } 
             catch(e) { console.error("Error devolviendo puntos", e); }
         }
     }
@@ -436,13 +469,13 @@ export async function processReturn(saleId, itemId, qtyToReturn, refundMethod = 
         try { await cancelWorkOrderBySaleItem(saleId, item.id || itemId); } catch(e){ console.error(e); }
     }
 
-    const currentTotal = sale.total || 1; 
-    const refundRatio = refundAmount / currentTotal;
+    const refundRatio = sale.total > 0 ? netRefund / sale.total : 0;
     const pointsToRevoke = Math.floor((sale.pointsAwarded || 0) * refundRatio);
     if (pointsToRevoke > 0) {
         try { await adjustPatientPoints(sale.patientId, -pointsToRevoke); } catch (e) { console.error(e); }
     }
 
+    // 4. Actualizar Venta
     const updatedItems = [...sale.items];
     updatedItems[itemIndex] = {
         ...item,
@@ -451,7 +484,8 @@ export async function processReturn(saleId, itemId, qtyToReturn, refundMethod = 
     };
 
     const newSubtotal = updatedItems.reduce((sum, i) => sum + (i.qty * i.unitPrice), 0);
-    const newTotal = Math.max(0, newSubtotal - (sale.discount || 0));
+    const newDiscount = Math.max(0, (sale.discount || 0) - discountRecapture);
+    const newTotal = Math.max(0, newSubtotal - newDiscount);
     const newPaidAmount = newPayments.reduce((sum, p) => sum + (Number(p.amount)||0), 0);
     const newBalance = Math.max(0, newTotal - newPaidAmount);
 
@@ -460,34 +494,88 @@ export async function processReturn(saleId, itemId, qtyToReturn, refundMethod = 
 
     await updateDoc(saleRef, { 
         items: updatedItems, 
-        total: newTotal, 
+        subtotalGross: newSubtotal,
+        discount: Math.round(newDiscount * 100) / 100,
+        total: Math.round(newTotal * 100) / 100, 
         payments: newPayments,
-        paidAmount: newPaidAmount,
-        balance: newBalance,
+        paidAmount: Math.round(newPaidAmount * 100) / 100,
+        balance: Math.round(newBalance * 100) / 100,
         status: newStatus,
-        pointsAwarded: (sale.pointsAwarded || 0) - pointsToRevoke, 
+        pointsAwarded: Math.max(0, (sale.pointsAwarded || 0) - pointsToRevoke), 
         updatedAt: new Date().toISOString() 
     });
 
     return { stockError };
 }
 
+// --- ELIMINACIÓN (ATÓMICA: PARCHE 2) ---
 export async function deleteSale(id) {
+    if (!id) return;
+
+    // 1. PRE-LECTURA
     const saleRef = doc(db, COLLECTION_NAME, id);
     const saleSnap = await getDoc(saleRef);
-    if (saleSnap.exists()) {
-        const sale = saleSnap.data();
-        if (sale.pointsAwarded > 0) {
-            try { await adjustPatientPoints(sale.patientId, -sale.pointsAwarded); } 
-            catch (e) { console.warn(e); }
-        }
+    
+    if (!saleSnap.exists()) return; 
+    const sale = saleSnap.data();
+
+    // Buscar WorkOrders asociadas
+    const woQuery = query(collection(db, "work_orders"), where("saleId", "==", id));
+    const woSnap = await getDocs(woQuery);
+
+    await runTransaction(db, async (transaction) => {
+        // 2. LECTURAS (Bloqueo)
+        const patientRef = doc(db, COLLECTION_PATIENTS, sale.patientId);
+        const patientSnap = await transaction.get(patientRef);
+        
+        const productReads = [];
         for (const item of sale.items) {
             if (item.inventoryProductId && item.qty > 0) {
-                try { await adjustStock(item.inventoryProductId, item.qty, `Cancelación Venta #${id.slice(0,6)}`); } 
-                catch (err) { console.warn(err); }
+                const prodRef = doc(db, COLLECTION_PRODUCTS, item.inventoryProductId);
+                productReads.push({ ref: prodRef, item });
             }
         }
-    }
-    await deleteDoc(saleRef);
-    try { await deleteWorkOrdersBySaleId(id); } catch(e) { console.warn(e); }
+        const productSnaps = await Promise.all(productReads.map(p => transaction.get(p.ref)));
+
+        // 3. ESCRITURAS (Atómicas)
+        
+        // A. Restaurar Stock
+        productSnaps.forEach((pSnap, index) => {
+            if (pSnap.exists()) {
+                const prodData = pSnap.data();
+                const { item } = productReads[index];
+                if (!prodData.isOnDemand) {
+                    const currentStock = Number(prodData.stock) || 0;
+                    const newStock = currentStock + item.qty;
+                    transaction.update(productReads[index].ref, { stock: newStock });
+
+                    const logRef = doc(collection(db, COLLECTION_LOGS));
+                    transaction.set(logRef, {
+                        productId: pSnap.id,
+                        type: "CANCEL",
+                        quantity: item.qty,
+                        finalStock: newStock,
+                        reference: `Cancelación Venta #${id.slice(0,6)}`,
+                        date: new Date().toISOString()
+                    });
+                }
+            }
+        });
+
+        // B. Revocar Puntos
+        if (sale.pointsAwarded > 0 && patientSnap.exists()) {
+            const currentPoints = Number(patientSnap.data().points) || 0;
+            transaction.update(patientRef, { points: currentPoints - sale.pointsAwarded });
+        }
+
+        // C. Borrar WorkOrders
+        woSnap.docs.forEach(woDoc => {
+            transaction.delete(woDoc.ref);
+        });
+
+        // D. Borrar la Venta
+        transaction.delete(saleRef);
+    });
+    
+    console.log(`Venta ${id} eliminada atómicamente.`);
 }
