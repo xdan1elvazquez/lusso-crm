@@ -3,12 +3,20 @@ import { doc, getDoc, setDoc, updateDoc } from "firebase/firestore";
 
 const SETTINGS_DOC_REF = doc(db, "settings", "global");
 
-// Configuración por defecto (Semilla)
+// 1. Definimos Materiales por defecto
 const DEFAULT_LENS_MATERIALS = [
   "CR-39", "Policarbonato", "Hi-Index 1.56", "Hi-Index 1.60", 
   "Hi-Index 1.67", "Hi-Index 1.74", "Trivex", "Cristal"
 ].map(name => ({ id: name.toLowerCase().replace(/[^a-z0-9]/g, '_'), name: name, active: true }));
 
+// 2. Definimos Tratamientos por defecto
+const DEFAULT_LENS_TREATMENTS = [
+  "Blanco", "Antireflejante (AR)", "Blue Ray / Blue Free", 
+  "Fotocromático (Grey)", "Fotocromático (Brown)", 
+  "Polarizado", "Espejeado", "Transitions"
+].map(name => ({ id: name.toLowerCase().replace(/[^a-z0-9]/g, '_'), name: name, active: true }));
+
+// 3. Configuración Principal
 const DEFAULT_SETTINGS = {
   organization: {
     name: "Lusso Visual",
@@ -30,7 +38,8 @@ const DEFAULT_SETTINGS = {
   },
   diabetesMeds: ["Metformina", "Glibenclamida", "Insulina Glargina", "Sitagliptina", "Dapagliflozina"],
   hypertensionMeds: ["Losartán", "Captopril", "Enalapril", "Amlodipino", "Telmisartán"],
-  lensMaterials: DEFAULT_LENS_MATERIALS
+  lensMaterials: DEFAULT_LENS_MATERIALS,
+  lensTreatments: DEFAULT_LENS_TREATMENTS
 };
 
 // --- LECTURA ---
@@ -38,27 +47,24 @@ export async function getSettings() {
   try {
     const snap = await getDoc(SETTINGS_DOC_REF);
     if (snap.exists()) {
-      // Mezclamos con defaults para asegurar que nuevos campos no rompan la app
       return { ...DEFAULT_SETTINGS, ...snap.data() };
     } else {
-      // Si es la primera vez, creamos el documento
       await setDoc(SETTINGS_DOC_REF, DEFAULT_SETTINGS);
       return DEFAULT_SETTINGS;
     }
   } catch (error) {
     console.error("Error leyendo settings:", error);
-    return DEFAULT_SETTINGS; // Fallback seguro
+    return DEFAULT_SETTINGS;
   }
 }
 
 // --- ESCRITURA ---
 export async function updateSettings(newSettings) {
-  // merge: true permite actualizar solo una parte (ej. solo alertas) sin borrar lo demás
   await setDoc(SETTINGS_DOC_REF, newSettings, { merge: true });
   return newSettings;
 }
 
-// --- HELPERS ESPECÍFICOS (Todos ahora retornan Promesas) ---
+// --- HELPERS ESPECÍFICOS ---
 export async function getOrgSettings() { const s = await getSettings(); return s.organization; }
 export async function updateOrgSettings(organization) { return updateSettings({ organization }); }
 
@@ -68,8 +74,8 @@ export async function updateAlertSettings(alerts) { return updateSettings({ aler
 export async function getTerminals() { const s = await getSettings(); return s.terminals; }
 export async function updateTerminals(terminals) { return updateSettings({ terminals }); }
 
+// 👇 Corrección: Se agrega updateReferralSources para que PatientsPage no falle
 export async function getReferralSources() { const s = await getSettings(); return s.referralSources; }
-// 👇 NUEVA FUNCIÓN AÑADIDA
 export async function updateReferralSources(list) { return updateSettings({ referralSources: list }); }
 
 export async function getLoyaltySettings() { const s = await getSettings(); return s.loyalty; }
@@ -83,3 +89,6 @@ export async function updateHypertensionMeds(list) { return updateSettings({ hyp
 
 export async function getLensMaterials() { const s = await getSettings(); return s.lensMaterials || DEFAULT_LENS_MATERIALS; }
 export async function updateLensMaterials(list) { return updateSettings({ lensMaterials: list }); }
+
+export async function getLensTreatments() { const s = await getSettings(); return s.lensTreatments || DEFAULT_LENS_TREATMENTS; }
+export async function updateLensTreatments(list) { return updateSettings({ lensTreatments: list }); }

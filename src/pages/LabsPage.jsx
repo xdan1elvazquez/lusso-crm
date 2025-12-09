@@ -1,10 +1,13 @@
 import { useState, useEffect, useMemo } from "react";
 import { getLabs, createLab, updateLab, deleteLab } from "@/services/labStorage";
-import { getLensMaterials, updateLensMaterials } from "@/services/settingsStorage";
+import { 
+    getLensMaterials, updateLensMaterials,
+    getLensTreatments, updateLensTreatments
+} from "@/services/settingsStorage";
 import { parseDiopter } from "@/utils/rxUtils";
 import LoadingState from "@/components/LoadingState";
 
-// 👇 UI Kit
+// UI Kit
 import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
 import Input from "@/components/ui/Input";
@@ -13,10 +16,9 @@ import ModalWrapper from "@/components/ui/ModalWrapper";
 import Badge from "@/components/ui/Badge";
 
 const LENS_DESIGNS = ["Monofocal", "Bifocal Flat Top", "Bifocal Invisible", "Progresivo", "Ocupacional"];
-const LENS_TREATMENTS = ["Blanco", "Antireflejante (AR)", "Blue Ray / Blue Free", "Fotocromático (Grey)", "Fotocromático (Brown)", "Polarizado", "Espejeado", "Transitions"];
 const SERVICE_TYPES = [{ id: "GENERIC", label: "Genérico" }, { id: "BISEL", label: "Bisel / Montaje" }, { id: "TALLADO", label: "Tallado Digital" }];
 
-// --- GESTOR DE MATERIALES (Modal) ---
+// --- GESTOR DE MATERIALES ---
 const MaterialsManager = ({ onClose }) => {
     const [materials, setMaterials] = useState([]);
     const [newName, setNewName] = useState("");
@@ -41,7 +43,6 @@ const MaterialsManager = ({ onClose }) => {
     const handleUpdateName = async (id, val) => {
         const next = materials.map(m => m.id === id ? { ...m, name: val } : m);
         setMaterials(next);
-        // Debounce idealmente, aquí directo para demo
         await updateLensMaterials(next);
     };
 
@@ -71,30 +72,92 @@ const MaterialsManager = ({ onClose }) => {
     );
 };
 
+// --- GESTOR DE TRATAMIENTOS ---
+const TreatmentsManager = ({ onClose }) => {
+    const [treatments, setTreatments] = useState([]);
+    const [newName, setNewName] = useState("");
+
+    useEffect(() => { getLensTreatments().then(setTreatments); }, []);
+
+    const handleAdd = async () => {
+        if (!newName.trim()) return;
+        const id = newName.toLowerCase().replace(/[^a-z0-9]/g, '_') + "_" + Date.now().toString().slice(-4);
+        const next = [...treatments, { id, name: newName.trim(), active: true }];
+        await updateLensTreatments(next);
+        setTreatments(next);
+        setNewName("");
+    };
+
+    const toggleActive = async (id) => {
+        const next = treatments.map(t => t.id === id ? { ...t, active: !t.active } : t);
+        await updateLensTreatments(next);
+        setTreatments(next);
+    };
+
+    const handleUpdateName = async (id, val) => {
+        const next = treatments.map(t => t.id === id ? { ...t, name: val } : t);
+        setTreatments(next);
+        await updateLensTreatments(next);
+    };
+
+    return (
+        <ModalWrapper title="Configurar Tratamientos" onClose={onClose} width="500px">
+            <div className="flex gap-3 mb-6">
+                <Input value={newName} onChange={e => setNewName(e.target.value)} placeholder="Nuevo tratamiento (ej. Crizal)" autoFocus />
+                <Button onClick={handleAdd} className="h-auto py-2">Agregar</Button>
+            </div>
+            <div className="space-y-2 max-h-[60vh] overflow-y-auto custom-scrollbar pr-2">
+                {treatments.map(t => (
+                    <div key={t.id} className={`flex items-center gap-3 p-3 rounded-lg border transition-colors ${t.active ? "bg-surface border-border" : "bg-transparent border-transparent opacity-50"}`}>
+                        <input type="checkbox" checked={t.active} onChange={() => toggleActive(t.id)} className="accent-primary w-4 h-4 cursor-pointer" />
+                        <input 
+                            value={t.name} 
+                            onChange={(e) => handleUpdateName(t.id, e.target.value)} 
+                            className="flex-1 bg-transparent border-none text-white focus:ring-0 outline-none text-sm font-medium"
+                        />
+                        <Badge color={t.active ? "green" : "gray"}>{t.active ? "ACTIVO" : "INACTIVO"}</Badge>
+                    </div>
+                ))}
+            </div>
+            <div className="mt-6 flex justify-end">
+                <Button onClick={onClose} variant="ghost">Cerrar</Button>
+            </div>
+        </ModalWrapper>
+    );
+};
+
 export default function LabsPage() {
   const [loading, setLoading] = useState(true);
   const [labs, setLabs] = useState([]);
   const [isEditing, setIsEditing] = useState(false);
   const [showConfig, setShowConfig] = useState(false);
+  const [showTreatmentsConfig, setShowTreatmentsConfig] = useState(false);
+  
   const [form, setForm] = useState({ id: null, name: "", services: [], lensCatalog: [] });
   const [activeTab, setActiveTab] = useState("SERVICES");
   const [tempService, setTempService] = useState({ name: "", price: "", type: "GENERIC" });
   
-  // Estados para Micas
   const [editingLens, setEditingLens] = useState(null);
   const [tempRange, setTempRange] = useState({ sphMin: -20, sphMax: 20, cylMin: -6, cylMax: 0, cost: 0, price: 0 });
+  
   const [materials, setMaterials] = useState([]);
+  const [treatments, setTreatments] = useState([]);
 
   const refreshData = async () => {
       setLoading(true);
       try {
-          const [labsData, matsData] = await Promise.all([getLabs(), getLensMaterials()]);
+          const [labsData, matsData, treatsData] = await Promise.all([
+              getLabs(), 
+              getLensMaterials(),
+              getLensTreatments()
+          ]);
           setLabs(labsData);
           setMaterials(matsData);
+          setTreatments(treatsData);
       } catch (e) { console.error(e); } finally { setLoading(false); }
   };
 
-  useEffect(() => { refreshData(); }, [showConfig]); 
+  useEffect(() => { refreshData(); }, [showConfig, showTreatmentsConfig]); 
 
   const handleSaveLab = async () => {
     if (editingLens) saveLensToCatalog();
@@ -112,7 +175,12 @@ export default function LabsPage() {
   };
   const removeService = (idx) => { setForm(prev => ({ ...prev, services: prev.services.filter((_, i) => i !== idx) })); };
 
-  const handleNewLens = () => { const defaultMat = materials.find(m => m.active)?.name || "CR-39"; setEditingLens({ id: crypto.randomUUID(), name: "", design: "Monofocal", material: defaultMat, treatment: "Antireflejante (AR)", ranges: [] }); };
+  const handleNewLens = () => { 
+      const defaultMat = materials.find(m => m.active)?.name || "CR-39";
+      const defaultTreat = treatments.find(t => t.active)?.name || "Blanco";
+      setEditingLens({ id: crypto.randomUUID(), name: "", design: "Monofocal", material: defaultMat, treatment: defaultTreat, ranges: [] }); 
+  };
+
   const saveLensToCatalog = () => { 
       if (!editingLens || !editingLens.name) return; 
       let newCatalog = [...(form.lensCatalog || [])]; 
@@ -140,9 +208,18 @@ export default function LabsPage() {
       const currentVal = editingLens.material;
       const activeMats = materials.filter(m => m.active);
       const currentExists = activeMats.find(m => m.name === currentVal);
-      if (currentVal && !currentExists) return [...activeMats, { id: 'legacy', name: currentVal, active: false }];
+      if (currentVal && !currentExists) return [...activeMats, { id: 'legacy_mat', name: currentVal, active: false }];
       return activeMats;
   }, [materials, editingLens]);
+
+  const treatmentOptions = useMemo(() => {
+      if (!editingLens) return [];
+      const currentVal = editingLens.treatment;
+      const activeTreats = treatments.filter(t => t.active);
+      const currentExists = activeTreats.find(t => t.name === currentVal);
+      if (currentVal && !currentExists) return [...activeTreats, { id: 'legacy_treat', name: currentVal, active: false }];
+      return activeTreats;
+  }, [treatments, editingLens]);
 
   if (loading) return <LoadingState />;
 
@@ -155,13 +232,14 @@ export default function LabsPage() {
         </div>
         <div className="flex gap-3">
             <Button variant="secondary" onClick={() => setShowConfig(true)}>⚙️ Materiales</Button>
+            <Button variant="secondary" onClick={() => setShowTreatmentsConfig(true)}>⚙️ Tratamientos</Button>
             <Button onClick={() => { setIsEditing(true); setForm({ id: null, name: "", services: [], lensCatalog: [] }); }}>+ Nuevo Lab</Button>
         </div>
       </div>
 
       {showConfig && <MaterialsManager onClose={() => setShowConfig(false)} />}
+      {showTreatmentsConfig && <TreatmentsManager onClose={() => setShowTreatmentsConfig(false)} />}
 
-      {/* FORMULARIO DE EDICIÓN */}
       {isEditing && (
         <Card className="border-t-4 border-t-primary shadow-glow animate-[fadeIn_0.3s_ease-out]">
            <div className="flex justify-between items-start mb-6 border-b border-border pb-4">
@@ -233,7 +311,6 @@ export default function LabsPage() {
                       </>
                   ) : (
                       <div className="animate-[fadeIn_0.3s]">
-                          {/* HEADER EDICIÓN MICA */}
                           <div className="flex justify-between items-center mb-4 pb-4 border-b border-border">
                               <h4 className="font-bold text-amber-400">Configurando Mica</h4>
                               <div className="flex gap-2">
@@ -242,7 +319,6 @@ export default function LabsPage() {
                               </div>
                           </div>
                           
-                          {/* DETALLES DE LA MICA */}
                           <div className="grid gap-4 mb-6 p-4 bg-surface rounded-xl border border-border">
                               <Input label="Nombre Comercial" value={editingLens.name} onChange={e=>setEditingLens({...editingLens, name:e.target.value})} placeholder="Ej. CR-39 Terminado AR" />
                               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -253,12 +329,11 @@ export default function LabsPage() {
                                       {materialOptions.map(m => (<option key={m.id || m.name} value={m.name}>{m.name} {!m.active && "(Inactivo)"}</option>))}
                                   </Select>
                                   <Select label="Tratamiento" value={editingLens.treatment} onChange={e=>setEditingLens({...editingLens, treatment:e.target.value})}>
-                                      {LENS_TREATMENTS.map(d=><option key={d} value={d}>{d}</option>)}
+                                      {treatmentOptions.map(t => (<option key={t.id || t.name} value={t.name}>{t.name} {!t.active && "(Inactivo)"}</option>))}
                                   </Select>
                               </div>
                           </div>
 
-                          {/* MATRIZ DE PRECIOS */}
                           <div className="p-4 bg-surface rounded-xl border border-border">
                               <h5 className="text-xs font-bold text-textMuted uppercase mb-3">Rangos de Graduación y Precio</h5>
                               <div className="grid grid-cols-2 md:grid-cols-7 gap-2 items-end mb-4">
@@ -308,7 +383,6 @@ export default function LabsPage() {
         </Card>
       )}
 
-      {/* GRID DE LABORATORIOS */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
          {labs.map(l => (
             <Card key={l.id} className="group hover:border-primary/50 transition-colors cursor-pointer relative" noPadding>
