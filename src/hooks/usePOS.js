@@ -18,7 +18,7 @@ export function usePOS(patientId, terminals, refreshCallback) {
   });
   const [logistics, setLogistics] = useState({ boxNumber: "", soldBy: "" });
 
-  // Totales Globales
+  // Totales Globales (Se calculan dinámicamente según el unitPrice actual del item)
   const subtotal = roundMoney(cart.reduce((sum, item) => sum + (item.qty * item.unitPrice), 0));
   const discountInput = Number(payment.discount) || 0;
   
@@ -32,14 +32,41 @@ export function usePOS(patientId, terminals, refreshCallback) {
 
   const total = Math.max(0, roundMoney(subtotal - discountAmount));
 
-  // Acciones Carrito
+  // --- ACCIONES CARRITO ---
+
   const addToCart = (item) => {
       const uniqueId = crypto.randomUUID();
-      setCart(prev => [...prev, { ...item, id: uniqueId, _tempId: uniqueId }]);
+      setCart(prev => [...prev, { 
+          ...item, 
+          id: uniqueId, 
+          _tempId: uniqueId,
+          // 🟢 NUEVO: Snapshot del precio original para trazabilidad
+          originalPrice: item.originalPrice !== undefined ? item.originalPrice : item.unitPrice,
+          isPriceOverridden: item.isPriceOverridden || false
+      }]);
   };
 
   const removeFromCart = (id) => setCart(prev => prev.filter(i => i.id !== id));
   
+  // 🟢 NUEVO: Función para editar items en el carrito (Precio, Cantidad, Razón)
+  const updateCartItem = (id, updates) => {
+      setCart(prev => prev.map(item => {
+          if (item.id !== id) return item;
+          
+          const newItem = { ...item, ...updates };
+          
+          // Si se actualizó el precio, verificamos si es override
+          if (updates.unitPrice !== undefined) {
+              const priceChanged = Math.abs(Number(updates.unitPrice) - Number(item.originalPrice)) > 0.01;
+              newItem.isPriceOverridden = priceChanged;
+              if (!priceChanged) {
+                  newItem.overrideReason = null; // Limpiar razón si volvió al original
+              }
+          }
+          return newItem;
+      }));
+  };
+
   const clearCart = () => {
       setCart([]);
       setPayment(p => ({ ...p, initial: 0, discount: "" }));
@@ -83,8 +110,6 @@ export function usePOS(patientId, terminals, refreshCallback) {
                 };
                 if (payment.method === "TARJETA") {
                     const term = terminals.find(t => t.id === payment.terminalId);
-                    // El cargo extra también se prorratea si es necesario, 
-                    // pero para simplificar, asumimos que se calcula sobre lo cobrado.
                     const feeAmount = roundMoney((subPayment * (Number(payment.feePercent)||0)) / 100);
                     payObj = { 
                         ...payObj, 
@@ -110,25 +135,19 @@ export function usePOS(patientId, terminals, refreshCallback) {
         };
 
         if (needsSplit) {
-            // 🟢 ESTRATEGIA DE REDONDEO: "SIMPLE" MANDA, "LAB" TOMA EL RESTO
-            // 1. Calcular totales para la parte "Simple" (Mostrador)
+            // ESTRATEGIA DE REDONDEO: "SIMPLE" MANDA, "LAB" TOMA EL RESTO
             const simpleGross = simpleItems.reduce((s, i) => s + (i.qty * i.unitPrice), 0);
             const ratioSimple = subtotal > 0 ? simpleGross / subtotal : 0;
             
             const discountSimple = roundMoney(discountAmount * ratioSimple);
             const totalSimple = Math.max(0, roundMoney(simpleGross - discountSimple));
 
-            // 2. Calcular totales para la parte "Lab" (Óptica) POR DIFERENCIA
-            // Esto asegura que totalSimple + totalLab === total (Global) exactamente, sin perder centavos.
             const discountLab = roundMoney(discountAmount - discountSimple);
             const totalLab = roundMoney(total - totalSimple); 
 
-            // 3. Distribuir el pago inicial (Abono)
-            // Priorizamos cubrir el ticket de mostrador (que usualmente se lleva al momento)
             const paySimple = Math.min(globalPaymentAmount, totalSimple);
             const payLab = Math.max(0, roundMoney(globalPaymentAmount - paySimple));
 
-            // 4. Ejecutar ventas
             await processSubSale(simpleItems, totalSimple, discountSimple, paySimple, "Venta Mostrador (Auto)");
             await processSubSale(labItems, totalLab, discountLab, payLab, "Venta Óptica (Auto)");
             
@@ -139,7 +158,6 @@ export function usePOS(patientId, terminals, refreshCallback) {
             let payObj = null;
             if (globalPaymentAmount > 0) {
                  payObj = { amount: globalPaymentAmount, method: payment.method, paidAt: new Date().toISOString() };
-                 // ... lógica de tarjeta igual que arriba ...
                  if (payment.method === "TARJETA") {
                     const term = terminals.find(t => t.id === payment.terminalId);
                     const feeAmount = roundMoney((globalPaymentAmount * (Number(payment.feePercent)||0)) / 100);
@@ -173,10 +191,10 @@ export function usePOS(patientId, terminals, refreshCallback) {
   };
 
   return {
-      cart, addToCart, removeFromCart, clearCart,
+      cart, addToCart, removeFromCart, updateCartItem, clearCart,
       payment, setPayment,
       logistics, setLogistics,
-      totals: { subtotal, total }, // Exportamos totales ya calculados
+      totals: { subtotal, total }, 
       handleCheckout, isProcessing
   };
 }

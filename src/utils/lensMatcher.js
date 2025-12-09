@@ -11,13 +11,19 @@ export function checkLensCompatibility(lens, rx) {
   const osSph = parseDiopter(rx.os?.sph);
   const osCyl = parseDiopter(rx.os?.cyl);
 
-  // 2. Validación por Ojo
-  const rangeOD = lens.ranges.find(r => 
-    odSph >= parseDiopter(r.sphMin) && odSph <= parseDiopter(r.sphMax) &&
-    odCyl >= parseDiopter(r.cylMin) && odCyl <= parseDiopter(r.cylMax)
-  );
+  // Helper para buscar TODOS los rangos compatibles, no solo el primero
+  const findCompatibleRanges = (sph, cyl) => {
+    return lens.ranges.filter(r => 
+      sph >= parseDiopter(r.sphMin) && sph <= parseDiopter(r.sphMax) &&
+      cyl >= parseDiopter(r.cylMin) && cyl <= parseDiopter(r.cylMax)
+    );
+  };
 
-  if (!rangeOD) {
+  // 2. Validación por Ojo (Busca todos los matches posibles)
+  const matchesOD = findCompatibleRanges(odSph, odCyl);
+  const matchesOS = findCompatibleRanges(osSph, osCyl);
+
+  if (matchesOD.length === 0) {
     return { 
       compatible: false, 
       reason: `OD fuera de rango (Esfera ${odSph}, Cil ${odCyl}).`,
@@ -25,12 +31,7 @@ export function checkLensCompatibility(lens, rx) {
     };
   }
 
-  const rangeOS = lens.ranges.find(r => 
-    osSph >= parseDiopter(r.sphMin) && osSph <= parseDiopter(r.sphMax) &&
-    osCyl >= parseDiopter(r.cylMin) && osCyl <= parseDiopter(r.cylMax)
-  );
-
-  if (!rangeOS) {
+  if (matchesOS.length === 0) {
     return { 
       compatible: false, 
       reason: `OI fuera de rango (Esfera ${osSph}, Cil ${osCyl}).`,
@@ -49,16 +50,25 @@ export function checkLensCompatibility(lens, rx) {
     }
   }
 
-  // Tomamos el costo/precio mayor de los dos rangos
-  const finalCost = Math.max(Number(rangeOD.cost) || 0, Number(rangeOS.cost) || 0);
-  // NUEVO: Extraemos el precio de venta también
-  const finalPrice = Math.max(Number(rangeOD.price) || 0, Number(rangeOS.price) || 0);
+  // ESTRATEGIA DE PRECIOS INTELIGENTE:
+  // Si hay múltiples rangos (ej. uno amplio y uno específico), ordenamos por costo ascendente.
+  // Asumimos que el rango "correcto" es el que ofrece el precio base válido.
+  matchesOD.sort((a, b) => (Number(a.cost) || 0) - (Number(b.cost) || 0));
+  matchesOS.sort((a, b) => (Number(a.cost) || 0) - (Number(b.cost) || 0));
+
+  const bestRangeOD = matchesOD[0];
+  const bestRangeOS = matchesOS[0];
+
+  // Tomamos el costo/precio mayor de los dos ojos (regla estándar de par)
+  const finalCost = Math.max(Number(bestRangeOD.cost) || 0, Number(bestRangeOS.cost) || 0);
+  const finalPrice = Math.max(Number(bestRangeOD.price) || 0, Number(bestRangeOS.price) || 0);
 
   return { compatible: true, reason: "Compatible", cost: finalCost, price: finalPrice };
 }
 
 export function getSuggestions(allLenses, rx, currentFilters) {
     const suggestions = [];
+    // ... (El resto de la función se mantiene igual)
     if (currentFilters.treatment) {
       const alts = allLenses.filter(l => 
         l.design === currentFilters.design && 

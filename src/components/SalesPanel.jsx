@@ -13,7 +13,7 @@ import { normalizeRxValue } from "@/utils/rxOptions";
 import { parseDiopter } from "@/utils/rxUtils";
 import { useNotify, useConfirm } from "@/context/UIContext";
 
-// Componentes Internos (Se refactorizarán en Parte B)
+// Componentes Internos
 import ProductSearch from "@/components/sales/ProductSearch";
 import OpticalSelector from "@/components/sales/OpticalSelector";
 import CartList from "@/components/sales/CartList";
@@ -22,7 +22,7 @@ import SaleDetailModal from "./SaleDetailModal";
 
 // UI Components
 import Card from "@/components/ui/Card";
-import Select from "@/components/ui/Select";
+import Select from "@/components/ui/Select"; // Nota: Asegúrate de que este componente se use o elimínalo si no
 import Input from "@/components/ui/Input";
 import Badge from "@/components/ui/Badge";
 
@@ -105,7 +105,20 @@ export default function SalesPanel({ patientId, prefillData, onClearPrefill }) {
 
   const handleAddSmartLens = (lens) => {
       const specs = { ...itemDetails, design: lens.design, material: lens.material, treatment: lens.treatment };
-      pos.addToCart({ kind: "LENSES", description: `Lente ${lens.name}`, qty: 1, unitPrice: lens.calculatedPrice || 0, cost: lens.calculatedCost, requiresLab: true, rxSnapshot: currentRx, labName: lens.labName, specs });
+      
+      // La lógica de precio ahora viene en 'lens' (calculado y posiblemente editado manualmente en OpticalSelector)
+      pos.addToCart({ 
+          kind: "LENSES", 
+          description: `Lente ${lens.name}`, 
+          qty: 1, 
+          unitPrice: lens.calculatedPrice || 0, 
+          originalPrice: lens.originalPrice || lens.calculatedPrice, // Guardamos el original para referencia
+          cost: lens.calculatedCost, 
+          requiresLab: true, 
+          rxSnapshot: currentRx, 
+          labName: lens.labName, 
+          specs 
+      });
   };
 
   const handleDeleteSale = async (e, id) => {
@@ -160,8 +173,6 @@ export default function SalesPanel({ patientId, prefillData, onClearPrefill }) {
 
           {/* SELECTORES DE PRODUCTOS (COMPONENTES INTERNOS) */}
           <div className="space-y-6">
-              {/* Aquí se montan los componentes que aún tienen estilos viejos. 
-                  Se arreglarán en la siguiente fase */}
               <OpticalSelector 
                   show={showOpticalSpecs} onToggle={()=>setShowOpticalSpecs(true)}
                   currentRx={currentRx} catalog={labsCatalog}
@@ -187,7 +198,12 @@ export default function SalesPanel({ patientId, prefillData, onClearPrefill }) {
               <div className="p-5 flex-1 flex flex-col">
                   {/* LISTA CARRITO */}
                   <div className="flex-1 min-h-[200px]">
-                      <CartList cart={pos.cart} onRemove={pos.removeFromCart} />
+                      {/* 🟢 ACTUALIZACIÓN: Pasamos la función updateCartItem */}
+                      <CartList 
+                          cart={pos.cart} 
+                          onRemove={pos.removeFromCart} 
+                          onUpdate={pos.updateCartItem} 
+                      />
                   </div>
 
                   {/* FORMULARIO PAGO */}
