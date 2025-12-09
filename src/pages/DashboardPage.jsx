@@ -1,20 +1,20 @@
 import { useEffect, useState } from "react";
+import { useAuth } from "@/context/AuthContext"; // 👈 1. Importar Auth
 import { getPatients } from "@/services/patientsStorage";
 import { getAllConsultations } from "@/services/consultationsStorage";
 import { getAllSales } from "@/services/salesStorage";
 import { getAllWorkOrders } from "@/services/workOrdersStorage";
 import LoadingState from "@/components/LoadingState";
 
-// 👇 NUEVO: Importar el Panel de Lealtad
+// Importar el Panel de Lealtad
 import LoyaltyManager from "@/components/settings/LoyaltyManager";
-// Panel de reparación (puedes comentarlo si ya no lo usas)
-// import FinanceRepairPanel from "@/components/admin/FinanceRepairPanel";
 
 import Card from "@/components/ui/Card";
 import Badge from "@/components/ui/Badge";
 import Button from "@/components/ui/Button"; 
 
 export default function DashboardPage() {
+  const { user } = useAuth(); // 👈 2. Obtener usuario y sucursal
   const [loading, setLoading] = useState(true);
   
   // Estado para mostrar el modal de lealtad
@@ -31,11 +31,18 @@ export default function DashboardPage() {
   });
 
   useEffect(() => {
+    // Si aún no carga el usuario, esperamos
+    if (!user?.branchId) return;
+
     async function loadDashboard() {
         setLoading(true);
         try {
+            // 👈 3. Solicitamos datos (Segregamos Ventas y Órdenes por sucursal)
             const [patients, consultations, sales, workOrders] = await Promise.all([
-                getPatients(), getAllConsultations(), getAllSales(), getAllWorkOrders()
+                getPatients(), // Global
+                getAllConsultations(), // Global (Historial clínico compartido)
+                getAllSales(user.branchId), // 🔍 Filtrado por Sucursal
+                getAllWorkOrders(user.branchId) // 🔍 Filtrado por Sucursal
             ]);
 
             const sortedConsultations = [...consultations].sort(
@@ -74,18 +81,20 @@ export default function DashboardPage() {
         }
     }
     loadDashboard();
-  }, []);
+  }, [user]); // 👈 Recargar si cambia el usuario
 
   if (loading) return <LoadingState />;
 
   return (
-    <div className="page-container space-y-8">
+    <div className="page-container space-y-8 animate-fadeIn">
       
       {/* HEADER con Botón de Configuración */}
       <div className="flex justify-between items-center">
         <div>
             <h1 className="text-3xl font-bold text-white tracking-tight">Dashboard</h1>
-            <p className="text-textMuted text-sm">Resumen general de la clínica</p>
+            <p className="text-textMuted text-sm">
+                Resumen de {user.branchId === 'lusso_main' ? 'Matriz' : 'Sucursal'} {/* Etiqueta dinámica opcional */}
+            </p>
         </div>
         <Button onClick={() => setShowLoyalty(true)} variant="secondary" className="shadow-sm">
             💎 Configurar Puntos
@@ -146,7 +155,7 @@ export default function DashboardPage() {
             </div>
           </Card>
 
-          {/* COBRANZA */}
+          {/* COBRANZA (Ahora filtrada por sucursal) */}
           <Card className="h-full flex flex-col" noPadding>
             <div className="p-5 border-b border-border bg-surfaceHighlight/30 flex justify-between items-center">
                 <h3 className="font-bold text-white flex items-center gap-2">💳 Cobranza Pendiente</h3>
@@ -173,7 +182,7 @@ export default function DashboardPage() {
           </Card>
       </div>
 
-      {/* ESTADO DEL TALLER (Banner) */}
+      {/* ESTADO DEL TALLER */}
       <section>
         <h2 className="text-lg font-bold text-white mb-4 flex items-center gap-2">🏭 Estado del Taller</h2>
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
@@ -188,12 +197,11 @@ export default function DashboardPage() {
   );
 }
 
-// --- Componentes Internos Modernizados ---
+// --- Componentes Internos ---
 
 function KpiCard({ icon, label, value, highlightColor = "text-white", borderColor }) {
   return (
     <Card className={`flex flex-col justify-between h-28 relative overflow-hidden group ${borderColor ? `border ${borderColor}` : ""}`}>
-      {/* Efecto de fondo sutil */}
       <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 text-6xl select-none pointer-events-none grayscale">
         {icon}
       </div>

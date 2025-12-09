@@ -2,7 +2,7 @@ import { db } from "@/firebase/config";
 import { 
   collection, addDoc, deleteDoc, getDocs, doc, query, orderBy, where 
 } from "firebase/firestore";
-import { getCurrentShift } from "./shiftsStorage"; // 👈 Usamos el gestor de turnos nuevo
+import { getCurrentShift } from "./shiftsStorage"; 
 
 const COLLECTION_NAME = "expenses";
 
@@ -11,17 +11,19 @@ const CATEGORIES = [
 ];
 
 // --- LECTURA ---
-export async function getAllExpenses() {
-  const q = query(collection(db, COLLECTION_NAME), orderBy("date", "desc"));
+export async function getAllExpenses(branchId = "lusso_main") {
+  const q = query(
+      collection(db, COLLECTION_NAME), 
+      where("branchId", "==", branchId), // 👈 Filtro
+      orderBy("date", "desc")
+  );
   const snapshot = await getDocs(q);
   return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 }
 
-// 👈 Reporte para la página de Finanzas
-export async function getExpensesReport(startDate, endDate) {
-  // Nota: En una app real, haríamos el filtro en la query de Firestore.
-  // Para la demo, bajamos los gastos y filtramos en memoria (igual que antes) para simplificar índices.
-  const expenses = await getAllExpenses();
+export async function getExpensesReport(startDate, endDate, branchId = "lusso_main") {
+  // Obtenemos gastos filtrados por sucursal
+  const expenses = await getAllExpenses(branchId);
   
   let totalExpense = 0;
   let cashOut = 0; 
@@ -48,10 +50,8 @@ export async function getExpensesReport(startDate, endDate) {
   return { totalExpense, cashOut, byCategory };
 }
 
-// 👈 Reporte para el Corte de Caja (ShiftPage)
 export async function getExpensesByShift(shiftId) {
     if (!shiftId) return { totalExpense: 0, byMethod: {} };
-    
     const q = query(collection(db, COLLECTION_NAME), where("shiftId", "==", shiftId));
     const snapshot = await getDocs(q);
     
@@ -73,21 +73,19 @@ export async function getExpensesByShift(shiftId) {
 }
 
 // --- ESCRITURA ---
-export async function createExpense(data) {
-  // 1. Obtener turno activo (desde Firebase)
-  const currentShift = await getCurrentShift();
+export async function createExpense(data, branchId = "lusso_main") {
+  // Buscamos turno abierto en ESTA sucursal
+  const currentShift = await getCurrentShift(branchId);
   
-  // Opcional: Validar si hay turno abierto
-  // if (!currentShift) throw new Error("No hay turno abierto para registrar gastos.");
-
   const newExpense = {
+    branchId: branchId, // 👈 Nuevo campo
     description: data.description,
     amount: Number(data.amount),
     category: data.category || "OTROS",
     method: data.method || "EFECTIVO", 
     date: data.date || new Date().toISOString(),
     createdAt: new Date().toISOString(),
-    shiftId: currentShift?.id || null // 👈 Vinculación segura
+    shiftId: currentShift?.id || null 
   };
 
   const docRef = await addDoc(collection(db, COLLECTION_NAME), newExpense);

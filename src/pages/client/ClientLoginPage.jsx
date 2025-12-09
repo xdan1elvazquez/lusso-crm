@@ -2,7 +2,6 @@ import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { clientLogin } from "@/services/clientService";
 import Card from "@/components/ui/Card";
-import Button from "@/components/ui/Button";
 import Input from "@/components/ui/Input";
 
 export default function ClientLoginPage() {
@@ -15,55 +14,45 @@ export default function ClientLoginPage() {
     e.preventDefault();
     setLoading(true);
     setError("");
-    
     try {
       const patient = await clientLogin(form.email, form.dob);
-      // Guardamos sesión temporal en sessionStorage (se borra al cerrar pestaña)
       sessionStorage.setItem("lusso_client_session", JSON.stringify(patient));
       navigate("/portal/tracker");
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
+    } catch (err) { setError(err.message); } finally { setLoading(false); }
   };
 
   return (
-    <div className="flex flex-col items-center justify-center pt-10 animate-fadeIn">
+    <div className="flex flex-col items-center justify-center pt-10">
+      
       <div className="text-center mb-8">
-        <div className="text-4xl mb-2">👓</div>
-        <h1 className="text-2xl font-bold text-white">Rastreo de Pedido</h1>
-        <p className="text-slate-400 text-sm">Ingresa tus datos para ver el estado de tus lentes.</p>
+        <h2 className="text-xl font-medium text-white mb-1">Bienvenido</h2>
+        <p className="text-slate-500 text-sm font-light">
+            Ingresa tus datos para localizar tu orden
+        </p>
       </div>
 
-      <Card className="w-full border-blue-500/20 shadow-glow bg-slate-900/80">
-        <form onSubmit={handleSubmit} className="space-y-6 p-2">
-          {error && (
-            <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-red-400 text-xs text-center">
-              {error}
-            </div>
-          )}
+      <Card className="w-full max-w-md border-t border-white/5 bg-slate-900/50 backdrop-blur-sm shadow-2xl p-6">
+        <form onSubmit={handleSubmit} className="space-y-5">
+          {error && <div className="p-2 bg-red-500/10 border border-red-500/20 rounded text-red-400 text-xs text-center">{error}</div>}
           
           <Input 
-            label="Tu Correo Electrónico" 
-            type="email" 
-            placeholder="ejemplo@correo.com"
-            value={form.email}
-            onChange={e => setForm({...form, email: e.target.value})}
-            required
+            label="Correo Electrónico" type="email" placeholder="cliente@email.com"
+            value={form.email} onChange={e => setForm({...form, email: e.target.value})} required
+            className="bg-slate-950 border-slate-800 focus:border-white/20 text-white"
           />
           
           <Input 
-            label="Fecha de Nacimiento" 
-            type="date"
-            value={form.dob}
-            onChange={e => setForm({...form, dob: e.target.value})}
-            required
+            label="Fecha de Nacimiento" type="date"
+            value={form.dob} onChange={e => setForm({...form, dob: e.target.value})} required
+            className="bg-slate-950 border-slate-800 focus:border-white/20 text-white"
           />
 
-          <Button type="submit" className="w-full shadow-lg shadow-blue-900/20" disabled={loading}>
-            {loading ? "Buscando..." : "Ver Mis Lentes"}
-          </Button>
+          <button 
+            type="submit" disabled={loading}
+            className="w-full py-3 px-4 rounded-lg font-bold bg-white text-slate-900 hover:bg-slate-200 transition-colors shadow-lg disabled:opacity-50"
+          >
+            {loading ? "Buscando..." : "Consultar"}
+          </button>
         </form>
       </Card>
     </div>

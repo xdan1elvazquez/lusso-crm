@@ -1,15 +1,17 @@
 import { getAllSales } from "./salesStorage";
 import { getEmployees } from "./employeesStorage";
 
-export async function calculatePayrollReport(year, month, period = 'MONTH') {
+// 👈 Ahora recibe branchId como 4to argumento
+export async function calculatePayrollReport(year, month, period = 'MONTH', branchId) {
     const [employees, sales] = await Promise.all([
-        getEmployees(),
-        getAllSales()
+        getEmployees(), // Empleados son globales
+        getAllSales(branchId) // 👈 Traemos ventas SOLO de esta sucursal
     ]);
     
     const targetPrefix = `${year}-${String(month).padStart(2, '0')}`;
     
     const report = employees.map(emp => {
+        // Filtramos las ventas del empleado dentro de las ventas de la sucursal
         const empSales = sales.filter(s => {
             const saleDate = s.createdAt.slice(0, 10);
             if (!saleDate.startsWith(targetPrefix)) return false;

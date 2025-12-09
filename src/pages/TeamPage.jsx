@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { getEmployees, createEmployee, updateEmployee, deleteEmployee, ROLES } from "@/services/employeesStorage";
+import { createAuthUser } from "@/utils/authAdmin"; // 👈 IMPORTANTE: El nuevo helper
 import LoadingState from "@/components/LoadingState";
 
 // 👇 UI Kit
@@ -17,9 +18,12 @@ export default function TeamPage() {
   const [employees, setEmployees] = useState([]);
   const [loading, setLoading] = useState(true);
   const [isCreating, setIsCreating] = useState(false);
+  
+  // Estado del formulario (Ahora incluye password)
   const [form, setForm] = useState({ 
     name: "", 
     email: "", 
+    password: "", // 👈 Nuevo campo
     role: "SALES", 
     commissionPercent: "", 
     baseSalary: "" 
@@ -37,14 +41,31 @@ export default function TeamPage() {
 
   const handleSave = async (e) => {
     e.preventDefault();
-    if (!form.name) return notify.info("El nombre es requerido");
+    if (!form.name || !form.email || !form.password) {
+        return notify.info("Nombre, Email y Contraseña son requeridos");
+    }
+
     try {
-        await createEmployee(form);
-        setForm({ name: "", email: "", role: "SALES", commissionPercent: "", baseSalary: "" });
+        notify.info("Creando usuario de acceso...");
+        
+        // 1. PRIMERO: Creamos la cuenta REAL (Login)
+        // Esto crea el usuario en Authentication
+        await createAuthUser(form.email, form.password);
+
+        // 2. SEGUNDO: Guardamos los datos en Firestore (Base de datos)
+        // Eliminamos el password del objeto antes de guardarlo en BD por seguridad
+        const { password, ...employeeData } = form;
+        await createEmployee(employeeData);
+
+        // 3. Limpieza
+        setForm({ name: "", email: "", password: "", role: "SALES", commissionPercent: "", baseSalary: "" });
         setIsCreating(false);
         refresh();
-        notify.success("Colaborador agregado");
-    } catch (e) { notify.error(e.message); }
+        notify.success("¡Colaborador creado con éxito!");
+        
+    } catch (e) { 
+        notify.error(e.message); 
+    }
   };
 
   const handleUpdate = async (id, field, val) => {
@@ -54,7 +75,9 @@ export default function TeamPage() {
   };
 
   const handleDelete = async (id) => {
-    if(await confirm({ title: "Eliminar Usuario", message: "¿Estás seguro de eliminar este colaborador? Perderá el acceso al sistema." })) {
+    if(await confirm({ title: "Eliminar Usuario", message: "¿Estás seguro? Perderá el acceso al sistema inmediatamente." })) {
+      // Nota: Esto borra el dato del empleado. Para borrar el Login completamente
+      // se requiere Firebase Admin SDK (backend), pero al borrarlo aquí ya no saldrá en la lista.
       await deleteEmployee(id);
       refresh();
       notify.success("Eliminado correctamente");
@@ -80,9 +103,29 @@ export default function TeamPage() {
          <Card className="border-t-4 border-t-blue-500 shadow-glow animate-fadeIn">
              <h3 className="text-lg font-bold text-white mb-6">Registrar Colaborador</h3>
              <form onSubmit={handleSave} className="space-y-6">
-                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                     <Input label="Nombre Completo" value={form.name} onChange={e => setForm({...form, name: e.target.value})} placeholder="Ej. Juan Pérez" autoFocus />
-                     <Input label="Email de Acceso" type="email" value={form.email} onChange={e => setForm({...form, email: e.target.value})} placeholder="juan@lusso.mx" />
+                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                     <Input 
+                        label="Nombre Completo" 
+                        value={form.name} 
+                        onChange={e => setForm({...form, name: e.target.value})} 
+                        placeholder="Ej. Juan Pérez" 
+                        autoFocus 
+                     />
+                     <Input 
+                        label="Email de Acceso" 
+                        type="email" 
+                        value={form.email} 
+                        onChange={e => setForm({...form, email: e.target.value})} 
+                        placeholder="juan@lusso.mx" 
+                     />
+                     {/* 👇 INPUT DE PASSWORD AÑADIDO */}
+                     <Input 
+                        label="Contraseña Temporal" 
+                        type="password" 
+                        value={form.password} 
+                        onChange={e => setForm({...form, password: e.target.value})} 
+                        placeholder="Mínimo 6 caracteres" 
+                     />
                  </div>
 
                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
@@ -94,7 +137,7 @@ export default function TeamPage() {
                  </div>
                  
                  <div className="flex justify-end pt-2">
-                     <Button type="submit" className="w-full md:w-auto px-8">Guardar Usuario</Button>
+                     <Button type="submit" className="w-full md:w-auto px-8">Crear Usuario y Acceso</Button>
                  </div>
              </form>
          </Card>

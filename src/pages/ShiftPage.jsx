@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useAuth } from "@/context/AuthContext"; // 👈 1. Importar Auth
 import { getCurrentShift, getShiftInProcess, openShift, preCloseShift, closeShift, getAllShifts } from "@/services/shiftsStorage";
 import { getSalesMetricsByShift } from "@/services/salesStorage"; 
 import { getExpensesByShift } from "@/services/expensesStorage";
@@ -6,7 +7,7 @@ import { getEmployees } from "@/services/employeesStorage";
 import { useNotify, useConfirm } from "@/context/UIContext";
 import LoadingState from "@/components/LoadingState";
 
-// 👇 UI Kit
+// UI Kit
 import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
 import Input from "@/components/ui/Input";
@@ -15,6 +16,7 @@ import Badge from "@/components/ui/Badge";
 import ModalWrapper from "@/components/ui/ModalWrapper";
 
 export default function ShiftPage() {
+  const { user } = useAuth(); // 👈 2. Obtener branchId
   const notify = useNotify();
   const confirm = useConfirm();
   
@@ -36,12 +38,16 @@ export default function ShiftPage() {
   const [metrics, setMetrics] = useState(null);
 
   const refreshData = async () => {
+      // Si no hay sucursal cargada, no hacemos nada (seguridad)
+      if (!user?.branchId) return;
+
       setLoading(true);
       try {
+          // 👈 3. Pasar branchId a todas las consultas
           const [current, process, all, emps] = await Promise.all([
-              getCurrentShift(),
-              getShiftInProcess(),
-              getAllShifts(),
+              getCurrentShift(user.branchId),
+              getShiftInProcess(user.branchId),
+              getAllShifts(user.branchId),
               getEmployees()
           ]);
           setActiveShift(current);
@@ -56,7 +62,12 @@ export default function ShiftPage() {
       }
   };
 
-  useEffect(() => { refreshData(); }, []);
+  // Recargar cuando el usuario (y su branchId) estén listos
+  useEffect(() => { 
+      if (user?.branchId) {
+          refreshData(); 
+      }
+  }, [user]);
 
   useEffect(() => {
       const targetShift = auditShift || activeShift;
@@ -81,8 +92,14 @@ export default function ShiftPage() {
   const handleOpen = async () => {
       if (!openForm.user) return notify.error("Selecciona tu usuario");
       if (openForm.initialCash === "") return notify.error("Indica fondo de caja");
+      
       try {
-          await openShift({ user: openForm.user, initialCash: openForm.initialCash });
+          // 👈 4. Crear turno en la sucursal correcta
+          await openShift({ 
+              user: openForm.user, 
+              initialCash: openForm.initialCash 
+          }, user.branchId);
+          
           await refreshData();
           notify.success("Turno abierto correctamente");
       } catch(e) { notify.error(e.message); }
@@ -120,11 +137,13 @@ export default function ShiftPage() {
   if (loading && !activeShift && !auditShift) return <LoadingState />;
 
   return (
-    <div className="page-container space-y-6">
+    <div className="page-container space-y-6 animate-fadeIn">
         <div className="flex justify-between items-center">
             <div>
                 <h1 className="text-3xl font-bold text-white tracking-tight">Control de Turnos</h1>
-                <p className="text-textMuted text-sm">Gestión de caja y cortes</p>
+                <p className="text-textMuted text-sm">
+                    Gestión de caja en {user.branchId === 'lusso_main' ? 'Matriz' : 'Sucursal'}
+                </p>
             </div>
             <Button variant="secondary" onClick={() => setShowHistoryModal(true)}>📜 Historial de Cortes</Button>
         </div>
@@ -133,22 +152,26 @@ export default function ShiftPage() {
         {showHistoryModal && (
             <ModalWrapper title="Historial de Cortes" onClose={() => setShowHistoryModal(false)} width="600px">
                 <div className="space-y-2 max-h-[60vh] overflow-y-auto custom-scrollbar">
-                    {history.map(h => (
-                        <div key={h.id} onClick={() => setViewShift(h)} className="p-4 rounded-xl border border-border bg-surface hover:bg-surfaceHighlight cursor-pointer transition-colors flex justify-between items-center group">
-                            <div>
-                                <div className="flex items-center gap-2 mb-1">
-                                    <span className="font-bold text-white">{new Date(h.openedAt).toLocaleDateString()}</span>
-                                    <Badge color={h.status==="CLOSED" ? "green" : "yellow"}>{h.status}</Badge>
+                    {history.length === 0 ? (
+                        <div className="text-center py-8 text-textMuted italic">No hay cortes registrados en esta sucursal.</div>
+                    ) : (
+                        history.map(h => (
+                            <div key={h.id} onClick={() => setViewShift(h)} className="p-4 rounded-xl border border-border bg-surface hover:bg-surfaceHighlight cursor-pointer transition-colors flex justify-between items-center group">
+                                <div>
+                                    <div className="flex items-center gap-2 mb-1">
+                                        <span className="font-bold text-white">{new Date(h.openedAt).toLocaleDateString()}</span>
+                                        <Badge color={h.status==="CLOSED" ? "green" : "yellow"}>{h.status}</Badge>
+                                    </div>
+                                    <div className="text-xs text-textMuted">{h.user} · Apertura: {new Date(h.openedAt).toLocaleTimeString()}</div>
                                 </div>
-                                <div className="text-xs text-textMuted">{h.user} · Apertura: {new Date(h.openedAt).toLocaleTimeString()}</div>
+                                {h.difference && (
+                                    <div className={`text-sm font-bold ${(h.difference.cash + h.difference.card + h.difference.transfer) === 0 ? "text-emerald-400" : "text-red-400"}`}>
+                                        Dif: ${(h.difference.cash + h.difference.card + h.difference.transfer).toLocaleString()}
+                                    </div>
+                                )}
                             </div>
-                            {h.difference && (
-                                <div className={`text-sm font-bold ${(h.difference.cash + h.difference.card + h.difference.transfer) === 0 ? "text-emerald-400" : "text-red-400"}`}>
-                                    Dif: ${(h.difference.cash + h.difference.card + h.difference.transfer).toLocaleString()}
-                                </div>
-                            )}
-                        </div>
-                    ))}
+                        ))
+                    )}
                 </div>
             </ModalWrapper>
         )}
@@ -163,7 +186,9 @@ export default function ShiftPage() {
                     <div className="text-center mb-6">
                         <div className="text-4xl mb-2">🔐</div>
                         <h2 className="text-xl font-bold text-white">Apertura de Caja</h2>
-                        <p className="text-textMuted text-sm">Inicia un nuevo turno para comenzar a vender.</p>
+                        <p className="text-textMuted text-sm">
+                            Inicia turno en <span className="text-emerald-400 font-bold">{user.branchId === 'lusso_main' ? 'Lusso Visual' : 'Mundo Óptico'}</span>
+                        </p>
                     </div>
                     <div className="space-y-4">
                         <Select label="Usuario Responsable" value={openForm.user} onChange={e => setOpenForm({...openForm, user: e.target.value})}>

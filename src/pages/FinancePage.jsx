@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
+import { useAuth } from "@/context/AuthContext"; // 👈 1. Importar Auth
 import { getFinancialReport, getProfitabilityReport } from "@/services/salesStorage";
 import { getExpensesReport } from "@/services/expensesStorage";
 import { getAllShifts } from "@/services/shiftsStorage"; 
@@ -24,6 +25,7 @@ const getMonthRange = (monthStr) => {
 };
 
 export default function FinancePage() {
+  const { user } = useAuth(); // 👈 2. Obtener usuario y branchId
   const [loading, setLoading] = useState(true);
   const [filterType, setFilterType] = useState("MONTH");
   const [filterValue, setFilterValue] = useState(getMonthStr());
@@ -38,20 +40,23 @@ export default function FinancePage() {
   const startDate = filterType === 'MONTH' ? getMonthRange(filterValue).start : filterValue;
   const endDate = filterType === 'MONTH' ? getMonthRange(filterValue).end : filterValue;
   
-  // Formateo de fecha para el título
   const dateLabel = filterType === 'MONTH' 
     ? new Date(filterValue + "-01").toLocaleDateString('es-MX', { month: 'long', year: 'numeric' })
     : new Date(filterValue).toLocaleDateString('es-MX', { dateStyle: 'full' });
 
   useEffect(() => {
+      // Seguridad: esperar a que cargue el usuario
+      if (!user?.branchId) return;
+
       async function loadFinance() {
           setLoading(true);
           try {
+              // 👈 3. Pasar branchId a TODOS los reportes para segregar datos
               const [fin, prof, exp, allShifts] = await Promise.all([
-                  getFinancialReport(startDate, endDate),
-                  getProfitabilityReport(startDate, endDate),
-                  getExpensesReport(startDate, endDate),
-                  getAllShifts()
+                  getFinancialReport(startDate, endDate, user.branchId),
+                  getProfitabilityReport(startDate, endDate, user.branchId),
+                  getExpensesReport(startDate, endDate, user.branchId),
+                  getAllShifts(user.branchId)
               ]);
               setFinancial(fin);
               setProfitability(prof);
@@ -60,11 +65,10 @@ export default function FinancePage() {
           } catch(e) { console.error(e); } finally { setLoading(false); }
       }
       loadFinance();
-  }, [filterValue, filterType]);
+  }, [filterValue, filterType, user]); // Recargar si cambia el usuario
 
   const cashFlowBalance = (Number(financialReport.totalIncome) || 0) - (Number(expensesReport.totalExpense) || 0);
   
-  // 🛡️ CORRECCIÓN NaN: Extraer valores con defaults seguros (0)
   const globalStats = profitabilityReport.global || {};
   const totalSalesVal = Number(globalStats.sales) || 0;
   const totalCostVal = Number(globalStats.cost) || 0;
@@ -82,12 +86,14 @@ export default function FinancePage() {
   if (loading) return <LoadingState />;
 
   return (
-    <div className="page-container space-y-8">
+    <div className="page-container space-y-8 animate-fadeIn">
       {/* HEADER Y FILTROS */}
       <div className="flex flex-col md:flex-row justify-between items-center gap-4">
         <div>
             <h1 className="text-3xl font-bold text-white tracking-tight">Finanzas</h1>
-            <p className="text-textMuted text-sm capitalize">{dateLabel}</p>
+            <p className="text-textMuted text-sm capitalize">
+                {dateLabel} • <strong className="text-emerald-400">{user.branchId === 'lusso_main' ? 'Matriz' : 'Sucursal'}</strong>
+            </p>
         </div>
         
         <div className="flex items-center gap-2 bg-surface p-1.5 rounded-xl border border-border">

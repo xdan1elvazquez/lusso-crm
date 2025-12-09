@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect } from "react";
+import { useAuth } from "@/context/AuthContext"; // 👈 1. Importar Auth
 import { getAllSales, addPaymentToSale } from "@/services/salesStorage";
-import { getPatientById } from "@/services/patientsStorage"; // 👈 Importamos esto para leer los puntos
+import { getPatientById } from "@/services/patientsStorage"; 
 import LoadingState from "@/components/LoadingState";
 import { useNotify } from "@/context/UIContext";
 
@@ -11,10 +12,10 @@ import Input from "@/components/ui/Input";
 import Select from "@/components/ui/Select";
 import ModalWrapper from "@/components/ui/ModalWrapper";
 
-// 🟢 Agregamos PUNTOS a la lista
 const PAYMENT_METHODS = ["EFECTIVO", "TARJETA", "TRANSFERENCIA", "PUNTOS", "OTRO"];
 
 export default function ReceivablesPage() {
+  const { user } = useAuth(); // 👈 2. Obtener branchId
   const notify = useNotify();
   const [loading, setLoading] = useState(true);
   const [sales, setSales] = useState([]);
@@ -22,14 +23,20 @@ export default function ReceivablesPage() {
   const [selectedSale, setSelectedSale] = useState(null);
 
   const refreshData = async () => {
+      // Seguridad: esperar usuario
+      if (!user?.branchId) return;
+
       setLoading(true);
       try {
-          const sData = await getAllSales();
+          // 👈 3. Filtrar deudas por sucursal
+          const sData = await getAllSales(user.branchId);
           setSales(sData);
       } catch(e) { console.error(e); } finally { setLoading(false); }
   };
 
-  useEffect(() => { refreshData(); }, []);
+  useEffect(() => { 
+      if(user?.branchId) refreshData(); 
+  }, [user]);
 
   const debtors = useMemo(() => {
     return sales
@@ -60,7 +67,9 @@ export default function ReceivablesPage() {
       <div className="flex flex-col md:flex-row justify-between items-end gap-4">
         <div>
             <h1 className="text-3xl font-bold text-white tracking-tight">Cuentas por Cobrar</h1>
-            <p className="text-textMuted text-sm">Créditos y saldos pendientes de clientes</p>
+            <p className="text-textMuted text-sm">
+                Cartera de <strong className="text-emerald-400">{user.branchId === 'lusso_main' ? 'Matriz' : 'Sucursal'}</strong>
+            </p>
         </div>
         <Card noPadding className="px-6 py-3 bg-surfaceHighlight/20 border-emerald-500/30">
             <div className="text-xs text-textMuted uppercase font-bold tracking-wider">Total Cartera Vencida</div>
@@ -78,7 +87,7 @@ export default function ReceivablesPage() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {filtered.length === 0 && (
           <div className="col-span-full py-20 text-center text-textMuted bg-surface rounded-xl border border-border">
-             🎉 ¡Felicidades! No hay cuentas pendientes.
+             🎉 ¡Felicidades! No hay cuentas pendientes en esta sucursal.
           </div>
         )}
         
@@ -122,10 +131,9 @@ export default function ReceivablesPage() {
 function PaymentModal({ sale, onClose, onSuccess }) {
   const [amount, setAmount] = useState("");
   const [method, setMethod] = useState("EFECTIVO");
-  const [patientPoints, setPatientPoints] = useState(0); // 🟢 Estado para puntos
+  const [patientPoints, setPatientPoints] = useState(0); 
   const [loadingPoints, setLoadingPoints] = useState(true);
 
-  // 🟢 Cargar puntos del paciente al abrir el modal
   useEffect(() => {
       async function loadPoints() {
           if (sale.patientId) {
@@ -143,7 +151,6 @@ function PaymentModal({ sale, onClose, onSuccess }) {
     
     if (val <= 0 || val > sale.balance) return alert("Monto inválido");
     
-    // Validación extra visual (la lógica real está en salesStorage, pero esto mejora UX)
     if (method === "PUNTOS" && val > patientPoints) {
         return alert(`Saldo insuficiente de puntos. El cliente solo tiene ${patientPoints} puntos.`);
     }
@@ -158,7 +165,6 @@ function PaymentModal({ sale, onClose, onSuccess }) {
     <ModalWrapper title="Registrar Abono" onClose={onClose} width="400px">
        <form onSubmit={handleSubmit} className="space-y-4">
           
-          {/* Tarjeta de Resumen */}
           <div className="bg-surfaceHighlight/20 p-4 rounded-xl border border-border mb-4">
               <div className="text-xs text-textMuted uppercase mb-1">Cliente</div>
               <div className="font-bold text-white text-lg mb-2">{sale.patientName}</div>
@@ -169,7 +175,6 @@ function PaymentModal({ sale, onClose, onSuccess }) {
               </div>
           </div>
           
-          {/* 🟢 Visualizador de Puntos Disponibles */}
           {!loadingPoints && (
               <div className="flex justify-end mb-2">
                   <div className="text-xs px-2 py-1 rounded bg-yellow-500/10 border border-yellow-500/20 text-yellow-200 flex items-center gap-1">

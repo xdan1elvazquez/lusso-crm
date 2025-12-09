@@ -1,7 +1,9 @@
 import { useState, useEffect } from "react";
+import { useAuth } from "@/context/AuthContext"; // 👈 1. Importar Auth
 import { calculatePayrollReport } from "@/services/payrollService";
 import { createExpense } from "@/services/expensesStorage";
 import LoadingState from "@/components/LoadingState";
+import { useConfirm, useNotify } from "@/context/UIContext";
 
 // UI Kit
 import Card from "@/components/ui/Card";
@@ -12,6 +14,10 @@ import Badge from "@/components/ui/Badge";
 const PERIODS = [{ id: 'MONTH', label: 'Mes Completo' }, { id: 'Q1', label: '1ra Quincena' }, { id: 'Q2', label: '2da Quincena' }];
 
 export default function PayrollPage() {
+  const { user } = useAuth(); // 👈 2. Obtener usuario
+  const confirm = useConfirm(); // Usar el confirm del contexto si lo tienes, o window.confirm
+  const notify = useNotify();
+
   const [loading, setLoading] = useState(true);
   const [report, setReport] = useState([]);
   const now = new Date();
@@ -20,36 +26,55 @@ export default function PayrollPage() {
   const [period, setPeriod] = useState("MONTH");
 
   useEffect(() => {
+      if (!user?.branchId) return;
+
       async function load() {
           setLoading(true);
           try {
-              const data = await calculatePayrollReport(year, month, period);
+              // 👈 3. Pasar branchId al reporte para calcular comisiones locales
+              const data = await calculatePayrollReport(year, month, period, user.branchId);
               setReport(data);
           } catch(e) { console.error(e); } finally { setLoading(false); }
       }
       load();
-  }, [year, month, period]);
+  }, [year, month, period, user]);
 
   const handlePay = async (empReport) => {
-      if (!confirm(`¿Registrar pago a ${empReport.name}?`)) return;
-      await createExpense({
-          description: `Nómina ${month}/${year}: ${empReport.name}`,
-          amount: empReport.totalToPay,
-          category: "NOMINA",
-          method: "TRANSFERENCIA",
-          date: new Date().toISOString()
-      });
-      alert("Pago registrado.");
+      // Usar confirm del contexto (más bonito) o nativo
+      if(confirm.confirm) {
+         if (!await confirm({title: "Registrar Pago", message: `¿Pagar $${empReport.totalToPay} a ${empReport.name}?`})) return;
+      } else {
+         if(!window.confirm(`¿Pagar $${empReport.totalToPay} a ${empReport.name}?`)) return;
+      }
+
+      try {
+          // 👈 4. Registrar el Gasto en la sucursal correcta
+          await createExpense({
+              description: `Nómina ${month}/${year}: ${empReport.name}`,
+              amount: empReport.totalToPay,
+              category: "NOMINA",
+              method: "TRANSFERENCIA",
+              date: new Date().toISOString()
+          }, user.branchId);
+          
+          if(notify?.success) notify.success("Pago registrado correctamente");
+          else alert("Pago registrado.");
+          
+      } catch (e) {
+          console.error(e);
+      }
   };
 
   if (loading) return <LoadingState />;
 
   return (
-    <div className="page-container space-y-6">
+    <div className="page-container space-y-6 animate-fadeIn">
       <div className="flex flex-col md:flex-row justify-between items-center gap-4">
           <div>
             <h1 className="text-3xl font-bold text-white tracking-tight">Nómina y Comisiones</h1>
-            <p className="text-textMuted text-sm">Cálculo de pagos basado en ventas</p>
+            <p className="text-textMuted text-sm">
+                Cálculo para <strong className="text-emerald-400">{user.branchId === 'lusso_main' ? 'Matriz' : 'Sucursal'}</strong>
+            </p>
           </div>
           
           <div className="flex gap-2 bg-surface p-2 rounded-xl border border-border">
@@ -90,7 +115,7 @@ export default function PayrollPage() {
                               <span className="text-white font-mono">${row.commissionAmount.toLocaleString()}</span>
                           </div>
                           <div className="flex justify-between pt-2 border-t border-border/50 text-xs text-textMuted">
-                              <span>Ventas Totales</span>
+                              <span>Ventas Totales (Local)</span>
                               <span>${row.totalSales.toLocaleString()} ({row.salesCount} ops)</span>
                           </div>
                       </div>

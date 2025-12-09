@@ -1,33 +1,33 @@
 import { db } from "@/firebase/config";
 import { 
-  collection, getDocs, setDoc, updateDoc, deleteDoc, doc, query, orderBy, where, getDoc 
+  collection, getDocs, setDoc, updateDoc, deleteDoc, doc, query, orderBy, where, addDoc 
 } from "firebase/firestore";
 
 const COLLECTION_NAME = "work_orders";
 const STATUS_FLOW = ["ON_HOLD", "TO_PREPARE", "SENT_TO_LAB", "QUALITY_CHECK", "READY", "DELIVERED"];
 
 // --- LECTURA ---
-export async function getAllWorkOrders() {
-  const q = query(collection(db, COLLECTION_NAME), orderBy("updatedAt", "desc"));
+export async function getAllWorkOrders(branchId = "lusso_main") {
+  const q = query(
+      collection(db, COLLECTION_NAME), 
+      where("branchId", "==", branchId),
+      orderBy("updatedAt", "desc")
+  );
   const snapshot = await getDocs(q);
   return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 }
 
 export async function getWorkOrdersByPatientId(patientId) {
+  // Órdenes globales del paciente (todas las sucursales)
   const q = query(collection(db, COLLECTION_NAME), where("patientId", "==", patientId));
   const snapshot = await getDocs(q);
   return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 }
 
 // --- ESCRITURA ---
-
-/**
- * Crea una orden de trabajo.
- * CAMBIO CRÍTICO: Soporta 'customId' para garantizar idempotencia (evitar duplicados).
- * Si se pasa un id en el payload, se usa setDoc en lugar de addDoc.
- */
 export async function createWorkOrder(payload) {
   const newOrder = {
+    branchId: payload.branchId || "lusso_main", // 👈 Default seguro
     patientId: payload.patientId ?? null,
     saleId: payload.saleId ?? null,
     saleItemId: payload.saleItemId ?? null,
@@ -53,19 +53,16 @@ export async function createWorkOrder(payload) {
     rxNotes: payload.rxNotes || "",
     status: payload.status || "TO_PREPARE",
     
-    createdAt: payload.createdAt || new Date().toISOString(), // Usar fecha venta si existe
+    createdAt: payload.createdAt || new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     dueDate: payload.dueDate || null,
   };
 
-  // Lógica Anti-Duplicados:
-  // Si nos mandan un ID específico (ej: wo_venta123_item456), lo usamos.
   if (payload.id) {
       const docRef = doc(db, COLLECTION_NAME, payload.id);
-      await setDoc(docRef, newOrder); // setDoc sobrescribe si existe (idempotente)
+      await setDoc(docRef, newOrder); 
       return { id: payload.id, ...newOrder };
   } else {
-      // Comportamiento legado (addDoc genera ID aleatorio)
       const docRef = await addDoc(collection(db, COLLECTION_NAME), newOrder);
       return { id: docRef.id, ...newOrder };
   }
@@ -84,7 +81,6 @@ export async function deleteWorkOrder(id) {
   await deleteDoc(doc(db, COLLECTION_NAME, id));
 }
 
-// Borrado en cascada
 export async function deleteWorkOrdersBySaleId(saleId) {
   const q = query(collection(db, COLLECTION_NAME), where("saleId", "==", saleId));
   const snapshot = await getDocs(q);
@@ -92,7 +88,6 @@ export async function deleteWorkOrdersBySaleId(saleId) {
   await Promise.all(deletePromises);
 }
 
-// 🟢 NUEVA FUNCIÓN: Cancelar orden específica por item (para devoluciones)
 export async function cancelWorkOrderBySaleItem(saleId, saleItemId) {
     const q = query(
         collection(db, COLLECTION_NAME), 
@@ -102,7 +97,6 @@ export async function cancelWorkOrderBySaleItem(saleId, saleItemId) {
     const snapshot = await getDocs(q);
     
     if (!snapshot.empty) {
-        // Cancelamos todas las que coincidan (debería ser 1 por la nueva lógica, pero por seguridad iteramos)
         const updates = snapshot.docs.map(d => updateDoc(d.ref, { 
             status: "CANCELLED", 
             updatedAt: new Date().toISOString(),
@@ -121,7 +115,6 @@ export async function applyWarranty(id, reason, extraCost) {
   });
 }
 
-// Helpers
 export function nextStatus(current) {
   const idx = STATUS_FLOW.indexOf(current);
   if (idx === -1) return STATUS_FLOW[0];

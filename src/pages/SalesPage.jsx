@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
+import { useAuth } from "@/context/AuthContext"; // 👈 1. Importar Auth
 import { getPatients } from "@/services/patientsStorage";
 import { getCurrentShift } from "@/services/shiftsStorage";
 import SalesPanel from "@/components/SalesPanel";
@@ -7,9 +8,9 @@ import LoadingState from "@/components/LoadingState";
 // UI Components
 import Card from "@/components/ui/Card";
 import Input from "@/components/ui/Input";
-import Button from "@/components/ui/Button"; // Opcional si quieres agregar botón de acción futura
 
 export default function SalesPage() {
+  const { user } = useAuth(); // 👈 2. Obtener usuario
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
   const [selectedPatient, setSelectedPatient] = useState(null);
@@ -18,12 +19,15 @@ export default function SalesPage() {
   const [patients, setPatients] = useState([]);
 
   useEffect(() => {
+      // Esperamos a que cargue el usuario para saber la sucursal
+      if (!user?.branchId) return;
+
       async function loadData() {
           setLoading(true);
           try {
               const [shiftData, patientsData] = await Promise.all([
-                  getCurrentShift(),
-                  getPatients()
+                  getCurrentShift(user.branchId), // 👈 3. Verificar turno de ESTA sucursal
+                  getPatients() // Pacientes globales
               ]);
               setIsShiftOpen(!!shiftData);
               setPatients(patientsData);
@@ -34,7 +38,7 @@ export default function SalesPage() {
           }
       }
       loadData();
-  }, []);
+  }, [user]); // Recargar si cambia el usuario
   
   const filteredPatients = useMemo(() => {
     if (!query) return [];
@@ -56,7 +60,7 @@ export default function SalesPage() {
                   <div className="text-6xl mb-6 opacity-80">⛔</div>
                   <h1 className="text-2xl font-bold text-white mb-3">Caja Cerrada</h1>
                   <p className="text-textMuted mb-6 px-8 leading-relaxed">
-                      No hay un turno activo en este momento para realizar ventas.
+                      No hay un turno activo en la sucursal <strong>{user.branchId === 'lusso_main' ? 'Matriz' : 'Sucursal'}</strong>.
                   </p>
                   <div className="inline-block bg-surface px-4 py-2 rounded-lg border border-border text-sm text-textMuted">
                       Ve a <strong>Control Turnos</strong> para abrir caja.
@@ -67,11 +71,13 @@ export default function SalesPage() {
   }
 
   return (
-    <div className="page-container space-y-6">
+    <div className="page-container space-y-6 animate-fadeIn">
       <div className="flex justify-between items-end">
         <div>
             <h1 className="text-3xl font-bold text-white tracking-tight">Punto de Venta</h1>
-            <p className="text-textMuted text-sm">Gestiona ventas y pedidos</p>
+            <p className="text-textMuted text-sm">
+                Gestiona ventas en {user.branchId === 'lusso_main' ? 'Matriz' : 'Sucursal'}
+            </p>
         </div>
         {selectedPatient && (
             <button 
@@ -141,7 +147,8 @@ export default function SalesPage() {
             
             <SalesPanel 
                 patientId={selectedPatient.id} 
-                prefillData={null} // Opcional: podrías pasar esto como prop si vienes de otra pantalla
+                branchId={user.branchId} // 👈 4. Pasamos la sucursal al Panel
+                prefillData={null} 
                 onClearPrefill={() => {}} 
             />
         </div>

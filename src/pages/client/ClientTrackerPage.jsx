@@ -2,11 +2,11 @@ import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { getClientOrders } from "@/services/clientService";
 import { getPatientById } from "@/services/patientsStorage"; 
+import { getBranchConfig } from "@/utils/branchesConfig";
 import Card from "@/components/ui/Card";
 import LoadingState from "@/components/LoadingState";
 import Badge from "@/components/ui/Badge"; 
 
-// Mapeo Amigable
 const STATUS_CONFIG = {
   "ON_HOLD": { label: "Validando Orden", step: 1, color: "bg-slate-600" },
   "TO_PREPARE": { label: "En Preparación", step: 2, color: "bg-amber-500" },
@@ -23,6 +23,9 @@ export default function ClientTrackerPage() {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showQR, setShowQR] = useState(false);
+  
+  // Estado para branding dinámico del portal
+  const [portalBranch, setPortalBranch] = useState(getBranchConfig("lusso_main"));
 
   useEffect(() => {
     const session = sessionStorage.getItem("lusso_client_session");
@@ -40,6 +43,13 @@ export default function ClientTrackerPage() {
             else setPatient(sessionData); 
 
             setOrders(freshOrders);
+
+            // 🦎 LÓGICA CAMALEÓN:
+            if (freshOrders.length > 0) {
+                const lastOrder = freshOrders[0];
+                const branchId = lastOrder.branchId || "lusso_main";
+                setPortalBranch(getBranchConfig(branchId));
+            }
         } catch (error) {
             console.error("Error cargando datos del cliente:", error);
         } finally {
@@ -73,21 +83,24 @@ export default function ClientTrackerPage() {
   if (loading) return <LoadingState />;
 
   return (
-    <div className="space-y-6 animate-fadeIn pb-10">
+    <div className={`space-y-6 animate-fadeIn pb-10 min-h-screen bg-slate-950`}>
       
-      {/* HEADER + PUNTOS (NUEVO DISEÑO CON QR) */}
-      <div className="flex flex-col gap-5 border-b border-white/10 pb-6">
+      {/* HEADER CAMALEÓNICO (SIN LOGO) */}
+      <div className={`flex flex-col gap-5 border-b border-white/10 pb-6 p-6 -mx-6 ${portalBranch.colors.primary} shadow-2xl transition-colors duration-500`}>
           <div className="flex justify-between items-start">
-              <div>
-                  <h2 className="text-3xl font-bold text-white tracking-tight">Hola, {patient?.firstName}</h2>
-                  <p className="text-slate-400 text-sm">Bienvenido a tu espacio Lusso</p>
+              <div className="flex items-center gap-4">
+                  {/* SIN IMAGEN AQUÍ */}
+                  <div>
+                    <h2 className="text-2xl font-bold text-white tracking-tight">Hola, {patient?.firstName}</h2>
+                    <p className="text-white/60 text-xs uppercase tracking-widest font-bold">TrackerVisual</p>
+                  </div>
               </div>
-              <button onClick={handleLogout} className="text-xs text-red-400 hover:text-white transition-colors bg-white/5 px-3 py-1.5 rounded-lg border border-white/10 hover:border-red-500/50">
-                  Cerrar Sesión
+              <button onClick={handleLogout} className="text-xs text-white/70 hover:text-white transition-colors bg-black/20 px-3 py-1.5 rounded-lg">
+                  Salir
               </button>
           </div>
 
-          {/* 💎 TARJETA DE PUNTOS + QR TOGGLE */}
+          {/* TARJETA DE PUNTOS */}
           <div className="bg-gradient-to-r from-blue-950 to-slate-900 border border-blue-500/30 p-5 rounded-2xl shadow-glow relative overflow-hidden group">
               <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/10 rounded-full blur-3xl -mr-10 -mt-10 pointer-events-none"></div>
               
@@ -102,14 +115,10 @@ export default function ClientTrackerPage() {
                               <div className="text-3xl font-bold text-white text-shadow-sm">
                                   {patient?.points?.toLocaleString() || 0}
                               </div>
-                              {/* 👇 LEYENDA AGREGADA */}
                               <div className="text-[10px] text-blue-200/60 mt-1 max-w-[200px] leading-tight">
-                                 1 Punto = $1 peso. Válido solo en productos y servicios. No canjeable por efectivo.
+                                 1 Punto = $1 peso. Válido solo en productos y servicios.
                               </div>
                           </div>
-                      </div>
-                      <div className="text-right hidden sm:block">
-                        <Badge color="blue" className="border-blue-500/40">Miembro Lusso</Badge>
                       </div>
                   </div>
 
@@ -117,13 +126,13 @@ export default function ClientTrackerPage() {
                     onClick={() => setShowQR(!showQR)}
                     className="w-full bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl py-2 flex items-center justify-center gap-2 text-sm text-blue-200 transition-colors"
                   >
-                      <span>{showQR ? "Ocultar Tarjeta Digital" : "Mostrar Tarjeta Digital / QR"}</span>
+                      <span>{showQR ? "Ocultar Tarjeta" : "Mostrar QR Digital"}</span>
                       <span className="text-lg">📱</span>
                   </button>
                   
                   {showQR && (
                       <div className="mt-4 p-4 bg-white rounded-xl flex flex-col items-center animate-fadeIn text-center">
-                          <div className="text-black font-bold text-lg mb-1">Lusso Visual</div>
+                          <div className="text-black font-bold text-lg mb-1">TrackerVisual</div>
                           <div className="text-gray-500 text-xs uppercase tracking-widest mb-3">{patient?.firstName} {patient?.lastName}</div>
                           
                           <img 
@@ -131,42 +140,44 @@ export default function ClientTrackerPage() {
                             alt="Tu Código QR" 
                             className="w-32 h-32 mb-2"
                           />
-                          
                           <div className="text-[10px] text-gray-400 font-mono mt-1">{patient?.id}</div>
-                          <p className="text-xs text-gray-500 mt-2 max-w-[200px]">
-                              Muestra este código en mostrador para acumular o canjear puntos.
-                          </p>
                       </div>
                   )}
               </div>
           </div>
       </div>
 
-      <h3 className="text-lg font-bold text-white mb-2 flex items-center gap-2">
-          📦 Mis Pedidos
-      </h3>
+      <div className="px-4">
+        <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+            📦 Mis Pedidos
+        </h3>
 
-      {orders.length === 0 ? (
+        {orders.length === 0 ? (
           <div className="text-center py-12 opacity-50 bg-slate-900/50 rounded-2xl border border-white/5">
               <div className="text-5xl mb-4">👓</div>
               <p>No tienes pedidos activos.</p>
           </div>
-      ) : (
+        ) : (
           orders.map(order => {
               const status = STATUS_CONFIG[order.status] || STATUS_CONFIG["ON_HOLD"];
               const progress = Math.min((status.step / 5) * 100, 100);
               
               const frames = order.saleDetails?.items.filter(i => i.kind === "FRAMES") || [];
               const lenses = order.saleDetails?.items.filter(i => i.kind === "LENSES") || [];
-              const hasDetails = frames.length > 0 || lenses.length > 0;
+
+              // Branding específico de ESTA orden
+              const orderBranch = getBranchConfig(order.branchId || "lusso_main");
 
               return (
-                  <Card key={order.id} className="relative overflow-hidden bg-slate-900 border-slate-800 shadow-xl" noPadding>
+                  <Card key={order.id} className="relative overflow-hidden bg-slate-900 border-slate-800 shadow-xl mb-4" noPadding>
+                      <div className={`h-1 w-full ${orderBranch.colors.button}`}></div> 
                       
                       <div className="p-6 pb-2">
                           <div className="flex justify-between items-center mb-2">
                               <span className="text-sm font-bold text-white uppercase tracking-wider">{status.label}</span>
-                              <span className="text-xs text-slate-400 font-mono">{progress}%</span>
+                              <Badge className={`${orderBranch.colors.primary} text-white border-none`}>
+                                {orderBranch.name}
+                              </Badge>
                           </div>
                           <div className="h-3 w-full bg-slate-800 rounded-full overflow-hidden relative shadow-inner">
                               <div 
@@ -179,14 +190,12 @@ export default function ClientTrackerPage() {
                       </div>
 
                       <div className="p-6 pt-4 space-y-6">
-                          
                           {frames.map((frame, idx) => (
                               <div key={`frame-${idx}`} className="flex justify-between items-start">
                                   <div>
                                       <div className="text-[10px] text-slate-500 uppercase font-bold mb-1">Armazón</div>
                                       <div className="text-white text-lg font-medium leading-tight">{frame.description}</div>
                                   </div>
-                                  <div className="text-emerald-400 font-bold">${frame.price.toLocaleString()}</div>
                               </div>
                           ))}
 
@@ -199,25 +208,14 @@ export default function ClientTrackerPage() {
                                               {lens.specs?.design || "Monofocal"} {lens.specs?.material} {lens.specs?.treatment}
                                           </div>
                                       </div>
-                                      <div className="text-emerald-400 font-bold">${lens.price.toLocaleString()}</div>
                                   </div>
-                                  
                                   <div className="mt-3">
-                                      <div className="text-[9px] text-slate-500 uppercase font-bold mb-1">Tu Graduación</div>
                                       {renderRx(lens.rx || order.rxNotes)} 
                                   </div>
                               </div>
                           ))}
-
-                          {!hasDetails && (
-                              <div className="text-center text-slate-500 text-sm py-4 italic">
-                                  Detalles no disponibles. <br/>Ref: {order.type}
-                              </div>
-                          )}
-
                       </div>
 
-                      {/* FOOTER - AHORA MUESTRA CAJA */}
                       <div className="bg-slate-950/50 p-4 border-t border-white/5 flex justify-between items-center text-xs text-slate-500">
                           <span className="font-bold text-slate-400">
                               {order.saleDetails?.boxNumber ? `Caja #${order.saleDetails.boxNumber}` : `Orden #${order.id.slice(0,6).toUpperCase()}`}
@@ -227,7 +225,8 @@ export default function ClientTrackerPage() {
                   </Card>
               );
           })
-      )}
+        )}
+      </div>
     </div>
   );
 }

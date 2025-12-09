@@ -1,4 +1,5 @@
 import { useMemo, useState, useEffect } from "react";
+import { useAuth } from "@/context/AuthContext"; // 👈 1. Importar Auth
 import { getAllWorkOrders, updateWorkOrder, nextStatus, prevStatus, applyWarranty, deleteWorkOrder } from "@/services/workOrdersStorage";
 import { getPatients } from "@/services/patientsStorage"; 
 import { getAllSales } from "@/services/salesStorage"; 
@@ -8,7 +9,7 @@ import { createExpense } from "@/services/expensesStorage";
 import LoadingState from "@/components/LoadingState";
 import SaleDetailModal from "@/components/SaleDetailModal";
 
-// 👇 UI Kit & Context
+// UI Kit & Context
 import ModalWrapper from "@/components/ui/ModalWrapper";
 import Button from "@/components/ui/Button";
 import Input from "@/components/ui/Input";
@@ -17,8 +18,6 @@ import Card from "@/components/ui/Card";
 import Badge from "@/components/ui/Badge";
 import { useConfirm, useNotify } from "@/context/UIContext";
 
-// Configuración de columnas ACTIVAS (El flujo de trabajo)
-// Nota: Quitamos DELIVERED y CANCELLED de aquí para manejarlos aparte
 const ACTIVE_COLS = [
   { id: "ON_HOLD", title: "⏳ En Espera", color: "border-slate-600", bg: "bg-slate-900/50" },
   { id: "TO_PREPARE", title: "🛠️ Por Preparar", color: "border-amber-500", bg: "bg-amber-900/10" },
@@ -28,15 +27,14 @@ const ACTIVE_COLS = [
 ];
 
 export default function WorkOrdersPage() {
+  const { user } = useAuth(); // 👈 2. Obtener usuario y sucursal
   const confirm = useConfirm();
   const notify = useNotify();
 
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
-  // Estado para colapsar/expandir el historial de entregados
   const [showHistory, setShowHistory] = useState(false);
   
-  // Datos
   const [workOrders, setWorkOrders] = useState([]);
   const [patients, setPatients] = useState([]);
   const [sales, setSales] = useState([]);
@@ -51,16 +49,27 @@ export default function WorkOrdersPage() {
   const [viewSale, setViewSale] = useState(null); 
 
   const refreshData = async () => {
+      // Seguridad: esperar a que cargue el usuario
+      if (!user?.branchId) return;
+
       setLoading(true);
       try {
+          // 👈 3. Filtrar Órdenes y Ventas por Sucursal
+          // Pacientes, Empleados y Labs siguen siendo globales
           const [woData, patData, empData, labData, salesData] = await Promise.all([
-              getAllWorkOrders(), getPatients(), getEmployees(), getLabs(), getAllSales()
+              getAllWorkOrders(user.branchId), // Filtrado
+              getPatients(), 
+              getEmployees(), 
+              getLabs(), 
+              getAllSales(user.branchId) // Filtrado
           ]);
           setWorkOrders(woData); setPatients(patData); setEmployees(empData); setLabs(labData); setSales(salesData);
       } catch (error) { console.error(error); } finally { setLoading(false); }
   };
 
-  useEffect(() => { refreshData(); }, []);
+  useEffect(() => { 
+      if (user?.branchId) refreshData(); 
+  }, [user]);
 
   const patientMap = useMemo(() => {
     if (!Array.isArray(patients)) return {};
@@ -85,7 +94,7 @@ export default function WorkOrdersPage() {
     const activeGroups = {};
     ACTIVE_COLS.forEach(col => activeGroups[col.id] = []);
     
-    const history = []; // Para DELIVERED y CANCELLED
+    const history = []; 
 
     filtered.forEach(order => {
         if (order.status === "DELIVERED" || order.status === "CANCELLED") {
@@ -93,13 +102,11 @@ export default function WorkOrdersPage() {
         } else if (activeGroups[order.status]) {
             activeGroups[order.status].push(order);
         } else {
-            // Fallback para estados desconocidos o legacy
             if (!activeGroups["ON_HOLD"]) activeGroups["ON_HOLD"] = [];
             activeGroups["ON_HOLD"].push(order);
         }
     });
 
-    // Ordenar: Más antiguos primero para FIFO en activos, más recientes primero en historial
     Object.keys(activeGroups).forEach(key => {
         activeGroups[key].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
     });
@@ -195,13 +202,15 @@ export default function WorkOrdersPage() {
   const PayLabModalContent = ({ order, onClose }) => {
       const [method, setMethod] = useState("EFECTIVO");
       const handlePay = async () => {
+          // 👈 4. Crear gasto en la sucursal correcta
           await createExpense({
               description: `Pago Lab: ${order.labName} (P: ${patientMap[order.patientId]?.lastName})`,
               amount: order.labCost,
               category: "COSTO_VENTA",
               method: method,
               date: new Date().toISOString()
-          });
+          }, user.branchId); // Pasar branchId
+
           await updateWorkOrder(order.id, { isPaid: true });
           notify.success(`Pago de $${order.labCost} registrado`);
           refreshData(); onClose();
@@ -256,12 +265,14 @@ export default function WorkOrdersPage() {
   if (loading && workOrders.length === 0) return <LoadingState />;
 
   return (
-    <div className="page-container h-[calc(100vh-100px)] flex flex-col">
+    <div className="page-container h-[calc(100vh-100px)] flex flex-col animate-fadeIn">
       {/* HEADER FIJO */}
       <div className="flex justify-between items-center mb-6 flex-shrink-0">
         <div>
            <h1 className="text-3xl font-bold text-white tracking-tight">Tablero de Trabajos</h1>
-           <p className="text-textMuted text-sm">Flujo de laboratorio en tiempo real</p>
+           <p className="text-textMuted text-sm">
+               Taller de {user.branchId === 'lusso_main' ? 'Matriz' : 'Sucursal'}
+           </p>
         </div>
         <div className="flex gap-4 items-center">
             <Input 
@@ -281,28 +292,23 @@ export default function WorkOrdersPage() {
       {revisionModal && <ModalWrapper title="Recepción de Trabajo" onClose={() => setRevisionModal(null)} width="450px"><RevisionModalContent order={revisionModal} onClose={() => setRevisionModal(null)} /></ModalWrapper>}
       {viewSale && <SaleDetailModal sale={viewSale} patient={patientMap[viewSale.patientId]} onClose={() => setViewSale(null)} onUpdate={refreshData} />}
 
-      {/* KANBAN BOARD (Scroll Horizontal) */}
-      {/* Usamos flex-1 para que ocupe el espacio, pero si hay historial abajo, se ajustará */}
+      {/* KANBAN BOARD */}
       <div className="flex-1 overflow-x-auto pb-4 custom-scrollbar mb-4">
           <div className="flex gap-4 min-w-max h-full">
               {ACTIVE_COLS.map(col => {
                   const orders = groupedOrders[col.id] || [];
                   
-                  // 🔥 AUTO-OCULTAR COLUMNA VACÍA
-                  // Excepción: Siempre mostrar "En Espera" y "Por Preparar" para que no se vea vacío el inicio
                   if (orders.length === 0 && col.id !== "ON_HOLD" && col.id !== "TO_PREPARE") {
                       return null; 
                   }
 
                   return (
                       <div key={col.id} className="w-80 flex flex-col h-full bg-surface rounded-xl border border-border overflow-hidden transition-all duration-300">
-                          {/* Col Header */}
                           <div className={`p-3 border-b-2 ${col.color} bg-surfaceHighlight/50 flex justify-between items-center`}>
                               <span className="font-bold text-sm text-white uppercase tracking-wide">{col.title}</span>
                               <Badge color="gray" className="bg-background text-xs">{orders.length}</Badge>
                           </div>
                           
-                          {/* Col Body (Scroll Vertical) */}
                           <div className={`flex-1 overflow-y-auto p-2 space-y-3 custom-scrollbar ${col.bg}`}>
                               {orders.length === 0 ? (
                                   <div className="flex flex-col items-center justify-center h-20 text-textMuted text-xs italic opacity-50">
@@ -331,7 +337,7 @@ export default function WorkOrdersPage() {
           </div>
       </div>
 
-      {/* HISTORIAL DE ENTREGADOS (Sección Inferior) */}
+      {/* HISTORIAL */}
       <div className="border-t border-border pt-4 mt-auto">
           <button 
              onClick={() => setShowHistory(!showHistory)}
@@ -368,11 +374,10 @@ export default function WorkOrdersPage() {
   );
 }
 
-// --- TARJETA DE TRABAJO (Diseño Detallado) ---
+// --- TARJETA DE TRABAJO ---
 function KanbanCard({ order, patient, sale, onAdvance, onRegress, onWarranty, onDelete, onViewSale, onPayLab }) {
     const item = sale?.items?.find(it => it.id === order.saleItemId);
     
-    // Parseo seguro de Rx
     const renderRx = (notes) => {
         if (!notes) return null;
         if (notes.trim().startsWith("{")) {
@@ -390,11 +395,7 @@ function KanbanCard({ order, patient, sale, onAdvance, onRegress, onWarranty, on
     };
 
     return (
-        <div 
-            onClick={onViewSale}
-            className="bg-background border border-border rounded-lg p-3 shadow-sm hover:border-primary/50 transition-colors group relative">
-            
-            {/* Header: Paciente y Producto */}
+        <div onClick={onViewSale} className="bg-background border border-border rounded-lg p-3 shadow-sm hover:border-primary/50 transition-colors group relative cursor-pointer">
             <div className="flex justify-between items-start mb-2">
                 <div className="w-full pr-6">
                     <div className="font-bold text-white text-sm truncate" title={patient ? `${patient.firstName} ${patient.lastName}` : "Paciente"}>
@@ -402,11 +403,9 @@ function KanbanCard({ order, patient, sale, onAdvance, onRegress, onWarranty, on
                     </div>
                     <div className="text-xs text-textMuted truncate">{item?.description || order.type}</div>
                 </div>
-                {/* Botón Borrar (esquina) */}
-                <button onClick={onDelete} className="absolute top-2 right-2 text-textMuted hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">×</button>
+                <button onClick={(e) => { e.stopPropagation(); onDelete(); }} className="absolute top-2 right-2 text-textMuted hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">×</button>
             </div>
 
-            {/* Datos Clave */}
             <div className="grid grid-cols-2 gap-2 text-[10px] text-textMuted mb-2">
                 <div className="bg-surfaceHighlight rounded px-1.5 py-1">
                     <span className="block uppercase font-bold opacity-70 text-[9px]">Lab</span>
@@ -418,13 +417,10 @@ function KanbanCard({ order, patient, sale, onAdvance, onRegress, onWarranty, on
                 </div>
             </div>
 
-            {/* Rx Preview */}
             {renderRx(order.rxNotes)}
 
-            {/* Footer de Acciones */}
             <div className="flex justify-between items-center pt-2 mt-2 border-t border-border border-dashed">
-                {/* Navegación de Estados */}
-                <div className="flex gap-1">
+                <div className="flex gap-1" onClick={(e) => e.stopPropagation()}>
                     {order.status !== "ON_HOLD" && order.status !== "TO_PREPARE" && (
                         <button onClick={onRegress} className="p-1 rounded bg-surface border border-border text-textMuted hover:text-white hover:bg-surfaceHighlight" title="Regresar">←</button>
                     )}
@@ -433,10 +429,8 @@ function KanbanCard({ order, patient, sale, onAdvance, onRegress, onWarranty, on
                     )}
                 </div>
 
-                {/* Acciones Secundarias */}
-                <div className="flex gap-3 text-[10px] font-medium items-center">
+                <div className="flex gap-3 text-[10px] font-medium items-center" onClick={(e) => e.stopPropagation()}>
                     <button onClick={onWarranty} className="text-red-400 hover:underline">Garantía</button>
-                    {/* Indicadores Financieros */}
                     <div className="flex gap-1">
                         {sale && sale.balance > 0 && (
                             <span onClick={onViewSale} className="cursor-pointer w-2.5 h-2.5 rounded-full bg-red-500 border border-background" title={`Saldo Pendiente: $${sale.balance}`}></span>

@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
+import { useAuth } from "@/context/AuthContext"; // 👈 1. Importar Auth
 import { getAllSales, deleteSale } from "@/services/salesStorage";
 import SaleDetailModal from "@/components/SaleDetailModal";
 import LoadingState from "@/components/LoadingState";
@@ -23,6 +24,7 @@ const CATEGORIES = [
 ];
 
 export default function SalesHistoryPage() {
+  const { user } = useAuth(); // 👈 2. Obtener usuario
   const confirm = useConfirm();
   const notify = useNotify();
 
@@ -34,14 +36,20 @@ export default function SalesHistoryPage() {
   const [viewSale, setViewSale] = useState(null);
 
   const refreshData = async () => {
+      // Seguridad: esperar a que cargue el usuario
+      if (!user?.branchId) return;
+
       setLoading(true);
       try {
-          const data = await getAllSales();
+          // 👈 3. Filtrar por sucursal
+          const data = await getAllSales(user.branchId);
           setSales(data);
       } catch (e) { console.error(e); } finally { setLoading(false); }
   };
 
-  useEffect(() => { refreshData(); }, []);
+  useEffect(() => { 
+      if (user?.branchId) refreshData(); 
+  }, [user]);
 
   const filtered = useMemo(() => {
     return sales.filter(s => {
@@ -77,7 +85,9 @@ export default function SalesHistoryPage() {
       <div className="flex justify-between items-center">
           <div>
               <h1 className="text-3xl font-bold text-white tracking-tight">Historial de Ventas</h1>
-              <p className="text-textMuted text-sm">Consulta y auditoría de tickets ({filtered.length})</p>
+              <p className="text-textMuted text-sm">
+                  Sucursal: <strong className="text-white">{user.branchId === 'lusso_main' ? 'Matriz' : 'Sucursal'}</strong> ({filtered.length} registros)
+              </p>
           </div>
           <Button variant="ghost" onClick={() => { setSearch(""); setCategory("ALL"); setDateRange({start:"", end:""}); }}>Limpiar Filtros</Button>
       </div>
@@ -113,7 +123,7 @@ export default function SalesHistoryPage() {
               </thead>
               <tbody className="divide-y divide-border">
                   {filtered.length === 0 && (
-                      <tr><td colSpan="6" className="p-8 text-center text-textMuted italic">No se encontraron ventas.</td></tr>
+                      <tr><td colSpan="6" className="p-8 text-center text-textMuted italic">No se encontraron ventas en esta sucursal.</td></tr>
                   )}
                   {filtered.map(s => (
                       <tr key={s.id} className="hover:bg-white/5 transition-colors group">

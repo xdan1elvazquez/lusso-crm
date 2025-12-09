@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
+import { useAuth } from "@/context/AuthContext"; // 👈 1. Importar Auth
 import { getAllWorkOrders, updateWorkOrder } from "@/services/workOrdersStorage";
 import { getAllSupplierDebts, markDebtAsPaid } from "@/services/supplierDebtsStorage";
 import { getSuppliers } from "@/services/suppliersStorage";
@@ -14,6 +15,7 @@ import Badge from "@/components/ui/Badge";
 import ModalWrapper from "@/components/ui/ModalWrapper";
 
 export default function PayablesPage() {
+  const { user } = useAuth(); // 👈 2. Obtener usuario
   const notify = useNotify();
   const confirm = useConfirm();
   const [loading, setLoading] = useState(true);
@@ -22,14 +24,20 @@ export default function PayablesPage() {
   const [supplierDebts, setSupplierDebts] = useState([]);
   const [patients, setPatients] = useState([]);
   
-  const [payTarget, setPayTarget] = useState(null); // Elemento a pagar
+  const [payTarget, setPayTarget] = useState(null);
 
   const refreshData = async () => {
+      // Seguridad
+      if (!user?.branchId) return;
+
       setLoading(true);
       try {
+          // 👈 3. Filtrar deudas por sucursal
+          // Nota: Asegúrate de que getAllSupplierDebts acepte branchId en el servicio,
+          // si no lo has actualizado aún, solo ignorará el parámetro (sin romper nada).
           const [wo, deb, pat] = await Promise.all([
-              getAllWorkOrders(),
-              getAllSupplierDebts(),
+              getAllWorkOrders(user.branchId),
+              getAllSupplierDebts(user.branchId), 
               getPatients(),
           ]);
           setOrders(wo);
@@ -38,7 +46,9 @@ export default function PayablesPage() {
       } catch (e) { console.error(e); } finally { setLoading(false); }
   };
 
-  useEffect(() => { refreshData(); }, []);
+  useEffect(() => { 
+      if (user?.branchId) refreshData(); 
+  }, [user]);
 
   const patientMap = useMemo(() => patients.reduce((acc, p) => ({ ...acc, [p.id]: p }), {}), [patients]);
 
@@ -80,13 +90,14 @@ export default function PayablesPage() {
       if (!payTarget) return;
 
       try {
+          // 👈 4. Registrar gasto en la sucursal correcta
           await createExpense({
             description: `Pago ${payTarget.source === 'WORK_ORDER' ? 'Lab' : 'Prov'}: ${payTarget.title} (${payTarget.subtitle})`,
             amount: payTarget.amount,
             category: payTarget.category || "COSTO_VENTA",
             method: method,
             date: new Date().toISOString()
-          });
+          }, user.branchId);
 
           if (payTarget.source === 'WORK_ORDER') await updateWorkOrder(payTarget.id, { isPaid: true });
           else await markDebtAsPaid(payTarget.id);
@@ -106,10 +117,12 @@ export default function PayablesPage() {
         <div className="flex flex-col md:flex-row justify-between items-end gap-4">
             <div>
                 <h1 className="text-3xl font-bold text-white tracking-tight">Cuentas por Pagar</h1>
-                <p className="text-textMuted text-sm">Compromisos con laboratorios y proveedores</p>
+                <p className="text-textMuted text-sm">
+                    Compromisos en <strong className="text-red-400">{user.branchId === 'lusso_main' ? 'Matriz' : 'Sucursal'}</strong>
+                </p>
             </div>
             <Card noPadding className="px-6 py-3 bg-surfaceHighlight/20 border-red-500/30">
-                <div className="text-xs text-textMuted uppercase font-bold tracking-wider">Total Deuda</div>
+                <div className="text-xs text-textMuted uppercase font-bold tracking-wider">Total Deuda Local</div>
                 <div className="text-2xl font-bold text-red-400">${totalDebt.toLocaleString()}</div>
             </Card>
         </div>
@@ -117,7 +130,7 @@ export default function PayablesPage() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
              {allDebts.length === 0 && (
                  <div className="col-span-full py-20 text-center text-textMuted bg-surface rounded-xl border border-border">
-                     No hay deudas pendientes.
+                     No hay deudas pendientes en esta sucursal.
                  </div>
              )}
 

@@ -6,24 +6,37 @@ import {
 const COLLECTION_NAME = "shifts";
 
 // --- LECTURA ---
-export async function getAllShifts() {
-  const q = query(collection(db, COLLECTION_NAME), orderBy("openedAt", "desc"), limit(20));
+export async function getAllShifts(branchId = "lusso_main") {
+  const q = query(
+      collection(db, COLLECTION_NAME), 
+      where("branchId", "==", branchId), // 👈 Filtro
+      orderBy("openedAt", "desc"), 
+      limit(20)
+  );
   const snapshot = await getDocs(q);
   return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 }
 
-export async function getCurrentShift() {
-  // Buscamos un turno que esté ABIERTO
-  const q = query(collection(db, COLLECTION_NAME), where("status", "==", "OPEN"));
+export async function getCurrentShift(branchId = "lusso_main") {
+  // Buscamos un turno que esté ABIERTO en esta sucursal
+  const q = query(
+      collection(db, COLLECTION_NAME), 
+      where("branchId", "==", branchId),
+      where("status", "==", "OPEN")
+  );
   const snapshot = await getDocs(q);
   if (snapshot.empty) return null;
   const docData = snapshot.docs[0];
   return { id: docData.id, ...docData.data() };
 }
 
-export async function getShiftInProcess() {
-  // Buscamos un turno en PRE-CIERRE (Arqueo)
-  const q = query(collection(db, COLLECTION_NAME), where("status", "==", "PRE_CLOSE"));
+export async function getShiftInProcess(branchId = "lusso_main") {
+  // Buscamos un turno en PRE-CIERRE
+  const q = query(
+      collection(db, COLLECTION_NAME), 
+      where("branchId", "==", branchId),
+      where("status", "==", "PRE_CLOSE")
+  );
   const snapshot = await getDocs(q);
   if (snapshot.empty) return null;
   const docData = snapshot.docs[0];
@@ -31,16 +44,17 @@ export async function getShiftInProcess() {
 }
 
 // --- ESCRITURA ---
-export async function openShift(data) {
-  // Validación de seguridad: no abrir si ya hay uno
-  const active = await getCurrentShift();
-  const closing = await getShiftInProcess();
+export async function openShift(data, branchId = "lusso_main") {
+  // Validación: no abrir si ya hay uno en esta sucursal
+  const active = await getCurrentShift(branchId);
+  const closing = await getShiftInProcess(branchId);
   
   if (active || closing) {
-      throw new Error("Ya hay un turno activo o en proceso de cierre.");
+      throw new Error("Ya hay un turno activo o en proceso de cierre en esta sucursal.");
   }
   
   const newShift = {
+    branchId: branchId, // 👈 Nuevo campo
     user: data.user || "General",
     initialCash: Number(data.initialCash) || 0,
     status: "OPEN",

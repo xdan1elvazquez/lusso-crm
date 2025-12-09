@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useAuth } from "@/context/AuthContext"; // 👈 1. Importar Auth
 import { getAllExpenses, createExpense, deleteExpense } from "@/services/expensesStorage";
 import { preventNegativeKey, sanitizeMoney, formatMoneyBlur } from "@/utils/inputHandlers";
 import LoadingState from "@/components/LoadingState";
@@ -15,6 +16,7 @@ const CATEGORIES = ["INVENTARIO", "OPERATIVO", "NOMINA", "MARKETING", "MANTENIMI
 const METHODS = ["EFECTIVO", "TRANSFERENCIA", "TARJETA", "CHEQUE"];
 
 export default function ExpensesPage() {
+  const { user } = useAuth(); // 👈 2. Obtener usuario
   const confirm = useConfirm();
   const notify = useNotify();
 
@@ -31,21 +33,30 @@ export default function ExpensesPage() {
   });
 
   const refresh = async () => {
+    // Seguridad: Si no hay branchId, no cargamos nada
+    if (!user?.branchId) return;
+
     setLoading(true);
     try {
-        const data = await getAllExpenses();
+        // 👈 3. Filtrar gastos por sucursal
+        const data = await getAllExpenses(user.branchId);
         setExpenses(data);
     } catch (error) { console.error(error); } finally { setLoading(false); }
   };
 
-  useEffect(() => { refresh(); }, []);
+  // Recargar cuando el usuario esté listo
+  useEffect(() => { 
+      if (user?.branchId) refresh(); 
+  }, [user]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!form.amount || !form.description) return notify.info("Completa los campos obligatorios");
     
     try {
-        await createExpense(form);
+        // 👈 4. Crear gasto en la sucursal correcta
+        await createExpense(form, user.branchId);
+        
         setForm({ description: "", amount: "", category: "OPERATIVO", method: "EFECTIVO", date: new Date().toISOString().slice(0, 10) });
         setIsCreating(false);
         refresh();
@@ -70,7 +81,9 @@ export default function ExpensesPage() {
       <div className="flex justify-between items-center">
         <div>
             <h1 className="text-3xl font-bold text-white tracking-tight">Gastos y Compras</h1>
-            <p className="text-textMuted text-sm">Registro de salidas de dinero</p>
+            <p className="text-textMuted text-sm">
+                Salidas de dinero en <strong className="text-white">{user.branchId === 'lusso_main' ? 'Matriz' : 'Sucursal'}</strong>
+            </p>
         </div>
         <Button onClick={() => setIsCreating(!isCreating)} variant={isCreating ? "ghost" : "danger"}>
           {isCreating ? "Cancelar" : "- Registrar Salida"}
@@ -114,7 +127,7 @@ export default function ExpensesPage() {
       )}
 
       <div className="grid gap-3">
-        {expenses.length === 0 && <div className="text-center py-10 text-textMuted bg-surface rounded-xl border border-border">No hay gastos registrados.</div>}
+        {expenses.length === 0 && <div className="text-center py-10 text-textMuted bg-surface rounded-xl border border-border">No hay gastos registrados en esta sucursal.</div>}
         
         {expenses.map(e => (
            <div key={e.id} className="bg-surface border border-border rounded-xl p-4 flex justify-between items-center group hover:border-red-500/30 transition-colors">
