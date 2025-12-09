@@ -51,15 +51,12 @@ export function checkLensCompatibility(lens, rx) {
   }
 
   // ESTRATEGIA DE PRECIOS INTELIGENTE:
-  // Si hay múltiples rangos (ej. uno amplio y uno específico), ordenamos por costo ascendente.
-  // Asumimos que el rango "correcto" es el que ofrece el precio base válido.
   matchesOD.sort((a, b) => (Number(a.cost) || 0) - (Number(b.cost) || 0));
   matchesOS.sort((a, b) => (Number(a.cost) || 0) - (Number(b.cost) || 0));
 
   const bestRangeOD = matchesOD[0];
   const bestRangeOS = matchesOS[0];
 
-  // Tomamos el costo/precio mayor de los dos ojos (regla estándar de par)
   const finalCost = Math.max(Number(bestRangeOD.cost) || 0, Number(bestRangeOS.cost) || 0);
   const finalPrice = Math.max(Number(bestRangeOD.price) || 0, Number(bestRangeOS.price) || 0);
 
@@ -68,7 +65,6 @@ export function checkLensCompatibility(lens, rx) {
 
 export function getSuggestions(allLenses, rx, currentFilters) {
     const suggestions = [];
-    // ... (El resto de la función se mantiene igual)
     if (currentFilters.treatment) {
       const alts = allLenses.filter(l => 
         l.design === currentFilters.design && 
@@ -79,4 +75,68 @@ export function getSuggestions(allLenses, rx, currentFilters) {
       if (alts.length > 0) suggestions.push(`Disponible en otros tratamientos: ${alts.map(a => a.treatment).join(", ")}`);
     }
     return suggestions;
+}
+
+// --- NUEVAS FUNCIONES PARA CENTRALIZAR LÓGICA (Recomendación Estructurada) ---
+
+// 1. Normalización profunda de un lente (limpia mayúsculas/minúsculas)
+export function normalizeLensData(rawLens) {
+    if (!rawLens) return rawLens;
+    
+    // Función para buscar valor ignorando mayúsculas en las llaves
+    const get = (obj, keyName) => {
+        if (!obj) return undefined;
+        const key = Object.keys(obj).find(k => k.toLowerCase() === keyName.toLowerCase());
+        return key ? obj[key] : undefined;
+    };
+
+    // Construimos un objeto limpio estándar
+    const normalized = { ...rawLens }; 
+
+    // Propiedades raíz críticas normalizadas
+    if (get(rawLens, 'design')) normalized.design = get(rawLens, 'design');
+    if (get(rawLens, 'material')) normalized.material = get(rawLens, 'material');
+    if (get(rawLens, 'treatment')) normalized.treatment = get(rawLens, 'treatment');
+    // Mapeamos 'coating' a 'treatment' si es necesario para compatibilidad
+    if (get(rawLens, 'coating')) normalized.treatment = get(rawLens, 'coating');
+    if (get(rawLens, 'name')) normalized.name = get(rawLens, 'name');
+    if (get(rawLens, 'labname')) normalized.labName = get(rawLens, 'labname'); 
+
+    // Normalizar Rangos (CRÍTICO para el precio/compatibilidad)
+    const rawRanges = get(rawLens, 'ranges');
+    if (Array.isArray(rawRanges)) {
+        normalized.ranges = rawRanges.map(r => ({
+            ...r,
+            sphMin: get(r, 'sphmin'),
+            sphMax: get(r, 'sphmax'),
+            cylMin: get(r, 'cylmin'),
+            cylMax: get(r, 'cylmax'),
+            cost: get(r, 'cost'),
+            price: get(r, 'price')
+        }));
+    }
+
+    return normalized;
+}
+
+// 2. Extraer opciones únicas del catálogo (para llenar los Selects)
+export function getCatalogOptions(catalog) {
+    if (!Array.isArray(catalog)) return { designs: [], materials: [], treatments: [] };
+    
+    const designs = new Set();
+    const materials = new Set();
+    const treatments = new Set();
+
+    catalog.forEach(rawLens => {
+        const lens = normalizeLensData(rawLens);
+        if (lens.design) designs.add(lens.design.toString().trim());
+        if (lens.material) materials.add(lens.material.toString().trim());
+        if (lens.treatment) treatments.add(lens.treatment.toString().trim());
+    });
+
+    return {
+        designs: Array.from(designs).sort(),
+        materials: Array.from(materials).sort(),
+        treatments: Array.from(treatments).sort()
+    };
 }

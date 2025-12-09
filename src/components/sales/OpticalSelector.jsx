@@ -1,45 +1,6 @@
 import React, { useState, useMemo, useEffect } from "react";
-import { checkLensCompatibility, getSuggestions } from "@/utils/lensMatcher";
+import { checkLensCompatibility, getSuggestions, normalizeLensData } from "@/utils/lensMatcher"; 
 import Button from "@/components/ui/Button";
-
-// --- HELPER DE NORMALIZACIÓN PROFUNDA ---
-// Esto asegura que 'Design', 'DESIGN', 'design' siempre terminen como 'design'
-function normalizeLensData(rawLens) {
-    if (!rawLens) return rawLens;
-    
-    // Función para buscar valor ignorando mayúsculas en las llaves
-    const get = (obj, keyName) => {
-        if (!obj) return undefined;
-        const key = Object.keys(obj).find(k => k.toLowerCase() === keyName.toLowerCase());
-        return key ? obj[key] : undefined;
-    };
-
-    // Construimos un objeto limpio estándar
-    const normalized = { ...rawLens }; // Mantenemos otras props por si acaso
-
-    // Propiedades raíz críticas
-    if (get(rawLens, 'design')) normalized.design = get(rawLens, 'design');
-    if (get(rawLens, 'material')) normalized.material = get(rawLens, 'material');
-    if (get(rawLens, 'treatment')) normalized.treatment = get(rawLens, 'treatment');
-    if (get(rawLens, 'name')) normalized.name = get(rawLens, 'name');
-    if (get(rawLens, 'labname')) normalized.labName = get(rawLens, 'labname'); 
-    
-    // Normalizar Rangos (CRÍTICO para el precio/compatibilidad)
-    const rawRanges = get(rawLens, 'ranges');
-    if (Array.isArray(rawRanges)) {
-        normalized.ranges = rawRanges.map(r => ({
-            ...r,
-            sphMin: get(r, 'sphmin'),
-            sphMax: get(r, 'sphmax'),
-            cylMin: get(r, 'cylmin'),
-            cylMax: get(r, 'cylmax'),
-            cost: get(r, 'cost'),
-            price: get(r, 'price')
-        }));
-    }
-
-    return normalized;
-}
 
 export default function OpticalSelector({ 
     show, onToggle, currentRx, catalog, itemDetails, setItemDetails, onAddSmart, onAddManual 
@@ -50,17 +11,33 @@ export default function OpticalSelector({
   const [selectedPreview, setSelectedPreview] = useState(null);
   const [manualPriceInput, setManualPriceInput] = useState("");
 
-  // 1. NORMALIZACIÓN AL INICIO (Esto arregla la lógica aguas abajo)
+  // 1. NORMALIZACIÓN AL INICIO
   const normalizedCatalog = useMemo(() => {
       if (!catalog) return [];
       return catalog.map(l => normalizeLensData(l));
   }, [catalog]);
 
-  useEffect(() => {
-     setFilters(prev => ({...prev, material: "", treatment: ""}));
-  }, [filters.design]);
+  // ⚠️ ELIMINADO: El useEffect que reseteaba filtros automáticamente y borraba la importación
+  // useEffect(() => { setFilters(prev => ({...prev, material: "", treatment: ""})); }, [filters.design]);
 
-  // 2. GENERACIÓN DE FILTROS (Usando ya datos limpios)
+  // 🔥 EFECTO DE IMPORTACIÓN: Carga recomendaciones del examen si existen
+  useEffect(() => {
+    if (show && currentRx && currentRx.recommendations) {
+        const { design, material, coating } = currentRx.recommendations;
+        
+        // Solo sobrescribimos si hay datos reales en la recomendación
+        if (design || material || coating) {
+            setFilters(prev => ({
+                ...prev,
+                design: design || prev.design || "",
+                material: material || prev.material || "",
+                treatment: coating || prev.treatment || "" 
+            }));
+        }
+    }
+  }, [show, currentRx]); 
+
+  // 2. GENERACIÓN DE FILTROS
   const filterOptions = useMemo(() => {
     if (!normalizedCatalog.length) return { designs: [], materials: [], treatments: [] };
     
@@ -78,7 +55,7 @@ export default function OpticalSelector({
     return { designs: Array.from(designs).sort(), materials: Array.from(materials).sort(), treatments: Array.from(treatments).sort() };
   }, [normalizedCatalog, filters.design, filters.material]);
 
-  // 3. MATCHING DE LENTES (Lógica de negocio recuperada)
+  // 3. MATCHING DE LENTES
   const { validLenses, suggestions, manualFallbackLenses } = useMemo(() => {
     if (!show || (currentRx.od?.sph === undefined || currentRx.od?.sph === null)) return { validLenses: [], suggestions: [], manualFallbackLenses: [] };
     
@@ -94,7 +71,6 @@ export default function OpticalSelector({
     results.forEach(lens => {
         const check = checkLensCompatibility(lens, currentRx);
         if (check.compatible) {
-            // Aquí aseguramos que el costo viaja con el objeto
             compatibles.push({ ...lens, calculatedCost: check.cost, calculatedPrice: check.price });
         } else {
             incompatibleReasons.add(check.reason);
@@ -127,14 +103,11 @@ export default function OpticalSelector({
       
       const finalLens = {
           ...selectedPreview,
-          // Aseguramos que los valores editados prevalecen
           calculatedPrice: Number(manualPriceInput),
           originalPrice: selectedPreview.calculatedPrice 
       };
       
-      // Enviamos el lente YA NORMALIZADO y con COSTO a SalesPanel
       onAddSmart(finalLens);
-      
       setSelectedPreview(null);
       setManualPriceInput("");
   };
@@ -171,14 +144,26 @@ export default function OpticalSelector({
 
         {/* Filtros Grid */}
         <div className="grid grid-cols-3 gap-3 mb-4">
-            <select value={filters.design} onChange={e => setFilters({...filters, design: e.target.value})} className={selectClass}>
+            {/* SELECT DISEÑO CON RESET MANUAL */}
+            <select 
+                value={filters.design} 
+                onChange={e => setFilters({ 
+                    ...filters, 
+                    design: e.target.value, 
+                    material: "", // 👈 Reset manual al cambiar usuario
+                    treatment: "" 
+                })} 
+                className={selectClass}
+            >
                 <option value="">Diseño (Todos)</option>
                 {filterOptions.designs.map(d => <option key={d} value={d}>{d}</option>)}
             </select>
+
             <select value={filters.material} onChange={e => setFilters({...filters, material: e.target.value})} className={`${selectClass} ${!filters.design && "opacity-70"}`}>
                 <option value="">Material</option>
                 {filterOptions.materials.map(m => <option key={m} value={m}>{m}</option>)}
             </select>
+
             <select value={filters.treatment} onChange={e => setFilters({...filters, treatment: e.target.value})} className={`${selectClass} ${!filters.material && "opacity-70"}`}>
                 <option value="">Tratamiento</option>
                 {filterOptions.treatments.map(t => <option key={t} value={t}>{t}</option>)}
@@ -191,7 +176,6 @@ export default function OpticalSelector({
                 <div>
                     <div className="text-sm font-bold text-white">{selectedPreview.name}</div>
                     <div className="text-xs text-primary">Precio Calculado: ${selectedPreview.calculatedPrice}</div>
-                    {/* Debug visual para verificar datos */}
                     <div className="text-[10px] text-textMuted mt-1">
                         Costo: ${selectedPreview.calculatedCost} · Lab: {selectedPreview.labName}
                     </div>

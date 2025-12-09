@@ -6,6 +6,8 @@ import {
   updateEyeExam, 
   deleteEyeExam 
 } from "@/services/eyeExamStorage"; 
+import { getLabs } from "@/services/labStorage"; // 👈 Importar Storage de Labs
+import { getCatalogOptions } from "@/utils/lensMatcher"; // 👈 Importar Helper
 import RxPicker from "@/components/RxPicker";
 import { normalizeRxValue } from "@/utils/rxOptions";
 import { validateRx } from "@/utils/validators";
@@ -105,6 +107,16 @@ export default function EyeExamsPanel({ patientId, consultationId = null, onSell
   const [refraction, setRefraction] = useState({ autorefrac: { od: "", os: "" }, finalRx: normalizeRxValue(), finalAv: { far: { od: "", os: "", ao: "" }, near: { od: "", os: "", ao: "" } } });
   const [cl, setCl] = useState({ keratometry: { od: { k1:"", k2:"", axis:"" }, os: { k1:"", k2:"", axis:"" } }, trial: { od: { baseCurve:"", diameter:"", power:"", av:"", overRefraction:"" }, os: { baseCurve:"", diameter:"", power:"", av:"", overRefraction:"" }, notes: "" }, final: { design: "", brand: "", od: { baseCurve:"", diameter:"", power:"" }, os: { baseCurve:"", diameter:"", power:"" } } });
   const [recs, setRecs] = useState({ design: "", material: "", coating: "", usage: "" });
+
+  // ⚡ NUEVO: Estado para el catálogo
+  const [catalogOptions, setCatalogOptions] = useState({ designs: [], materials: [], treatments: [] });
+
+  // ⚡ NUEVO: Cargar catálogo al iniciar
+  useEffect(() => {
+    const labs = getLabs();
+    const fullCatalog = labs.flatMap(l => l.lensCatalog || []);
+    setCatalogOptions(getCatalogOptions(fullCatalog));
+  }, []);
 
   const refreshData = async () => {
       setLoading(true);
@@ -215,12 +227,55 @@ export default function EyeExamsPanel({ patientId, consultationId = null, onSell
                    </div>
 
                    <div className="bg-indigo-900/20 p-4 rounded-xl border border-indigo-500/30">
-                      <h4 className="text-indigo-300 font-bold mb-3">Recomendación</h4>
+                      <h4 className="text-indigo-300 font-bold mb-3">Recomendación (Catálogo)</h4>
                       <div className="grid grid-cols-2 gap-4">
-                         <Input placeholder="Diseño" value={recs.design} onChange={e => setRecs({...recs, design: e.target.value})} />
-                         <Input placeholder="Material" value={recs.material} onChange={e => setRecs({...recs, material: e.target.value})} />
-                         <Input placeholder="Tratamiento" value={recs.coating} onChange={e => setRecs({...recs, coating: e.target.value})} />
-                         <Input placeholder="Uso" value={recs.usage} onChange={e => setRecs({...recs, usage: e.target.value})} />
+                         
+                         {/* SELECTOR DISEÑO */}
+                         <label className="block">
+                             <span className="text-[10px] text-textMuted uppercase mb-1 block font-bold">Diseño</span>
+                             <select 
+                                 value={recs.design} 
+                                 onChange={e => setRecs({...recs, design: e.target.value})}
+                                 className="w-full bg-background border border-border rounded px-2 py-1.5 text-sm text-white focus:border-primary outline-none cursor-pointer"
+                             >
+                                 <option value="">-- Indistinto --</option>
+                                 {catalogOptions.designs.map(d => <option key={d} value={d}>{d}</option>)}
+                             </select>
+                         </label>
+
+                         {/* SELECTOR MATERIAL */}
+                         <label className="block">
+                             <span className="text-[10px] text-textMuted uppercase mb-1 block font-bold">Material</span>
+                             <select 
+                                 value={recs.material} 
+                                 onChange={e => setRecs({...recs, material: e.target.value})}
+                                 className="w-full bg-background border border-border rounded px-2 py-1.5 text-sm text-white focus:border-primary outline-none cursor-pointer"
+                             >
+                                 <option value="">-- Indistinto --</option>
+                                 {catalogOptions.materials.map(m => <option key={m} value={m}>{m}</option>)}
+                             </select>
+                         </label>
+
+                         {/* SELECTOR TRATAMIENTO */}
+                         <label className="block">
+                             <span className="text-[10px] text-textMuted uppercase mb-1 block font-bold">Tratamiento</span>
+                             <select 
+                                 value={recs.coating} 
+                                 onChange={e => setRecs({...recs, coating: e.target.value})}
+                                 className="w-full bg-background border border-border rounded px-2 py-1.5 text-sm text-white focus:border-primary outline-none cursor-pointer"
+                             >
+                                 <option value="">-- Indistinto --</option>
+                                 {catalogOptions.treatments.map(t => <option key={t} value={t}>{t}</option>)}
+                             </select>
+                         </label>
+                         
+                         {/* USO SUGERIDO (Mantenemos Input) */}
+                         <Input 
+                            label="Uso Sugerido" 
+                            placeholder="Ej. Permanente, Lectura..." 
+                            value={recs.usage} 
+                            onChange={e => setRecs({...recs, usage: e.target.value})} 
+                         />
                       </div>
                    </div>
                 </div>

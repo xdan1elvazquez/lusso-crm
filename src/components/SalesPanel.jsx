@@ -22,8 +22,7 @@ import SaleDetailModal from "./SaleDetailModal";
 
 // UI Components
 import Card from "@/components/ui/Card";
-import Select from "@/components/ui/Select"; // Nota: Asegúrate de que este componente se use o elimínalo si no
-import Input from "@/components/ui/Input";
+import Input from "@/components/ui/Input"; // Se mantiene por si se usa en logística
 import Badge from "@/components/ui/Badge";
 
 export default function SalesPanel({ patientId, prefillData, onClearPrefill }) {
@@ -60,14 +59,21 @@ export default function SalesPanel({ patientId, prefillData, onClearPrefill }) {
 
   const pos = usePOS(patientId, terminals, loadData);
 
-  // Efecto Prefill
+  // Efecto Prefill (Si vienes desde el botón "Vender" en el perfil del paciente)
   useEffect(() => {
       if (prefillData?.type === 'EXAM') {
           const e = prefillData.data;
+          
+          // Buscamos la Rx base y las recomendaciones
+          const baseRx = e.refraction?.finalRx || e.rx || {};
+          const recs = e.recommendations || {}; // 👈 Extraemos recomendaciones
+
           setCurrentRx({
-              od: { sph: parseDiopter(e.rx.od?.sph), cyl: parseDiopter(e.rx.od?.cyl), axis: e.rx.od?.axis, add: parseDiopter(e.rx.od?.add) },
-              os: { sph: parseDiopter(e.rx.os?.sph), cyl: parseDiopter(e.rx.os?.cyl), axis: e.rx.os?.axis, add: parseDiopter(e.rx.os?.add) },
-              pd: e.rx.pd, notes: e.rx.notes
+              od: { sph: parseDiopter(baseRx.od?.sph), cyl: parseDiopter(baseRx.od?.cyl), axis: baseRx.od?.axis, add: parseDiopter(baseRx.od?.add) },
+              os: { sph: parseDiopter(baseRx.os?.sph), cyl: parseDiopter(baseRx.os?.cyl), axis: baseRx.os?.axis, add: parseDiopter(baseRx.os?.add) },
+              pd: baseRx.pd, 
+              notes: baseRx.notes,
+              recommendations: recs // 👈 CLAVE: Las inyectamos aquí
           });
           setShowOpticalSpecs(true);
           onClearPrefill && onClearPrefill();
@@ -76,9 +82,24 @@ export default function SalesPanel({ patientId, prefillData, onClearPrefill }) {
 
   // Handlers UI
   const handleImportExam = (e) => {
-      const exam = exams.find(x => x.id === e.target.value);
+      const examId = e.target.value;
+      const exam = exams.find(x => x.id === examId);
       if(!exam) return;
-      setCurrentRx(exam.rx); setShowOpticalSpecs(true); notify.success("Rx importada");
+
+      // 1. Obtener la Rx (finalRx es donde se guarda ahora, fallback a .rx por compatibilidad)
+      const rxData = exam.refraction?.finalRx || exam.rx || normalizeRxValue();
+      
+      // 2. Obtener recomendaciones (Evitamos undefined)
+      const recommendations = exam.recommendations || {};
+
+      // 3. Fusionar todo en el estado actual
+      setCurrentRx({
+          ...rxData,
+          recommendations: recommendations // 👈 CLAVE: Esto permite que OpticalSelector las lea
+      });
+
+      setShowOpticalSpecs(true); 
+      notify.success("Rx y Recomendación importadas");
       e.target.value = "";
   };
 
@@ -106,13 +127,13 @@ export default function SalesPanel({ patientId, prefillData, onClearPrefill }) {
   const handleAddSmartLens = (lens) => {
       const specs = { ...itemDetails, design: lens.design, material: lens.material, treatment: lens.treatment };
       
-      // La lógica de precio ahora viene en 'lens' (calculado y posiblemente editado manualmente en OpticalSelector)
+      // La lógica de precio ahora viene en 'lens'
       pos.addToCart({ 
           kind: "LENSES", 
           description: `Lente ${lens.name}`, 
           qty: 1, 
           unitPrice: lens.calculatedPrice || 0, 
-          originalPrice: lens.originalPrice || lens.calculatedPrice, // Guardamos el original para referencia
+          originalPrice: lens.originalPrice || lens.calculatedPrice, 
           cost: lens.calculatedCost, 
           requiresLab: true, 
           rxSnapshot: currentRx, 
@@ -171,7 +192,7 @@ export default function SalesPanel({ patientId, prefillData, onClearPrefill }) {
               </div>
           </Card>
 
-          {/* SELECTORES DE PRODUCTOS (COMPONENTES INTERNOS) */}
+          {/* SELECTORES DE PRODUCTOS */}
           <div className="space-y-6">
               <OpticalSelector 
                   show={showOpticalSpecs} onToggle={()=>setShowOpticalSpecs(true)}
@@ -187,26 +208,16 @@ export default function SalesPanel({ patientId, prefillData, onClearPrefill }) {
 
       {/* COLUMNA DERECHA (4/12) - CARRITO Y COBRO */}
       <div className="lg:col-span-4 flex flex-col gap-6">
-          
           <Card className="flex-1 flex flex-col border-t-4 border-t-emerald-500" noPadding>
               <div className="p-5 border-b border-border bg-surfaceHighlight/50">
                   <h3 className="text-lg font-bold text-white flex items-center gap-2">
                       🛒 Carrito <span className="text-xs bg-surface border border-border px-2 py-0.5 rounded-full text-textMuted">{pos.cart.length} items</span>
                   </h3>
               </div>
-              
               <div className="p-5 flex-1 flex flex-col">
-                  {/* LISTA CARRITO */}
                   <div className="flex-1 min-h-[200px]">
-                      {/* 🟢 ACTUALIZACIÓN: Pasamos la función updateCartItem */}
-                      <CartList 
-                          cart={pos.cart} 
-                          onRemove={pos.removeFromCart} 
-                          onUpdate={pos.updateCartItem} 
-                      />
+                      <CartList cart={pos.cart} onRemove={pos.removeFromCart} onUpdate={pos.updateCartItem} />
                   </div>
-
-                  {/* FORMULARIO PAGO */}
                   <PaymentForm 
                       subtotal={pos.totals.subtotal} total={pos.totals.total}
                       payment={pos.payment} setPayment={pos.setPayment}
@@ -216,7 +227,6 @@ export default function SalesPanel({ patientId, prefillData, onClearPrefill }) {
               </div>
           </Card>
 
-          {/* HISTORIAL RÁPIDO */}
           <Card className="max-h-80 overflow-y-auto custom-scrollbar" noPadding>
               <div className="p-4 bg-surfaceHighlight/30 sticky top-0 backdrop-blur-sm border-b border-border">
                   <h4 className="text-xs font-bold text-textMuted uppercase">Últimas Ventas</h4>
