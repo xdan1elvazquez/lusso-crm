@@ -69,6 +69,8 @@ export async function getTerminals() { const s = await getSettings(); return s.t
 export async function updateTerminals(terminals) { return updateSettings({ terminals }); }
 
 export async function getReferralSources() { const s = await getSettings(); return s.referralSources; }
+// 👇 NUEVA FUNCIÓN AÑADIDA
+export async function updateReferralSources(list) { return updateSettings({ referralSources: list }); }
 
 export async function getLoyaltySettings() { const s = await getSettings(); return s.loyalty; }
 export async function updateLoyaltySettings(loyalty) { return updateSettings({ loyalty }); }
