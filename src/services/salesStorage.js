@@ -164,7 +164,7 @@ export async function getProfitabilityReport(startDate, endDate, branchId = "lus
     return { global, byCategory }; 
 }
 
-// --- CREACIÓN (ATÓMICA) ---
+// --- CREACIÓN (ATÓMICA + VALIDACIONES) ---
 export async function createSale(payload, branchId = "lusso_main") {
   if (!payload?.patientId) throw new Error("patientId requerido");
   
@@ -174,13 +174,14 @@ export async function createSale(payload, branchId = "lusso_main") {
   const loyalty = await getLoyaltySettings(); 
   
   const saleResult = await runTransaction(db, async (transaction) => {
-    // Validaciones básicas
+    // 1. Validar Paciente
     const patientRef = doc(db, COLLECTION_PATIENTS, payload.patientId);
     const patientSnap = await transaction.get(patientRef);
     if (!patientSnap.exists()) throw new Error("Paciente no encontrado");
     const patientData = patientSnap.data();
-    if (patientData.deletedAt) throw new Error(`⛔ PACIENTE ELIMINADO`);
+    if (patientData.deletedAt) throw new Error(`⛔ PACIENTE ELIMINADO.`);
 
+    // 2. Validar Referido
     let referrerRef = null;
     let referrerSnap = null;
     if (loyalty.enabled && patientData.referredBy) {
@@ -189,6 +190,8 @@ export async function createSale(payload, branchId = "lusso_main") {
     }
 
     const sanitizedItems = payload.items.map(i => ({ ...i, id: i.id || crypto.randomUUID() }));
+    
+    // 3. Stock
     const inventoryUpdates = [];
     for (const item of sanitizedItems) {
         if (item.inventoryProductId) {
@@ -197,7 +200,7 @@ export async function createSale(payload, branchId = "lusso_main") {
             if (!prodSnap.exists()) throw new Error(`Producto no encontrado: ${item.description}`);
             const prodData = prodSnap.data();
             if (!prodData.isOnDemand && (prodData.stock || 0) < item.qty) {
-                throw new Error(`Stock insuficiente para: ${prodData.brand} ${prodData.model}`);
+                throw new Error(`Stock insuficiente: ${prodData.brand} ${prodData.model}`);
             }
             inventoryUpdates.push({ ref: prodRef, newStock: (Number(prodData.stock) || 0) - item.qty, qty: item.qty });
         }
@@ -206,13 +209,13 @@ export async function createSale(payload, branchId = "lusso_main") {
     const now = new Date().toISOString();
     const hasLabItems = sanitizedItems.some(i => i.requiresLab === true);
     
+    // 4. Puntos
     let pointsToAward = 0; 
     let referrerPoints = 0;
-    
     const paymentsWithShift = (payload.payments || []).map(p => ({ ...p, shiftId: currentShift.id }));
     const paidAmount = paymentsWithShift.reduce((sum, p) => sum + Number(p.amount), 0);
-    
     const pointsUsed = paymentsWithShift.filter(p => p.method === "PUNTOS").reduce((sum, p) => sum + Number(p.amount), 0);
+        
     if (pointsUsed > 0 && (patientData.points || 0) < pointsUsed) {
         throw new Error(`Saldo insuficiente de puntos.`);
     }
@@ -225,6 +228,7 @@ export async function createSale(payload, branchId = "lusso_main") {
             if (method !== "PUNTOS") {
                 const ownRate = loyalty.earningRates[method] !== undefined ? loyalty.earningRates[method] : loyalty.earningRates["GLOBAL"];
                 pointsToAward += Math.floor((amount * ownRate) / 100);
+
                 if (referrerSnap && referrerSnap.exists()) {
                     const refRate = Number(loyalty.referralBonusPercent) || 0;
                     referrerPoints += Math.floor((amount * refRate) / 100);
@@ -258,7 +262,6 @@ export async function createSale(payload, branchId = "lusso_main") {
     };
     if (newSale.balance <= 0.01) newSale.status = "PAID";
 
-    // Work Orders
     if (hasLabItems) {
         const total = Number(newSale.total) || 0;
         const paid = Number(newSale.paidAmount) || 0;
@@ -337,7 +340,6 @@ export async function createSale(payload, branchId = "lusso_main") {
     return { id: newSaleRef.id, ...newSale };
   });
 
-  // Comisión Automática
   if (saleResult && saleResult.payments) {
       for (const p of saleResult.payments) {
           await registerCardCommission(p, saleResult.id, branchId);
@@ -347,10 +349,13 @@ export async function createSale(payload, branchId = "lusso_main") {
   return saleResult;
 }
 
-// --- ABONOS (MODIFICACIÓN) ---
+// --- MODIFICACIONES DE VENTA (ABONOS CORREGIDO) ---
 export async function addPaymentToSale(saleId, payment) {
   const shift = await getCurrentShift(); 
   if (!shift) throw new Error("⛔ CAJA CERRADA: Abre un turno para abonos.");
+
+  // 1. Obtener Config de Lealtad antes de la transacción
+  const loyalty = await getLoyaltySettings();
 
   let saleBranchId = null;
 
@@ -366,27 +371,55 @@ export async function addPaymentToSale(saleId, payment) {
           throw new Error(`⛔ SUCURSAL INCORRECTA: Venta de "${saleData.branchId}".`);
       }
 
+      // Validar Paciente para Puntos
+      const patientRef = doc(db, COLLECTION_PATIENTS, saleData.patientId);
+      const patientSnap = await transaction.get(patientRef);
+      if (!patientSnap.exists()) throw new Error("Paciente no encontrado");
+      const patientData = patientSnap.data();
+
+      // Validar Referido si existe
+      let referrerRef = null;
+      let referrerSnap = null;
+      if (loyalty.enabled && patientData.referredBy) {
+          referrerRef = doc(db, COLLECTION_PATIENTS, patientData.referredBy);
+          referrerSnap = await transaction.get(referrerRef);
+      }
+
       const currentPaid = (saleData.payments || []).reduce((sum, p) => sum + (Number(p.amount)||0), 0);
       const balance = saleData.total - currentPaid;
+      
       const amountToPay = Math.min(Number(payment.amount), balance);
       if (amountToPay <= 0) return; 
 
+      const method = payment.method || "EFECTIVO";
+
+      // Lógica de Puntos USADOS (Pagar con puntos)
       let pointsUsed = 0;
-      if (payment.method === "PUNTOS") {
-          const patientRef = doc(db, COLLECTION_PATIENTS, saleData.patientId);
-          const patientSnap = await transaction.get(patientRef);
-          if (patientSnap.exists()) {
-              const pPoints = patientSnap.data().points || 0;
-              if (pPoints < amountToPay) throw new Error("Saldo insuficiente de puntos");
-              pointsUsed = amountToPay;
-              transaction.update(patientRef, { points: pPoints - pointsUsed });
+      if (method === "PUNTOS") {
+          const pPoints = patientData.points || 0;
+          if (pPoints < amountToPay) throw new Error("Saldo insuficiente de puntos");
+          pointsUsed = amountToPay;
+      }
+
+      // Lógica de Puntos GANADOS (Award) - 🔥 ESTO FALTABA
+      let pointsToAward = 0;
+      let referrerPoints = 0;
+
+      if (loyalty.enabled && method !== "PUNTOS") {
+          const ownRate = loyalty.earningRates[method] !== undefined ? loyalty.earningRates[method] : loyalty.earningRates["GLOBAL"];
+          pointsToAward = Math.floor((amountToPay * ownRate) / 100);
+
+          if (referrerSnap && referrerSnap.exists()) {
+              const refRate = Number(loyalty.referralBonusPercent) || 0;
+              referrerPoints = Math.floor((amountToPay * refRate) / 100);
           }
       }
 
+      // Crear Objeto Pago
       const newPayment = {
           id: crypto.randomUUID(),
           amount: amountToPay,
-          method: payment.method || "EFECTIVO",
+          method: method,
           paidAt: new Date().toISOString(),
           shiftId: shift.id,
           terminal: payment.terminal || null,
@@ -397,13 +430,26 @@ export async function addPaymentToSale(saleId, payment) {
       const newPayments = [...(saleData.payments||[]), newPayment];
       const newBalance = saleData.total - (currentPaid + amountToPay);
 
+      // Actualizar Venta
       transaction.update(saleRef, {
           payments: newPayments,
           balance: newBalance,
           paidAmount: currentPaid + amountToPay,
           status: newBalance <= 0.01 ? "PAID" : "PENDING",
+          pointsAwarded: (saleData.pointsAwarded || 0) + pointsToAward, // 👈 Sumamos puntos ganados al registro de venta
           updatedAt: new Date().toISOString()
       });
+
+      // Actualizar Puntos del Paciente (Neto)
+      const netPointsChange = pointsToAward - pointsUsed;
+      if (netPointsChange !== 0) {
+          transaction.update(patientRef, { points: (Number(patientData.points) || 0) + netPointsChange });
+      }
+
+      // Actualizar Puntos del Referido
+      if (referrerPoints > 0 && referrerSnap.exists()) {
+          transaction.update(referrerRef, { points: (Number(referrerSnap.data().points) || 0) + referrerPoints });
+      }
   });
 
   if (payment.method === "TARJETA" && saleBranchId) {
@@ -428,7 +474,7 @@ export async function deletePaymentFromSale(saleId, paymentId) {
         
         const paymentToDelete = saleData.payments[paymentIndex];
         
-        // 1. Revertir Puntos USADOS
+        // 1. Revertir Puntos USADOS (Si pagó con puntos, se los devolvemos)
         if (paymentToDelete.method === "PUNTOS") {
             const patientRef = doc(db, COLLECTION_PATIENTS, saleData.patientId);
             const patientSnap = await transaction.get(patientRef);
@@ -438,15 +484,16 @@ export async function deletePaymentFromSale(saleId, paymentId) {
             }
         }
 
-        // 2. Revertir Puntos GANADOS
+        // 2. Revertir Puntos GANADOS (Si ganó puntos, se los quitamos)
         const loyalty = await getLoyaltySettings();
+        let pointsToRevoke = 0;
+
         if (loyalty.enabled && paymentToDelete.method !== "PUNTOS") {
             const rate = loyalty.earningRates[paymentToDelete.method] || loyalty.earningRates["GLOBAL"] || 0;
-            const pointsToRevoke = Math.floor((Number(paymentToDelete.amount) * rate) / 100);
+            pointsToRevoke = Math.floor((Number(paymentToDelete.amount) * rate) / 100);
             
             if (pointsToRevoke > 0) {
                 const patientRef = doc(db, COLLECTION_PATIENTS, saleData.patientId);
-                // NOTA: Idealmente leer de nuevo, pero Firestore mergea si no hay conflicto
                 const pSnap = await transaction.get(patientRef);
                 if (pSnap.exists()) {
                     transaction.update(patientRef, { points: (pSnap.data().points || 0) - pointsToRevoke });
@@ -459,18 +506,18 @@ export async function deletePaymentFromSale(saleId, paymentId) {
         const newPaidAmount = newPayments.reduce((sum, p) => sum + Number(p.amount), 0);
         const newBalance = saleData.total - newPaidAmount;
 
-        // 4. Actualizar
+        // 4. Actualizar Venta (Restamos puntos ganados del registro de venta)
         transaction.update(saleRef, {
             payments: newPayments,
             paidAmount: newPaidAmount,
             balance: newBalance,
             status: newBalance <= 0.01 ? "PAID" : "PENDING",
+            pointsAwarded: Math.max(0, (saleData.pointsAwarded || 0) - pointsToRevoke), // 👈 Restamos puntos revocados
             updatedAt: new Date().toISOString()
         });
     });
 }
 
-// ... (Resto de funciones: updateSalePaymentMethod, updateSaleLogistics, processReturn, deleteSale IGUALES)
 export async function updateSalePaymentMethod(saleId, paymentId, newMethod) {
   const saleRef = doc(db, COLLECTION_NAME, saleId);
   const saleSnap = await getDoc(saleRef);
