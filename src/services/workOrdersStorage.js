@@ -1,6 +1,6 @@
 import { db } from "@/firebase/config";
 import { 
-  collection, getDocs, setDoc, updateDoc, deleteDoc, doc, query, orderBy, where, addDoc 
+  collection, getDocs, setDoc, updateDoc, deleteDoc, doc, query, orderBy, where, addDoc, arrayUnion // 👈 Agregado arrayUnion
 } from "firebase/firestore";
 
 const COLLECTION_NAME = "work_orders";
@@ -27,7 +27,7 @@ export async function getWorkOrdersByPatientId(patientId) {
 // --- ESCRITURA ---
 export async function createWorkOrder(payload) {
   const newOrder = {
-    branchId: payload.branchId || "lusso_main", // 👈 Default seguro
+    branchId: payload.branchId || "lusso_main",
     patientId: payload.patientId ?? null,
     saleId: payload.saleId ?? null,
     saleItemId: payload.saleItemId ?? null,
@@ -49,6 +49,7 @@ export async function createWorkOrder(payload) {
     // Garantías
     isWarranty: Boolean(payload.isWarranty),
     warrantyHistory: payload.warrantyHistory || [], 
+    history: [], // 👈 Inicializamos historial vacío
 
     rxNotes: payload.rxNotes || "",
     status: payload.status || "TO_PREPARE",
@@ -68,12 +69,23 @@ export async function createWorkOrder(payload) {
   }
 }
 
-export async function updateWorkOrder(id, patch) {
+// 🟢 ACTUALIZACIÓN: Soporte para historial y auditoría
+export async function updateWorkOrder(id, patch, auditEntry = null) {
   const docRef = doc(db, COLLECTION_NAME, id);
+  
   const updatePayload = { 
     ...patch, 
     updatedAt: new Date().toISOString() 
   };
+
+  // Si hay evento de auditoría, lo agregamos al array 'history'
+  if (auditEntry) {
+      updatePayload.history = arrayUnion({
+          ...auditEntry,
+          timestamp: new Date().toISOString()
+      });
+  }
+
   await updateDoc(docRef, updatePayload);
 }
 
@@ -100,7 +112,13 @@ export async function cancelWorkOrderBySaleItem(saleId, saleItemId) {
         const updates = snapshot.docs.map(d => updateDoc(d.ref, { 
             status: "CANCELLED", 
             updatedAt: new Date().toISOString(),
-            notes: (d.data().notes || "") + " [Cancelado por Devolución]"
+            notes: (d.data().notes || "") + " [Cancelado por Devolución]",
+            history: arrayUnion({
+                action: "CANCELACION_AUTO",
+                details: "Cancelado por devolución de venta",
+                timestamp: new Date().toISOString(),
+                actor: "SYSTEM"
+            })
         }));
         await Promise.all(updates);
     }
@@ -111,7 +129,13 @@ export async function applyWarranty(id, reason, extraCost) {
   await updateDoc(docRef, {
       status: "TO_PREPARE",
       isWarranty: true,
-      updatedAt: new Date().toISOString()
+      updatedAt: new Date().toISOString(),
+      history: arrayUnion({
+          action: "GARANTIA_APLICADA",
+          details: `Motivo: ${reason} (Costo extra: ${extraCost})`,
+          timestamp: new Date().toISOString(),
+          actor: "USER" // Idealmente pasar el usuario real si es posible
+      })
   });
 }
 

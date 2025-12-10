@@ -6,15 +6,25 @@ import { getCurrentShift } from "./shiftsStorage";
 
 const COLLECTION_NAME = "expenses";
 
+// 🟢 TODAS LAS CATEGORÍAS (Lab, Taller y Comisiones)
 const CATEGORIES = [
-  "INVENTARIO", "OPERATIVO", "NOMINA", "MARKETING", "MANTENIMIENTO", "COSTO_VENTA", "OTROS"
+  "INVENTARIO", 
+  "OPERATIVO", 
+  "NOMINA", 
+  "MARKETING", 
+  "MANTENIMIENTO", 
+  "COSTO_VENTA", 
+  "COSTO_LAB",        // Para pagar a Davila/Externos
+  "COSTO_TALLER",     // Para pagar bisel/montaje
+  "COMISION_BANCARIA",// Para el gasto automático de la terminal
+  "OTROS"
 ];
 
 // --- LECTURA ---
 export async function getAllExpenses(branchId = "lusso_main") {
   const q = query(
       collection(db, COLLECTION_NAME), 
-      where("branchId", "==", branchId), // 👈 Filtro
+      where("branchId", "==", branchId), 
       orderBy("date", "desc")
   );
   const snapshot = await getDocs(q);
@@ -22,7 +32,6 @@ export async function getAllExpenses(branchId = "lusso_main") {
 }
 
 export async function getExpensesReport(startDate, endDate, branchId = "lusso_main") {
-  // Obtenemos gastos filtrados por sucursal
   const expenses = await getAllExpenses(branchId);
   
   let totalExpense = 0;
@@ -44,7 +53,11 @@ export async function getExpensesReport(startDate, endDate, branchId = "lusso_ma
     }
     
     const cat = e.category || "OTROS";
-    byCategory[cat] = (byCategory[cat] || 0) + e.amount;
+    if (byCategory[cat] !== undefined) {
+        byCategory[cat] += e.amount;
+    } else {
+        byCategory["OTROS"] += e.amount;
+    }
   });
 
   return { totalExpense, cashOut, byCategory };
@@ -74,11 +87,10 @@ export async function getExpensesByShift(shiftId) {
 
 // --- ESCRITURA ---
 export async function createExpense(data, branchId = "lusso_main") {
-  // Buscamos turno abierto en ESTA sucursal
   const currentShift = await getCurrentShift(branchId);
   
   const newExpense = {
-    branchId: branchId, // 👈 Nuevo campo
+    branchId: branchId,
     description: data.description,
     amount: Number(data.amount),
     category: data.category || "OTROS",

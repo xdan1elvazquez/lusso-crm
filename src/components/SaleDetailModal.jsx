@@ -1,76 +1,91 @@
 import React, { useState, useEffect } from "react";
-import { updateSaleLogistics, processReturn, updateSalePaymentMethod, getSaleById } from "@/services/salesStorage"; 
+import { 
+    updateSaleLogistics, 
+    processReturn, 
+    updateSalePaymentMethod, 
+    getSaleById, 
+    addPaymentToSale,
+    deletePaymentFromSale // 👈 Importamos la nueva función
+} from "@/services/salesStorage"; 
 import { getAllWorkOrders, updateWorkOrder } from "@/services/workOrdersStorage";
 import { getLabs } from "@/services/labStorage"; 
 import { getEmployees } from "@/services/employeesStorage"; 
+import { getTerminals } from "@/services/settingsStorage"; 
 import WorkOrderEditForm from "./sales/WorkOrderEditForm";
 
 // UI Kit
 import ModalWrapper from "@/components/ui/ModalWrapper";
 import Badge from "@/components/ui/Badge";
 import Button from "@/components/ui/Button";
+import Select from "@/components/ui/Select"; 
+import Input from "@/components/ui/Input";   
 
 export default function SaleDetailModal({ sale: initialSale, patient, onClose, onUpdate }) {
   const [sale, setSale] = useState(initialSale);
-  
   const [activeTab, setActiveTab] = useState("GENERAL");
-  const [soldBy, setSoldBy] = useState(sale.soldBy || "");
-  const [editingPaymentId, setEditingPaymentId] = useState(null); 
-  const [tempMethod, setTempMethod] = useState("");
   
-  // ESTADOS PARA DEVOLUCIÓN
+  // --- ESTADOS VENDEDOR ---
+  const [soldBy, setSoldBy] = useState(sale.soldBy || "");
+  const [isEditingSeller, setIsEditingSeller] = useState(false);
+
+  // --- ESTADOS DEVOLUCIÓN ---
   const [refundMethod, setRefundMethod] = useState("EFECTIVO");
   const [returnToStock, setReturnToStock] = useState(true);
 
+  // --- ESTADOS PAGOS ---
+  const [editingPaymentId, setEditingPaymentId] = useState(null); 
+  const [tempMethod, setTempMethod] = useState("");
+  const [showAddPayment, setShowAddPayment] = useState(false);
+  const [newPayment, setNewPayment] = useState({ amount: "", method: "EFECTIVO", note: "", terminal: "", cardType: "CONTADO" });
+
+  // --- DATA ---
   const [labs, setLabs] = useState([]);
   const [employees, setEmployees] = useState([]);
+  const [terminals, setTerminals] = useState([]);
   const [workOrders, setWorkOrders] = useState([]);
   const [editingWO, setEditingWO] = useState(null); 
 
   const isLabSale = sale.saleType === "LAB" || (!sale.saleType && sale.items.some(i => i.requiresLab));
 
-  const refreshLocalSale = async () => {
-      const fresh = await getSaleById(sale.id);
-      if (fresh) setSale(fresh);
-      onUpdate && onUpdate();
-  };
-
   useEffect(() => {
-      Promise.all([getLabs(), getEmployees(), getAllWorkOrders()]).then(([l, e, w]) => {
+      Promise.all([getLabs(), getEmployees(), getAllWorkOrders(), getTerminals()]).then(([l, e, w, t]) => {
           setLabs(l); setEmployees(e);
           setWorkOrders(w.filter(wo => wo.saleId === sale.id));
+          setTerminals(t);
       });
   }, [sale.id]);
 
-  const handleSaveWO = async (data) => {
-      await updateWorkOrder(editingWO, data);
-      setWorkOrders(prev => prev.map(w => w.id === editingWO ? { ...w, ...data } : w));
-      setEditingWO(null);
-      alert("Orden actualizada");
+  const refreshLocalSale = async () => {
+      const fresh = await getSaleById(sale.id);
+      if (fresh) {
+          setSale(fresh);
+          if (!isEditingSeller) setSoldBy(fresh.soldBy || ""); 
+      }
+      onUpdate && onUpdate();
   };
 
   const handleSaveLogistics = async () => {
       await updateSaleLogistics(sale.id, { soldBy });
+      setIsEditingSeller(false);
       refreshLocalSale();
-      alert("Vendedor actualizado");
+      alert("Vendedor actualizado correctamente.");
   };
 
-  const handleReturn = async (item) => {
-      const q = Number(prompt(`Cantidad a devolver (Máx ${item.qty}):`, 1));
-      if(q > 0 && q <= item.qty) {
-          const stockMsg = returnToStock ? (item.inventoryProductId ? "✅ SÍ regresará al inventario." : "⚠️ NO regresará (Ítem sin vínculo de inventario).") : "❌ NO regresará al inventario (Merma/Basura).";
-          
-          if (confirm(`CONFIRMAR DEVOLUCIÓN:\n\n- Producto: ${item.description}\n- Cantidad: ${q}\n- Reembolso vía: ${refundMethod}\n- Stock: ${stockMsg}\n\n¿Proceder?`)) {
-              
-              const result = await processReturn(sale.id, item.id, q, refundMethod, returnToStock);
-              await refreshLocalSale();
-              
-              if (result && result.stockError) {
-                  alert(`⚠️ DINERO DEVUELTO, PERO STOCK FALLÓ:\n${result.stockError}\n\nRevisa el inventario manualmente.`);
-              } else {
-                  alert("Devolución y reembolso procesados correctamente.");
-              }
-          }
+  const handleAddPayment = async () => {
+      const amount = Number(newPayment.amount);
+      if (!amount || amount <= 0) return alert("Ingresa un monto válido.");
+      if (amount > sale.balance + 0.01) return alert("El monto excede el saldo pendiente.");
+      if (newPayment.method === "TARJETA" && !newPayment.terminal) return alert("Por favor selecciona una Terminal Bancaria.");
+
+      try {
+          await addPaymentToSale(sale.id, newPayment);
+          alert("Abono registrado exitosamente.");
+          setNewPayment({ amount: "", method: "EFECTIVO", note: "", terminal: "", cardType: "CONTADO" });
+          setShowAddPayment(false);
+          refreshLocalSale();
+      } catch (error) {
+          console.error(error);
+          alert(error.message);
       }
   };
 
@@ -81,11 +96,42 @@ export default function SaleDetailModal({ sale: initialSale, patient, onClose, o
       }
   };
 
+  // 🟢 Handler para eliminar pago
+  const handleDeletePayment = async (paymentId, amount) => {
+      if (confirm(`¿Estás seguro de eliminar este pago de $${amount.toLocaleString()}?\n\nEl saldo de la venta se ajustará automáticamente.`)) {
+          try {
+              await deletePaymentFromSale(sale.id, paymentId);
+              refreshLocalSale();
+              alert("Pago eliminado correctamente.");
+          } catch (error) {
+              console.error(error);
+              alert("Error al eliminar pago: " + error.message);
+          }
+      }
+  };
+
+  const handleReturn = async (item) => {
+      const q = Number(prompt(`Cantidad a devolver (Máx ${item.qty}):`, 1));
+      if(q > 0 && q <= item.qty) {
+          const stockMsg = returnToStock ? (item.inventoryProductId ? "✅ SÍ regresará al inventario." : "⚠️ NO regresará (Ítem sin vínculo).") : "❌ NO regresará (Merma).";
+          if (confirm(`CONFIRMAR DEVOLUCIÓN:\n\n- Producto: ${item.description}\n- Cantidad: ${q}\n- Reembolso vía: ${refundMethod}\n- Stock: ${stockMsg}\n\n¿Proceder?`)) {
+              const result = await processReturn(sale.id, item.id, q, refundMethod, returnToStock);
+              await refreshLocalSale();
+              if (result && result.stockError) alert(`⚠️ DINERO DEVUELTO, PERO STOCK FALLÓ:\n${result.stockError}`);
+              else alert("Devolución procesada.");
+          }
+      }
+  };
+
+  const handleSaveWO = async (data) => {
+      await updateWorkOrder(editingWO, data);
+      setWorkOrders(prev => prev.map(w => w.id === editingWO ? { ...w, ...data } : w));
+      setEditingWO(null);
+      alert("Orden actualizada");
+  };
+
   const TabBtn = ({ id, label }) => (
-      <button 
-        onClick={() => setActiveTab(id)} 
-        className={`flex-1 py-3 text-sm font-medium border-b-2 transition-colors ${activeTab===id ? "border-primary text-primary bg-surfaceHighlight/20" : "border-transparent text-textMuted hover:text-white"}`}
-      >
+      <button onClick={() => setActiveTab(id)} className={`flex-1 py-3 text-sm font-medium border-b-2 transition-colors ${activeTab===id ? "border-primary text-primary bg-surfaceHighlight/20" : "border-transparent text-textMuted hover:text-white"}`}>
           {label}
       </button>
   );
@@ -95,7 +141,7 @@ export default function SaleDetailModal({ sale: initialSale, patient, onClose, o
         <div className="flex justify-between items-center mb-4 -mt-2">
             <div className="flex gap-2">
                 <Badge color={isLabSale ? "blue" : "purple"}>{isLabSale ? "👓 Óptica" : "🛍️ Mostrador"}</Badge>
-                <Badge color={sale.status === "REFUNDED" ? "gray" : sale.status === "PAID" ? "green" : "red"}>{sale.status}</Badge>
+                <Badge color={sale.status === "REFUNDED" ? "gray" : sale.status === "PAID" ? "green" : "red"}>{sale.status === "PAID" ? "PAGADO" : sale.status === "REFUNDED" ? "REEMBOLSADO" : "PENDIENTE"}</Badge>
             </div>
             <span className="text-xs text-textMuted">{new Date(sale.createdAt).toLocaleString()}</span>
         </div>
@@ -108,55 +154,48 @@ export default function SaleDetailModal({ sale: initialSale, patient, onClose, o
 
         <div className="space-y-4 min-h-[300px]">
             {activeTab === "GENERAL" && (
-                <div className="space-y-4">
-                    <div className="bg-surfaceHighlight/30 p-4 rounded-xl flex justify-between items-center border border-border">
+                <div className="space-y-4 animate-fadeIn">
+                    <div className="bg-surfaceHighlight/30 p-4 rounded-xl flex flex-col md:flex-row justify-between items-start md:items-center border border-border gap-4">
                         <div>
                             <div className="text-xs text-textMuted uppercase font-bold">Cliente</div>
                             <div className="font-bold text-white text-lg">{patient?.firstName || sale.patientName} {patient?.lastName}</div>
                         </div>
-                        <div className="text-right">
-                            <div className="text-xs text-textMuted uppercase font-bold mb-1">Vendedor</div>
-                            <div className="flex gap-2 items-center">
-                                <input 
-                                    value={soldBy} 
-                                    onChange={e=>setSoldBy(e.target.value)} 
-                                    className="bg-background border border-border rounded px-2 py-1 text-sm text-white focus:border-primary outline-none" 
-                                />
-                                <button onClick={handleSaveLogistics} className="text-primary hover:text-white" title="Guardar">💾</button>
-                            </div>
+                        <div className="text-right w-full md:w-auto">
+                            <div className="text-xs text-textMuted uppercase font-bold mb-1">Atendido por</div>
+                            {!isEditingSeller ? (
+                                <div className="flex items-center justify-end gap-2 group cursor-pointer" onClick={() => setIsEditingSeller(true)}>
+                                    <span className="text-white font-medium border-b border-dashed border-textMuted/50 hover:border-primary transition-colors">{soldBy || "Sin asignar"}</span>
+                                    <span className="text-xs text-textMuted group-hover:text-primary transition-colors">✏️</span>
+                                </div>
+                            ) : (
+                                <div className="flex gap-2 items-center justify-end">
+                                    <select value={soldBy} onChange={e => setSoldBy(e.target.value)} className="bg-background border border-border rounded px-2 py-1 text-sm text-white focus:border-primary outline-none max-w-[200px]">
+                                        <option value="">-- Seleccionar --</option>
+                                        {employees.map(e => <option key={e.id} value={e.name}>{e.name}</option>)}
+                                    </select>
+                                    <button onClick={handleSaveLogistics} className="text-emerald-400 hover:text-emerald-300" title="Guardar">💾</button>
+                                    <button onClick={() => { setIsEditingSeller(false); setSoldBy(sale.soldBy || ""); }} className="text-red-400 hover:text-red-300" title="Cancelar">✕</button>
+                                </div>
+                            )}
                         </div>
                     </div>
-
                     <div className="flex flex-wrap justify-end items-center gap-4 mb-2 p-2 bg-surface border border-border rounded-lg">
                         <label className="flex items-center gap-2 cursor-pointer select-none">
-                            <input 
-                                type="checkbox" 
-                                checked={returnToStock} 
-                                onChange={e=>setReturnToStock(e.target.checked)} 
-                                className="accent-blue-500 w-4 h-4"
-                            />
-                            <span className={`text-xs font-bold ${returnToStock ? "text-blue-400" : "text-textMuted"}`}>
-                                {returnToStock ? "📦 Regresar al Stock" : "🗑️ No regresar (Merma)"}
-                            </span>
+                            <input type="checkbox" checked={returnToStock} onChange={e=>setReturnToStock(e.target.checked)} className="accent-blue-500 w-4 h-4"/>
+                            <span className={`text-xs font-bold ${returnToStock ? "text-blue-400" : "text-textMuted"}`}>{returnToStock ? "📦 Regresar al Stock" : "🗑️ No regresar (Merma)"}</span>
                         </label>
-
                         <div className="flex items-center gap-2">
                             <span className="text-xs text-textMuted">Reembolso vía:</span>
-                            <select 
-                                value={refundMethod} 
-                                onChange={(e) => setRefundMethod(e.target.value)}
-                                className="bg-background border border-border rounded px-2 py-1 text-xs text-white outline-none focus:border-red-500"
-                            >
+                            <select value={refundMethod} onChange={(e) => setRefundMethod(e.target.value)} className="bg-background border border-border rounded px-2 py-1 text-xs text-white outline-none focus:border-red-500">
                                 <option value="EFECTIVO">Efectivo</option>
                                 <option value="TRANSFERENCIA">Transferencia</option>
                                 <option value="TARJETA">Reverso Tarjeta</option>
                             </select>
                         </div>
                     </div>
-
                     <div className="space-y-2">
                         {sale.items.map((item, i) => (
-                            <div key={i} className="border border-border p-3 rounded-lg flex justify-between items-center bg-background">
+                            <div key={i} className="border border-border p-3 rounded-lg flex justify-between items-center bg-background hover:border-primary/30 transition-colors">
                                 <div>
                                     <div className="font-medium text-white flex items-center gap-2">
                                         {item.description}
@@ -171,12 +210,7 @@ export default function SaleDetailModal({ sale: initialSale, patient, onClose, o
                                 <div className="text-right">
                                     <div className="font-bold text-emerald-400">${item.unitPrice.toLocaleString()}</div>
                                     {item.qty > 0 && (
-                                        <button 
-                                            onClick={()=>handleReturn(item)} 
-                                            className="text-[10px] bg-red-900/20 text-red-400 border border-red-500/20 px-3 py-1 rounded hover:bg-red-900/40 mt-1 transition-colors"
-                                        >
-                                            Devolver
-                                        </button>
+                                        <button onClick={()=>handleReturn(item)} className="text-[10px] bg-red-900/10 text-red-400 border border-red-500/20 px-2 py-0.5 rounded hover:bg-red-900/30 mt-1 transition-colors">Devolver</button>
                                     )}
                                 </div>
                             </div>
@@ -185,55 +219,167 @@ export default function SaleDetailModal({ sale: initialSale, patient, onClose, o
                 </div>
             )}
 
-            {/* RESTO DE TABS (LAB Y PAYMENTS) */}
+            {/* --- TAB 2: TALLER (DISEÑO MEJORADO) --- */}
             {activeTab === "LAB" && isLabSale && (
-                <div className="space-y-3">
+                <div className="space-y-4 animate-fadeIn">
                     {workOrders.map(wo => (
-                        <div key={wo.id} className="bg-background p-4 rounded-xl border-l-4 border-blue-500 border-y border-r border-border">
-                            <div className="flex justify-between mb-2">
-                                <strong className="text-white text-sm">{wo.type} - {wo.labName}</strong>
-                                <Badge color={wo.status === "CANCELLED" ? "red" : "gray"}>{wo.status}</Badge>
-                            </div>
-                            {editingWO === wo.id ? (
-                                <WorkOrderEditForm wo={wo} labs={labs} employees={employees} onSave={handleSaveWO} onCancel={()=>setEditingWO(null)} />
-                            ) : (
-                                <div className="flex justify-between items-center text-xs text-textMuted">
-                                    <span>Costo: ${wo.labCost} | Envía: {wo.courier||"-"}</span>
-                                    <button onClick={()=>setEditingWO(wo.id)} className="text-blue-400 hover:text-white underline">Editar Detalles</button>
+                        <div key={wo.id} className="relative bg-surface border border-border rounded-xl overflow-hidden hover:border-blue-500/50 transition-colors group">
+                            {/* Barra lateral de estado */}
+                            <div className={`absolute left-0 top-0 bottom-0 w-1.5 ${wo.status === 'CANCELLED' ? 'bg-red-500' : 'bg-blue-500'}`} />
+                            
+                            <div className="p-4 pl-6">
+                                {/* Encabezado: Tipo y Lab */}
+                                <div className="flex justify-between items-start mb-4">
+                                    <div>
+                                        <div className="flex items-center gap-2 mb-1">
+                                            <span className="text-xs font-bold text-blue-400 uppercase tracking-wider bg-blue-900/20 px-2 py-0.5 rounded border border-blue-500/30">{wo.type}</span>
+                                            <span className="text-sm text-white font-bold">{wo.labName || "Sin Laboratorio Asignado"}</span>
+                                        </div>
+                                    </div>
+                                    <Badge color={wo.status === "CANCELLED" ? "red" : wo.status === "READY" ? "green" : "blue"}>{wo.status}</Badge>
                                 </div>
-                            )}
+
+                                {editingWO === wo.id ? (
+                                    <div className="mt-4 bg-surfaceHighlight/20 p-4 rounded-xl border border-border shadow-inner">
+                                        <WorkOrderEditForm wo={wo} labs={labs} employees={employees} onSave={handleSaveWO} onCancel={()=>setEditingWO(null)} />
+                                    </div>
+                                ) : (
+                                    <>
+                                        {/* Grid de Detalles Técnicos */}
+                                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                                            <div className="bg-background/40 p-2.5 rounded-lg border border-white/5">
+                                                <div className="text-[9px] text-textMuted uppercase font-bold mb-1">Costo Lab</div>
+                                                <div className="text-sm font-mono text-white">${Number(wo.labCost).toLocaleString()}</div>
+                                            </div>
+                                            <div className="bg-background/40 p-2.5 rounded-lg border border-white/5">
+                                                <div className="text-[9px] text-textMuted uppercase font-bold mb-1">Mensajería</div>
+                                                <div className="text-sm text-white truncate" title={wo.courier}>{wo.courier || "-"}</div>
+                                            </div>
+                                            <div className="bg-background/40 p-2.5 rounded-lg border border-white/5">
+                                                <div className="text-[9px] text-textMuted uppercase font-bold mb-1">Fecha Promesa</div>
+                                                <div className="text-sm text-white">{wo.dueDate ? new Date(wo.dueDate).toLocaleDateString() : "N/D"}</div>
+                                            </div>
+                                            <div className="bg-background/40 p-2.5 rounded-lg border border-white/5">
+                                                <div className="text-[9px] text-textMuted uppercase font-bold mb-1">Armazón</div>
+                                                <div className="text-sm text-white truncate" title={wo.frameCondition}>{wo.frameCondition || "-"}</div>
+                                            </div>
+                                        </div>
+
+                                        {/* Pie de tarjeta con acciones */}
+                                        <div className="flex justify-between items-center pt-3 border-t border-dashed border-border/50">
+                                            <div className="flex flex-col">
+                                                <span className="text-[9px] text-textMuted">Última act.: {new Date(wo.updatedAt).toLocaleString()}</span>
+                                            </div>
+                                            <Button variant="ghost" onClick={()=>setEditingWO(wo.id)} className="h-7 text-xs text-blue-300 hover:text-white hover:bg-blue-500/20 px-3 gap-2 border border-blue-500/20">
+                                                <span>⚙️</span> Gestionar Orden
+                                            </Button>
+                                        </div>
+                                    </>
+                                )}
+                            </div>
                         </div>
                     ))}
-                    {workOrders.length === 0 && <p className="text-textMuted italic text-center py-4">Sin órdenes de trabajo generadas.</p>}
+                    {workOrders.length === 0 && (
+                        <div className="flex flex-col items-center justify-center py-10 border-2 border-dashed border-border rounded-xl text-textMuted opacity-50 bg-surface/30">
+                            <span className="text-4xl mb-2 grayscale">🛠️</span>
+                            <p className="text-sm font-medium">No se generaron órdenes de trabajo para esta venta.</p>
+                        </div>
+                    )}
                 </div>
             )}
 
+            {/* --- TAB 3: PAGOS --- */}
             {activeTab === "PAYMENTS" && (
-                <div className="bg-surfaceHighlight/10 p-5 rounded-xl border border-border">
-                    <div className="flex justify-between mb-6 text-xl font-bold">
-                        <span className="text-white">Total: ${sale.total.toLocaleString()}</span>
-                        <span className={sale.balance>0 ? "text-red-400" : "text-emerald-400"}>Saldo: ${sale.balance.toLocaleString()}</span>
+                <div className="space-y-4 animate-fadeIn">
+                    <div className="grid grid-cols-2 gap-4">
+                        <div className="bg-surfaceHighlight/20 p-4 rounded-xl border border-border text-center">
+                            <div className="text-xs text-textMuted uppercase">Total Venta</div>
+                            <div className="text-2xl font-bold text-white">${sale.total.toLocaleString()}</div>
+                        </div>
+                        <div className={`p-4 rounded-xl border text-center ${sale.balance > 0 ? "bg-red-900/10 border-red-500/30" : "bg-emerald-900/10 border-emerald-500/30"}`}>
+                            <div className="text-xs text-textMuted uppercase">Saldo Pendiente</div>
+                            <div className={`text-2xl font-bold ${sale.balance > 0 ? "text-red-400" : "text-emerald-400"}`}>${sale.balance.toLocaleString()}</div>
+                        </div>
                     </div>
-                    <div className="space-y-2">
-                        {sale.payments.map(p => (
-                            <div key={p.id} className="flex justify-between items-center border-b border-border/50 pb-2 last:border-0 text-sm">
-                                <div className="flex flex-col">
-                                    <span className="text-textMuted text-xs">{new Date(p.paidAt).toLocaleDateString()}</span>
-                                    {p.note && <span className="text-[10px] text-amber-400 italic">{p.note}</span>}
+
+                    {sale.balance > 0.01 && !showAddPayment && (
+                        <Button variant="secondary" onClick={() => setShowAddPayment(true)} className="w-full border-dashed">+ Agregar Abono</Button>
+                    )}
+
+                    {showAddPayment && (
+                        <div className="bg-surface border border-primary/30 p-4 rounded-xl animate-fadeIn relative">
+                            <button onClick={() => setShowAddPayment(false)} className="absolute top-2 right-2 text-textMuted hover:text-white">✕</button>
+                            <h4 className="text-sm font-bold text-primary mb-3">Registrar Nuevo Pago</h4>
+                            <div className={`grid gap-3 items-end ${newPayment.method === "TARJETA" ? "grid-cols-1 md:grid-cols-2" : "grid-cols-1 md:grid-cols-3"}`}>
+                                <Input label="Monto" type="number" value={newPayment.amount} onChange={e => setNewPayment({...newPayment, amount: e.target.value})} placeholder={`Máx: ${sale.balance}`}/>
+                                <div>
+                                    <label className="block text-xs font-bold text-textMuted uppercase mb-1">Método</label>
+                                    <Select value={newPayment.method} onChange={e => setNewPayment({...newPayment, method: e.target.value})}>
+                                        <option value="EFECTIVO">Efectivo</option>
+                                        <option value="TARJETA">Tarjeta</option>
+                                        <option value="TRANSFERENCIA">Transferencia</option>
+                                        <option value="PUNTOS">Puntos Lealtad</option>
+                                    </Select>
                                 </div>
-                                {editingPaymentId === p.id ? (
-                                    <select autoFocus value={tempMethod} onChange={e=>setTempMethod(e.target.value)} className="bg-background text-white border border-border rounded px-2 py-1 text-xs"><option>EFECTIVO</option><option>TARJETA</option><option>TRANSFERENCIA</option></select>
-                                ) : <span className="text-white font-medium w-32 text-center">{p.method}</span>}
-                                <span className={`font-bold w-24 text-right ${p.amount < 0 ? "text-red-400" : "text-emerald-400"}`}>
-                                    ${p.amount.toLocaleString()}
-                                </span>
-                                {editingPaymentId === p.id ? (
-                                    <button onClick={()=>handlePaymentUpdate(p.id)} className="text-emerald-400">💾</button>
-                                ) : (
-                                    <button onClick={()=>{setEditingPaymentId(p.id); setTempMethod(p.method)}} className="text-textMuted hover:text-white">✏️</button>
+                                {newPayment.method === "TARJETA" && (
+                                    <>
+                                        <div>
+                                            <label className="block text-xs font-bold text-textMuted uppercase mb-1">Terminal</label>
+                                            <Select value={newPayment.terminal} onChange={e => setNewPayment({...newPayment, terminal: e.target.value})}>
+                                                <option value="">-- Seleccionar --</option>
+                                                {terminals.map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
+                                            </Select>
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-textMuted uppercase mb-1">Plazo</label>
+                                            <Select value={newPayment.cardType} onChange={e => setNewPayment({...newPayment, cardType: e.target.value})}>
+                                                <option value="CONTADO">Contado / Débito</option>
+                                                <option value="3 MESES">3 Meses</option>
+                                                <option value="6 MESES">6 Meses</option>
+                                                <option value="9 MESES">9 Meses</option>
+                                                <option value="12 MESES">12 Meses</option>
+                                            </Select>
+                                        </div>
+                                    </>
                                 )}
+                                <Button onClick={handleAddPayment} className={`h-[42px] ${newPayment.method === "TARJETA" ? "md:col-span-2" : ""}`}>Confirmar Pago</Button>
                             </div>
-                        ))}
+                        </div>
+                    )}
+
+                    <div className="bg-surfaceHighlight/10 rounded-xl border border-border overflow-hidden">
+                        <div className="p-3 bg-surfaceHighlight/30 text-xs font-bold text-textMuted uppercase">Historial de Transacciones</div>
+                        <div className="divide-y divide-border">
+                            {sale.payments.map(p => (
+                                <div key={p.id} className="p-3 flex justify-between items-center text-sm hover:bg-surfaceHighlight/10 transition-colors group">
+                                    <div className="flex flex-col">
+                                        <span className="text-white font-medium">
+                                            {p.method} 
+                                            {p.method === "TARJETA" && p.terminal && <span className="text-xs text-blue-300 ml-1">({p.terminal} - {p.cardType})</span>}
+                                        </span>
+                                        <span className="text-[10px] text-textMuted">{new Date(p.paidAt).toLocaleString()} {p.note && <span className="text-amber-400 ml-1">({p.note})</span>}</span>
+                                    </div>
+                                    <div className="flex items-center gap-3">
+                                        <span className={`font-bold ${p.amount < 0 ? "text-red-400" : "text-emerald-400"}`}>${p.amount.toLocaleString()}</span>
+                                        {editingPaymentId === p.id ? (
+                                            <div className="flex items-center gap-1">
+                                                <select autoFocus value={tempMethod} onChange={e=>setTempMethod(e.target.value)} className="bg-background text-white border border-border rounded px-1 py-0.5 text-[10px]"><option>EFECTIVO</option><option>TARJETA</option><option>TRANSFERENCIA</option></select>
+                                                <button onClick={()=>handlePaymentUpdate(p.id)} className="text-emerald-400 text-xs">💾</button>
+                                            </div>
+                                        ) : (
+                                            <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                <button onClick={()=>{setEditingPaymentId(p.id); setTempMethod(p.method)}} className="text-textMuted hover:text-white" title="Corregir método">✏️</button>
+                                                {/* 🗑️ Botón eliminar abono */}
+                                                {p.amount > 0 && (
+                                                    <button onClick={() => handleDeletePayment(p.id, p.amount)} className="text-textMuted hover:text-red-500" title="Eliminar abono">🗑️</button>
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            ))}
+                            {sale.payments.length === 0 && <div className="p-4 text-center text-textMuted text-xs italic">Sin pagos registrados.</div>}
+                        </div>
                     </div>
                 </div>
             )}

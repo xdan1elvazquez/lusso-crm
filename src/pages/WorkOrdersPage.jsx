@@ -1,5 +1,5 @@
 import { useMemo, useState, useEffect } from "react";
-import { useAuth } from "@/context/AuthContext"; // 👈 1. Importar Auth
+import { useAuth } from "@/context/AuthContext"; 
 import { getAllWorkOrders, updateWorkOrder, nextStatus, prevStatus, applyWarranty, deleteWorkOrder } from "@/services/workOrdersStorage";
 import { getPatients } from "@/services/patientsStorage"; 
 import { getAllSales } from "@/services/salesStorage"; 
@@ -14,7 +14,6 @@ import ModalWrapper from "@/components/ui/ModalWrapper";
 import Button from "@/components/ui/Button";
 import Input from "@/components/ui/Input";
 import Select from "@/components/ui/Select";
-import Card from "@/components/ui/Card";
 import Badge from "@/components/ui/Badge";
 import { useConfirm, useNotify } from "@/context/UIContext";
 
@@ -27,7 +26,7 @@ const ACTIVE_COLS = [
 ];
 
 export default function WorkOrdersPage() {
-  const { user } = useAuth(); // 👈 2. Obtener usuario y sucursal
+  const { user } = useAuth(); 
   const confirm = useConfirm();
   const notify = useNotify();
 
@@ -43,25 +42,24 @@ export default function WorkOrdersPage() {
 
   // Modals
   const [sendLabModal, setSendLabModal] = useState(null); 
-  const [revisionModal, setRevisionModal] = useState(null); 
+  const [receiveModal, setReceiveModal] = useState(null); 
+  const [qualityModal, setQualityModal] = useState(null); 
   const [warrantyModal, setWarrantyModal] = useState(null); 
   const [payLabModal, setPayLabModal] = useState(null);
-  const [viewSale, setViewSale] = useState(null); 
+  const [viewSale, setViewSale] = useState(null);
+  const [viewHistoryOrder, setViewHistoryOrder] = useState(null);
 
   const refreshData = async () => {
-      // Seguridad: esperar a que cargue el usuario
       if (!user?.branchId) return;
 
       setLoading(true);
       try {
-          // 👈 3. Filtrar Órdenes y Ventas por Sucursal
-          // Pacientes, Empleados y Labs siguen siendo globales
           const [woData, patData, empData, labData, salesData] = await Promise.all([
-              getAllWorkOrders(user.branchId), // Filtrado
+              getAllWorkOrders(user.branchId),
               getPatients(), 
               getEmployees(), 
               getLabs(), 
-              getAllSales(user.branchId) // Filtrado
+              getAllSales(user.branchId)
           ]);
           setWorkOrders(woData); setPatients(patData); setEmployees(empData); setLabs(labData); setSales(salesData);
       } catch (error) { console.error(error); } finally { setLoading(false); }
@@ -81,16 +79,17 @@ export default function WorkOrdersPage() {
     return sales.reduce((acc, s) => ({ ...acc, [s.id]: s }), {});
   }, [sales]);
 
-  // Agrupación Inteligente para Kanban
   const { groupedOrders, historyOrders } = useMemo(() => {
     const q = query.toLowerCase();
     
-    // 1. Filtrar
-    const filtered = workOrders.filter(w => 
-      (patientMap[w.patientId]?.firstName + " " + w.labName + " " + w.type).toLowerCase().includes(q)
-    );
+    // Búsqueda por nombre completo
+    const filtered = workOrders.filter(w => {
+      const p = patientMap[w.patientId];
+      const fullName = p ? `${p.firstName} ${p.lastName}` : "";
+      const searchString = `${fullName} ${w.labName} ${w.type}`.toLowerCase();
+      return searchString.includes(q);
+    });
 
-    // 2. Inicializar grupos activos
     const activeGroups = {};
     ACTIVE_COLS.forEach(col => activeGroups[col.id] = []);
     
@@ -116,7 +115,15 @@ export default function WorkOrdersPage() {
     return { groupedOrders: activeGroups, historyOrders: history };
   }, [workOrders, query, patientMap]);
 
-  // Handlers
+  // --- HELPER DE AUDITORÍA ---
+  const createAuditLog = (action, details = "") => ({
+      actor: user.email || user.name || "Desconocido",
+      action: action,
+      details: details,
+      role: user.role || "USER"
+  });
+
+  // --- HANDLERS ---
   const handleDelete = async (id) => {
       const ok = await confirm({ title: "Eliminar Orden", message: "¿Borrar esta orden de trabajo permanentemente?", confirmText: "Sí, Borrar" });
       if(ok) {
@@ -126,12 +133,33 @@ export default function WorkOrdersPage() {
       }
   };
 
+  const handleDeliver = async (order) => {
+      const ok = await confirm({ 
+          title: "Confirmar Entrega", 
+          message: `¿Marcar el trabajo de ${patientMap[order.patientId]?.firstName} como ENTREGADO? Esto finalizará el flujo.`,
+          confirmText: "Sí, Entregar"
+      });
+      
+      if(ok) {
+          await updateWorkOrder(order.id, { 
+              status: "DELIVERED",
+              deliveredAt: new Date().toISOString()
+          }, createAuditLog("ENTREGA_FINALIZADA", "Trabajo entregado al cliente"));
+          
+          notify.success("Trabajo entregado y archivado");
+          refreshData();
+      }
+  };
+
   const handleAdvance = async (order) => {
     const next = nextStatus(order.status);
-    if (order.status === "TO_PREPARE") return setSendLabModal(order);
-    if (order.status === "SENT_TO_LAB") return setRevisionModal(order);
+    
+    // FLUJO PERSONALIZADO
+    if (order.status === "TO_PREPARE") return setSendLabModal(order); 
+    if (order.status === "SENT_TO_LAB") return setReceiveModal(order); 
+    if (order.status === "QUALITY_CHECK") return setQualityModal(order); 
 
-    await updateWorkOrder(order.id, { status: next });
+    await updateWorkOrder(order.id, { status: next }, createAuditLog("AVANCE_ESTADO", `De ${order.status} a ${next}`));
     refreshData();
   };
   
@@ -141,7 +169,7 @@ export default function WorkOrdersPage() {
       handleAdvance(w);
     } else {
       const prev = prevStatus(current);
-      await updateWorkOrder(id, { status: prev });
+      await updateWorkOrder(id, { status: prev }, createAuditLog("REGRESO_ESTADO", `De ${current} a ${prev}`));
       refreshData();
     }
   };
@@ -149,14 +177,28 @@ export default function WorkOrdersPage() {
   // --- SUB-COMPONENTES DE MODAL ---
   const SendLabModalContent = ({ order, onClose }) => {
     const [courier, setCourier] = useState("");
+    const [preparedBy, setPreparedBy] = useState(""); 
+
     const handleSend = async () => {
-        await updateWorkOrder(order.id, { status: "SENT_TO_LAB", courier });
+        if(!preparedBy) return notify.info("Indica quién preparó el trabajo");
+        
+        await updateWorkOrder(order.id, { 
+            status: "SENT_TO_LAB", 
+            courier,
+            preparedBy, 
+            sentToLabAt: new Date().toISOString()
+        }, createAuditLog("ENVIADO_LAB", `Prep: ${preparedBy} | Envía: ${courier}`));
+        
         notify.success("Orden enviada a laboratorio");
         refreshData(); onClose();
     };
     return (
       <div className="space-y-4">
-          <Select label="Selecciona Mensajero / Servicio" value={courier} onChange={e => setCourier(e.target.value)}>
+          <Select label="¿Quién Preparó?" value={preparedBy} onChange={e => setPreparedBy(e.target.value)}>
+              <option value="">-- Seleccionar Empleado --</option>
+              {employees.map(e => <option key={e.id} value={e.name}>{e.name}</option>)}
+          </Select>
+          <Select label="Mensajería / Método Envío" value={courier} onChange={e => setCourier(e.target.value)}>
               <option value="">-- Seleccionar --</option>
               {employees.map(e => <option key={e.id} value={e.name}>{e.name}</option>)}
               <option value="Externo">Servicio Externo / Paquetería</option>
@@ -169,12 +211,100 @@ export default function WorkOrdersPage() {
     );
   };
 
+  const ReceiveModalContent = ({ order, onClose }) => {
+      const [deliveredBy, setDeliveredBy] = useState(""); 
+
+      const handleConfirm = async () => {
+          await updateWorkOrder(order.id, {
+              status: "QUALITY_CHECK", 
+              returnCourier: deliveredBy,
+              receivedFromLabAt: new Date().toISOString()
+          }, createAuditLog("LLEGADA_LAB", `Entregó: ${deliveredBy || "N/A"}`));
+          
+          notify.success("Trabajo recibido. Pasar a revisión.");
+          refreshData(); onClose();
+      };
+
+      return (
+        <div className="space-y-4">
+            <div className="p-3 bg-blue-900/20 text-blue-200 text-sm rounded border border-blue-500/30">
+                Confirmar que el trabajo llegó físicamente a sucursal. Pasará a <strong>Control de Calidad</strong>.
+            </div>
+            <Select label="Mensajería / Quien Entregó" value={deliveredBy} onChange={e => setDeliveredBy(e.target.value)}>
+                <option value="">-- Seleccionar / Externo --</option>
+                {employees.map(e => <option key={e.id} value={e.name}>{e.name}</option>)}
+                <option value="Paquetería Externa">Paquetería Externa</option>
+            </Select>
+            <div className="flex justify-end gap-3 mt-4 pt-4 border-t border-border">
+                <Button variant="ghost" onClick={onClose}>Cancelar</Button>
+                <Button variant="primary" onClick={handleConfirm}>Confirmar Llegada</Button>
+            </div>
+        </div>
+      );
+  };
+
+  const QualityModalContent = ({ order, onClose }) => {
+      const [jobMadeBy, setJobMadeBy] = useState(""); 
+      const [reviewedBy, setReviewedBy] = useState(""); 
+      const [notes, setNotes] = useState(""); 
+      const [baseMicaCost, setBaseMicaCost] = useState(order.labCost || 0);
+
+      const handleApprove = async () => {
+          if(!reviewedBy) return notify.info("Firma quién revisó el trabajo");
+          
+          await updateWorkOrder(order.id, {
+              status: "READY",
+              jobMadeBy,
+              reviewedBy,
+              labCost: baseMicaCost,
+              qualityNotes: notes, 
+              checkedAt: new Date().toISOString()
+          }, createAuditLog("REVISION_CALIDAD", `Rev: ${reviewedBy} | Notas: ${notes}`));
+
+          notify.success("Trabajo Aprobado y Listo para Entrega");
+          refreshData(); onClose();
+      };
+
+      return (
+          <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                  <Select label="¿Quién Biseló/Procesó?" value={jobMadeBy} onChange={e => setJobMadeBy(e.target.value)}>
+                      <option value="">-- Lab Externo / N/A --</option>
+                      {employees.map(e => <option key={e.id} value={e.name}>{e.name}</option>)}
+                  </Select>
+                  <Select label="¿Quién Revisa?" value={reviewedBy} onChange={e => setReviewedBy(e.target.value)}>
+                      <option value="">-- Seleccionar --</option>
+                      {employees.map(e => <option key={e.id} value={e.name}>{e.name}</option>)}
+                  </Select>
+              </div>
+              
+              <Input label="Costo Final Lab ($)" type="number" value={baseMicaCost} onChange={e => setBaseMicaCost(e.target.value)} />
+              
+              <label className="block w-full">
+                 <span className="block text-xs font-medium text-textMuted uppercase tracking-wide mb-1.5">Comentarios de Revisión</span>
+                 <textarea 
+                    className="w-full px-3 py-2.5 bg-background border border-border rounded-lg text-white placeholder-textMuted/50 text-sm focus:outline-none focus:border-primary resize-none"
+                    placeholder="Estado de filtros, armazón, observaciones..." 
+                    value={notes} 
+                    onChange={e => setNotes(e.target.value)} 
+                    rows={3} 
+                 />
+              </label>
+
+              <div className="flex justify-end gap-3 mt-4 pt-4 border-t border-border">
+                  <Button variant="ghost" onClick={onClose}>Cancelar</Button>
+                  <Button variant="primary" onClick={handleApprove} className="!bg-purple-600 hover:!bg-purple-700">Aprobar Calidad</Button>
+              </div>
+          </div>
+      );
+  };
+
   const WarrantyModalContent = ({ order, onClose }) => {
     const [reason, setReason] = useState("");
     const [extraCost, setExtraCost] = useState("");
     const handleApply = async () => {
         if(!reason) return notify.info("Escribe una razón para la garantía");
-        await applyWarranty(order.id, reason, extraCost);
+        await applyWarranty(order.id, reason, extraCost); 
         notify.success("Garantía aplicada. Orden reiniciada.");
         refreshData(); onClose();
     };
@@ -199,33 +329,45 @@ export default function WorkOrdersPage() {
     );
   };
 
+  // 🟢 ACTUALIZACIÓN: Modal de Pago con Selector de Categoría
   const PayLabModalContent = ({ order, onClose }) => {
       const [method, setMethod] = useState("EFECTIVO");
+      const [category, setCategory] = useState("COSTO_LAB"); // 👈 Default
+
       const handlePay = async () => {
-          // 👈 4. Crear gasto en la sucursal correcta
           await createExpense({
-              description: `Pago Lab: ${order.labName} (P: ${patientMap[order.patientId]?.lastName})`,
+              description: `Pago ${category === 'COSTO_LAB' ? 'Lab' : 'Taller'}: ${order.labName} (P: ${patientMap[order.patientId]?.lastName})`,
               amount: order.labCost,
-              category: "COSTO_VENTA",
+              category: category, 
               method: method,
               date: new Date().toISOString()
-          }, user.branchId); // Pasar branchId
+          }, user.branchId);
 
-          await updateWorkOrder(order.id, { isPaid: true });
-          notify.success(`Pago de $${order.labCost} registrado`);
+          await updateWorkOrder(order.id, { isPaid: true }, createAuditLog("PAGO_PROVEEDOR", `Monto: ${order.labCost} (${category})`));
+          notify.success(`Pago registrado como ${category === 'COSTO_LAB' ? 'Laboratorio' : 'Taller'}`);
           refreshData(); onClose();
       };
       return (
         <div className="space-y-4">
             <div className="bg-surfaceHighlight/30 p-6 rounded-lg text-center border border-border">
-                <div className="text-sm text-textMuted uppercase mb-1">Monto a Pagar</div>
+                <div className="text-sm text-textMuted uppercase mb-1">Monto a Pagar a: <span className="text-white font-bold">{order.labName}</span></div>
                 <div className="text-3xl font-bold text-emerald-400">${order.labCost?.toLocaleString()}</div>
             </div>
-            <Select label="Método de Pago" value={method} onChange={e => setMethod(e.target.value)}>
-                <option value="EFECTIVO">Efectivo</option>
-                <option value="TRANSFERENCIA">Transferencia</option>
-                <option value="TARJETA">Tarjeta</option>
-            </Select> 
+            
+            <div className="grid grid-cols-2 gap-4">
+                {/* Selector de Categoría */}
+                <Select label="Clasificación del Gasto" value={category} onChange={e => setCategory(e.target.value)}>
+                    <option value="COSTO_LAB">🧪 Laboratorio</option>
+                    <option value="COSTO_TALLER">🛠️ Taller / Bisel</option>
+                </Select>
+
+                <Select label="Método de Pago" value={method} onChange={e => setMethod(e.target.value)}>
+                    <option value="EFECTIVO">Efectivo</option>
+                    <option value="TRANSFERENCIA">Transferencia</option>
+                    <option value="TARJETA">Tarjeta</option>
+                </Select> 
+            </div>
+
             <div className="flex justify-end gap-3 mt-4 pt-4 border-t border-border">
                 <Button variant="ghost" onClick={onClose}>Cancelar</Button>
                 <Button variant="primary" onClick={handlePay} className="!bg-emerald-600 hover:!bg-emerald-700">Registrar Pago</Button>
@@ -234,31 +376,31 @@ export default function WorkOrdersPage() {
       );
   };
 
-  const RevisionModalContent = ({ order, onClose }) => {
-      const [receivedBy, setReceivedBy] = useState("");
-      const [baseMicaCost, setBaseMicaCost] = useState(order.labCost || 0);
-      
-      const handleConfirm = async () => {
-          if(!receivedBy) return notify.info("Indica quién recibe el trabajo");
-          await updateWorkOrder(order.id, {
-              status: "READY", receivedBy, labCost: baseMicaCost, frameCondition: "Buen estado"
-          });
-          notify.success("Trabajo recibido y listo");
-          refreshData(); onClose();
-      };
-
+  const HistoryModalContent = ({ order, onClose }) => {
+      const history = order.history || [];
       return (
-        <div className="space-y-4">
-            <Input label="Costo Final Lab ($)" type="number" value={baseMicaCost} onChange={e => setBaseMicaCost(e.target.value)} />
-            <Select label="Recibido por (Sucursal)" value={receivedBy} onChange={e => setReceivedBy(e.target.value)}>
-                <option value="">-- Seleccionar --</option>
-                {employees.map(e => <option key={e.id} value={e.name}>{e.name}</option>)}
-            </Select>
-            <div className="flex justify-end gap-3 mt-4 pt-4 border-t border-border">
-                <Button variant="ghost" onClick={onClose}>Cancelar</Button>
-                <Button variant="primary" onClick={handleConfirm} className="!bg-purple-600 hover:!bg-purple-700">Confirmar Recepción</Button>
-            </div>
-        </div>
+          <div className="max-h-[400px] overflow-y-auto custom-scrollbar pr-2">
+              {history.length === 0 ? (
+                  <p className="text-textMuted text-sm text-center py-4">No hay historial registrado.</p>
+              ) : (
+                  <div className="space-y-4">
+                      {history.slice().reverse().map((evt, idx) => (
+                          <div key={idx} className="border-l-2 border-primary pl-3 ml-1 relative">
+                              <div className="absolute -left-[5px] top-0 w-2 h-2 rounded-full bg-primary"></div>
+                              <div className="flex justify-between text-xs text-textMuted mb-0.5">
+                                  <span>{new Date(evt.timestamp).toLocaleString()}</span>
+                                  <span className="font-bold text-white">{evt.actor}</span>
+                              </div>
+                              <div className="text-sm font-bold text-white">{evt.action.replace(/_/g, ' ')}</div>
+                              {evt.details && <div className="text-xs text-blue-200 mt-0.5">{evt.details}</div>}
+                          </div>
+                      ))}
+                  </div>
+              )}
+              <div className="mt-4 text-right border-t border-border pt-3">
+                  <Button variant="ghost" onClick={onClose}>Cerrar</Button>
+              </div>
+          </div>
       );
   };
 
@@ -285,12 +427,15 @@ export default function WorkOrdersPage() {
         </div>
       </div>
       
-      {/* MODALES */}
+      {/* MODALES ACTIVOS */}
       {sendLabModal && <ModalWrapper title="Enviar a Laboratorio" onClose={() => setSendLabModal(null)} width="400px"><SendLabModalContent order={sendLabModal} onClose={() => setSendLabModal(null)} /></ModalWrapper>}
+      {receiveModal && <ModalWrapper title="Confirmar Llegada" onClose={() => setReceiveModal(null)} width="400px"><ReceiveModalContent order={receiveModal} onClose={() => setReceiveModal(null)} /></ModalWrapper>}
+      {qualityModal && <ModalWrapper title="Control de Calidad" onClose={() => setQualityModal(null)} width="500px"><QualityModalContent order={qualityModal} onClose={() => setQualityModal(null)} /></ModalWrapper>}
+      
       {warrantyModal && <ModalWrapper title="Reportar Garantía" onClose={() => setWarrantyModal(null)} width="400px"><WarrantyModalContent order={warrantyModal} onClose={() => setWarrantyModal(null)} /></ModalWrapper>}
       {payLabModal && <ModalWrapper title="Pagar Proveedor" onClose={() => setPayLabModal(null)} width="350px"><PayLabModalContent order={payLabModal} onClose={() => setPayLabModal(null)} /></ModalWrapper>}
-      {revisionModal && <ModalWrapper title="Recepción de Trabajo" onClose={() => setRevisionModal(null)} width="450px"><RevisionModalContent order={revisionModal} onClose={() => setRevisionModal(null)} /></ModalWrapper>}
       {viewSale && <SaleDetailModal sale={viewSale} patient={patientMap[viewSale.patientId]} onClose={() => setViewSale(null)} onUpdate={refreshData} />}
+      {viewHistoryOrder && <ModalWrapper title="📋 Historial de Movimientos" onClose={() => setViewHistoryOrder(null)} width="500px"><HistoryModalContent order={viewHistoryOrder} onClose={() => setViewHistoryOrder(null)} /></ModalWrapper>}
 
       {/* KANBAN BOARD */}
       <div className="flex-1 overflow-x-auto pb-4 custom-scrollbar mb-4">
@@ -327,6 +472,8 @@ export default function WorkOrdersPage() {
                                           onDelete={() => handleDelete(o.id)}
                                           onViewSale={() => setViewSale(salesMap[o.saleId])}
                                           onPayLab={() => setPayLabModal(o)}
+                                          onDeliver={() => handleDeliver(o)} 
+                                          onViewHistory={() => setViewHistoryOrder(o)}
                                       />
                                   ))
                               )}
@@ -358,10 +505,11 @@ export default function WorkOrdersPage() {
                              <div>
                                  <div className="font-bold text-sm text-white">{patient?.firstName} {patient?.lastName}</div>
                                  <div className="text-xs text-textMuted">{item?.description || o.type}</div>
+                                 {o.deliveredAt && <div className="text-[10px] text-emerald-400 mt-0.5">Entregado: {new Date(o.deliveredAt).toLocaleDateString()}</div>}
                              </div>
-                             <div className="text-right">
+                             <div className="flex flex-col items-end gap-1">
                                  <Badge color={o.status==="DELIVERED" ? "gray" : "red"}>{o.status === "DELIVERED" ? "Entregado" : "Cancelado"}</Badge>
-                                 <div className="text-[10px] text-textMuted mt-1">{new Date(o.updatedAt).toLocaleDateString()}</div>
+                                 <button onClick={() => setViewHistoryOrder(o)} className="text-[10px] text-blue-400 hover:underline">Ver Historial</button>
                              </div>
                          </div>
                      );
@@ -375,9 +523,11 @@ export default function WorkOrdersPage() {
 }
 
 // --- TARJETA DE TRABAJO ---
-function KanbanCard({ order, patient, sale, onAdvance, onRegress, onWarranty, onDelete, onViewSale, onPayLab }) {
+function KanbanCard({ order, patient, sale, onAdvance, onRegress, onWarranty, onDelete, onViewSale, onPayLab, onDeliver, onViewHistory }) {
     const item = sale?.items?.find(it => it.id === order.saleItemId);
-    
+    const hasBalance = sale && sale.balance > 0;
+    const pendingLabPay = order.labCost > 0 && !order.isPaid;
+
     const renderRx = (notes) => {
         if (!notes) return null;
         if (notes.trim().startsWith("{")) {
@@ -394,9 +544,41 @@ function KanbanCard({ order, patient, sale, onAdvance, onRegress, onWarranty, on
         return <div className="mt-2 text-[10px] text-textMuted truncate italic">{notes}</div>;
     };
 
+    // Lógica de Botón Principal Dinámico
+    const renderPrimaryAction = () => {
+        if (order.status === "TO_PREPARE") return (
+            <Button onClick={onAdvance} className="w-full text-xs h-8 bg-amber-600 hover:bg-amber-500 text-white shadow-md border-none">
+                📤 Enviar a Lab
+            </Button>
+        );
+        if (order.status === "SENT_TO_LAB") return (
+            <Button onClick={onAdvance} className="w-full text-xs h-8 bg-blue-600 hover:bg-blue-500 text-white shadow-md border-none">
+                📥 Recibir / Llegada
+            </Button>
+        );
+        if (order.status === "QUALITY_CHECK") return (
+            <Button onClick={onAdvance} className="w-full text-xs h-8 bg-purple-600 hover:bg-purple-500 text-white shadow-md border-none">
+                🔍 Revisión Calidad
+            </Button>
+        );
+        if (order.status === "READY") return (
+            <Button onClick={onDeliver} className="w-full text-xs h-8 bg-emerald-600 hover:bg-emerald-500 text-white shadow-glow border-none font-bold">
+                ✅ Entregar al Cliente
+            </Button>
+        );
+        if (order.status !== "DELIVERED" && order.status !== "CANCELLED") return (
+            <Button onClick={onAdvance} variant="secondary" className="w-full text-xs h-8">
+                Avanzar ➡
+            </Button>
+        );
+        return null;
+    };
+
     return (
-        <div onClick={onViewSale} className="bg-background border border-border rounded-lg p-3 shadow-sm hover:border-primary/50 transition-colors group relative cursor-pointer">
-            <div className="flex justify-between items-start mb-2">
+        <div onClick={onViewSale} className="bg-background border border-border rounded-xl p-3 shadow-sm hover:border-primary/50 transition-all group relative cursor-pointer flex flex-col gap-2">
+            
+            {/* Cabecera: Cliente y Descripción */}
+            <div className="flex justify-between items-start">
                 <div className="w-full pr-6">
                     <div className="font-bold text-white text-sm truncate" title={patient ? `${patient.firstName} ${patient.lastName}` : "Paciente"}>
                         {patient ? `${patient.firstName} ${patient.lastName}` : "Paciente"}
@@ -406,38 +588,53 @@ function KanbanCard({ order, patient, sale, onAdvance, onRegress, onWarranty, on
                 <button onClick={(e) => { e.stopPropagation(); onDelete(); }} className="absolute top-2 right-2 text-textMuted hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">×</button>
             </div>
 
-            <div className="grid grid-cols-2 gap-2 text-[10px] text-textMuted mb-2">
-                <div className="bg-surfaceHighlight rounded px-1.5 py-1">
-                    <span className="block uppercase font-bold opacity-70 text-[9px]">Lab</span>
+            {/* Datos Técnicos: Lab y Fecha */}
+            <div className="grid grid-cols-2 gap-2 text-[10px] text-textMuted">
+                <div className="bg-surfaceHighlight rounded px-2 py-1 border border-white/5">
+                    <span className="block uppercase font-bold opacity-60 text-[9px]">Lab</span>
                     <span className="text-gray-300 truncate">{order.labName || "Interno"}</span>
                 </div>
-                <div className="bg-surfaceHighlight rounded px-1.5 py-1 text-right">
-                    <span className="block uppercase font-bold opacity-70 text-[9px]">Entrega</span>
-                    <span className="text-gray-300">{order.dueDate ? new Date(order.dueDate).toLocaleDateString() : "N/D"}</span>
+                <div className={`bg-surfaceHighlight rounded px-2 py-1 border border-white/5 text-right ${new Date(order.dueDate) < new Date() && order.status !== 'READY' ? 'text-red-300 border-red-500/30' : ''}`}>
+                    <span className="block uppercase font-bold opacity-60 text-[9px]">Entrega</span>
+                    <span className="">{order.dueDate ? new Date(order.dueDate).toLocaleDateString() : "N/D"}</span>
                 </div>
             </div>
 
             {renderRx(order.rxNotes)}
 
-            <div className="flex justify-between items-center pt-2 mt-2 border-t border-border border-dashed">
-                <div className="flex gap-1" onClick={(e) => e.stopPropagation()}>
-                    {order.status !== "ON_HOLD" && order.status !== "TO_PREPARE" && (
-                        <button onClick={onRegress} className="p-1 rounded bg-surface border border-border text-textMuted hover:text-white hover:bg-surfaceHighlight" title="Regresar">←</button>
+            {/* Alertas */}
+            {(hasBalance || pendingLabPay) && (
+                <div className="flex gap-2 mt-1">
+                    {hasBalance && (
+                        <span className="text-[10px] bg-red-900/40 text-red-300 border border-red-500/30 px-2 py-0.5 rounded-full flex items-center gap-1 animate-pulse">
+                            💰 Saldo ${sale.balance}
+                        </span>
                     )}
-                    {order.status !== "READY" && (
-                        <button onClick={onAdvance} className="p-1 rounded bg-blue-600 text-white hover:bg-blue-500 shadow-glow" title="Avanzar">➡</button>
+                    {pendingLabPay && (
+                        <span onClick={(e)=>{e.stopPropagation(); onPayLab()}} className="text-[10px] bg-amber-900/40 text-amber-300 border border-amber-500/30 px-2 py-0.5 rounded-full flex items-center gap-1 cursor-pointer hover:bg-amber-900/60">
+                            ⚠️ Pagar Lab
+                        </span>
                     )}
                 </div>
+            )}
 
-                <div className="flex gap-3 text-[10px] font-medium items-center" onClick={(e) => e.stopPropagation()}>
-                    <button onClick={onWarranty} className="text-red-400 hover:underline">Garantía</button>
-                    <div className="flex gap-1">
-                        {sale && sale.balance > 0 && (
-                            <span onClick={onViewSale} className="cursor-pointer w-2.5 h-2.5 rounded-full bg-red-500 border border-background" title={`Saldo Pendiente: $${sale.balance}`}></span>
-                        )}
-                        {order.labCost > 0 && !order.isPaid && (
-                            <span onClick={onPayLab} className="cursor-pointer w-2.5 h-2.5 rounded-full bg-amber-500 border border-background animate-pulse" title={`Pago Lab Pendiente: $${order.labCost}`}></span>
-                        )}
+            {/* Footer de Acciones */}
+            <div className="mt-2 pt-2 border-t border-border flex flex-col gap-2" onClick={(e) => e.stopPropagation()}>
+                
+                <div className="flex gap-2 items-center">
+                    {order.status !== "ON_HOLD" && order.status !== "TO_PREPARE" && order.status !== "READY" && (
+                        <button onClick={onRegress} className="p-1.5 rounded bg-surface border border-border text-textMuted hover:text-white" title="Regresar Estado">↩</button>
+                    )}
+                    <div className="flex-1">
+                        {renderPrimaryAction()}
+                    </div>
+                </div>
+
+                <div className="flex justify-between items-center text-[10px] font-medium text-textMuted px-1">
+                    <button onClick={onWarranty} className="hover:text-red-400 transition-colors">🛡️ Garantía</button>
+                    <div className="flex gap-3">
+                        <button onClick={onViewHistory} className="hover:text-blue-300 transition-colors">🕒 Historial</button>
+                        <button onClick={onViewSale} className="hover:text-primary transition-colors">👁️ Ver Detalles</button>
                     </div>
                 </div>
             </div>
