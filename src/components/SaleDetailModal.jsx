@@ -11,12 +11,12 @@ import { getAllWorkOrders, updateWorkOrder } from "@/services/workOrdersStorage"
 import { getLabs } from "@/services/labStorage"; 
 import { getEmployees } from "@/services/employeesStorage"; 
 import { getTerminals } from "@/services/settingsStorage"; 
-import { useAuth } from "@/context/AuthContext"; // 👈 Para obtener nombre de sucursal
+import { useAuth } from "@/context/AuthContext"; // Para obtener nombre de sucursal
 import WorkOrderEditForm from "./sales/WorkOrderEditForm";
 
 // Servicios de Impresión
-import { printWorkOrderQZ } from "@/services/QZService"; // 👈 Nuevo servicio QZ
-import { imprimirTicket } from "@/utils/TicketHelper";   // 👈 Helper Ticket Venta
+import { printWorkOrderQZ } from "@/services/QZService"; 
+import { imprimirTicket } from "@/utils/TicketHelper";   
 
 // UI Kit
 import ModalWrapper from "@/components/ui/ModalWrapper";
@@ -26,7 +26,7 @@ import Select from "@/components/ui/Select";
 import Input from "@/components/ui/Input";   
 
 export default function SaleDetailModal({ sale: initialSale, patient, onClose, onUpdate }) {
-  const { currentBranch } = useAuth(); // Obtener config de la sucursal actual
+  const { currentBranch } = useAuth(); // Obtenemos la config actual (Lusso/Mundo)
   const [sale, setSale] = useState(initialSale);
   const [activeTab, setActiveTab] = useState("GENERAL");
   
@@ -136,7 +136,7 @@ export default function SaleDetailModal({ sale: initialSale, patient, onClose, o
   };
 
   // ==========================================
-  // 🖨️ NUEVA LÓGICA: IMPRIMIR ORDEN TALLER
+  // 🖨️ IMPRIMIR ORDEN TALLER (CORREGIDO)
   // ==========================================
   const handlePrintWorkOrder = async () => {
     try {
@@ -150,43 +150,34 @@ export default function SaleDetailModal({ sale: initialSale, patient, onClose, o
         // 2. Buscar armazón
         const frameItem = sale.items.find(i => i.kind === 'FRAMES');
 
-        // 3. Preparar RX BLINDADA (Asegurar que OD y OI existan siempre)
+        // 3. Preparar RX BLINDADA
         const snapshot = lensItem.rxSnapshot || {};
-
-        // Mapeamos posibles nombres (od/right, oi/os/left) y aseguramos objetos vacíos {} si falta alguno
         const safeRx = {
             od: snapshot.od || snapshot.right || {},
             oi: snapshot.oi || snapshot.os || snapshot.left || {} 
         };
 
-        // 3. Preparar datos para el ticket
+        // 4. Preparar datos
         const workOrderData = {
             id: sale.id,
             patientName: sale.patientName,
-            boxNumber: sale.boxNumber || "S/N", // Asegúrate que venga de la venta
+            boxNumber: sale.boxNumber || "S/N", 
             shopName: currentBranch?.name || "LUSSO VISUAL",
-            
-            // Rx Snapshot guardado al vender
             rx: safeRx,
-            
-            // Specs del lente
             lens: {
                 design: lensItem.specs?.design || lensItem.description,
                 material: lensItem.specs?.material || "",
                 treatment: lensItem.specs?.treatment || ""
             },
-            
-            // Armazón
             frame: frameItem ? {
                 description: frameItem.description,
                 model: frameItem.model || ""
             } : null
         };
 
-        // 4. Enviar a QZ
-        await printWorkOrderQZ(workOrderData);
-        // alert("Orden enviada a impresora 🖨️");
-
+        // 5. Enviar a QZ (¡Pasando currentBranch aquí!)
+        await printWorkOrderQZ(workOrderData, currentBranch);
+        
     } catch (error) {
         console.error(error);
         alert("Error al imprimir: Revisa que QZ Tray esté abierto.");
@@ -433,7 +424,7 @@ export default function SaleDetailModal({ sale: initialSale, patient, onClose, o
                 <Button 
                     variant="primary" 
                     className="bg-indigo-600 hover:bg-indigo-700 text-white border-indigo-500/50"
-                    onClick={() => printWorkOrderQZ(workOrderData, currentBranch)}
+                    onClick={handlePrintWorkOrder}
                 >
                     👓 Orden Taller
                 </Button>

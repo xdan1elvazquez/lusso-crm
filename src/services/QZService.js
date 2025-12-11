@@ -179,7 +179,7 @@ export const printOpticalTicketQZ = async (saleData, branchConfig) => {
             let desc = item.description;
             // Simplificamos nombres largos para que quepan
             if (item.kind === 'FRAMES') desc = `ARMAZON: ${item.description}`;
-            if (item.kind === 'LENSES') desc = `PAREJA LENTES OFTALMICOS`;
+            if (item.kind === 'LENSES') desc = `MICAS OFTALMICAS`;
             
             const price = `$${(qty * item.unitPrice).toFixed(2)}`;
             
