@@ -1,16 +1,36 @@
 // src/utils/TicketHelper.js
+import { printTicketQZ } from '../services/QZService'; // Asegúrate de haber creado este servicio antes
 
-export const imprimirTicket = (venta) => {
-  // 1. Configuramos el contenido HTML como texto puro.
-  // Esto garantiza que NINGÚN estilo de tu dashboard interfiera.
-  
+export const imprimirTicket = async (venta) => {
   if (!venta) return;
 
-  const branchName = "LUSSO VISUAL"; // O obtenlo de tu config
+  // ============================================================
+  // 1. INTENTO PRIORITARIO: QZ TRAY (USB DIRECTO / RAW)
+  // ============================================================
+  try {
+    // Intentamos imprimir directo al hardware para evitar drivers de Mac
+    await printTicketQZ(venta);
+    console.log("✅ Impresión exitosa vía QZ Tray");
+    return; // ¡Éxito! Terminamos aquí, no abrimos ventana emergente.
+  } catch (error) {
+    // Si llegamos aquí es porque:
+    // a) Estamos en un iPad/Celular (No existe QZ Tray).
+    // b) El programa QZ Tray está cerrado en la Mac.
+    // c) Hubo un error de conexión.
+    // EN CUALQUIER CASO: Ignoramos el error y usamos el método viejo confiable.
+    console.warn("⚠️ QZ Tray no disponible o falló. Usando impresión Web (Fallback).", error);
+  }
+
+  // ============================================================
+  // 2. FALLBACK: IMPRESIÓN WEB ESTÁNDAR (HTML / PDF)
+  // ============================================================
+  // Este código se ejecuta solo si QZ Tray falló o no está disponible.
+  
+  const branchName = "LUSSO VISUAL"; // O obtenlo de tu config si prefieres
   const fecha = new Date().toLocaleString();
   const total = parseFloat(venta.total || 0).toFixed(2);
   
-  // Generamos las filas de productos
+  // Generamos las filas de productos (HTML)
   const itemsHtml = (venta.items || []).map(item => `
     <tr style="vertical-align: top;">
       <td style="padding-top: 4px;">${item.qty}</td>
@@ -22,7 +42,7 @@ export const imprimirTicket = (venta) => {
     </tr>
   `).join('');
 
-  // Pagos
+  // Pagos (HTML)
   const pagosHtml = (venta.payments || []).map(p => `
     <div style="display: flex; justify-content: space-between; font-size: 10px;">
        <span>${p.method}:</span>
@@ -30,7 +50,7 @@ export const imprimirTicket = (venta) => {
     </div>
   `).join('');
 
-  // 2. Definimos el HTML completo del Ticket
+  // Definimos el HTML completo del Ticket (Diseño Web)
   const ticketHtml = `
     <html>
       <head>
@@ -42,7 +62,7 @@ export const imprimirTicket = (venta) => {
             font-family: 'Courier New', monospace; 
             font-size: 11px; 
             color: black;
-            width: 58mm; /* Ancho estándar térmica */
+            width: 72mm; /* Ajustado a 72mm para margen seguro */
           }
           .center { text-align: center; }
           .bold { font-weight: bold; }
@@ -105,14 +125,14 @@ export const imprimirTicket = (venta) => {
           // Autoprint y cerrar
           window.onload = function() {
             window.print();
-            // window.close(); // Descomenta esto si quieres que se cierre sola
+            // window.close(); // Opcional: Cerrar ventana tras imprimir
           }
         </script>
       </body>
     </html>
   `;
 
-  // 3. Abrimos una ventana emergente o iframe
+  // Abrimos una ventana emergente o iframe
   const ventanaImpresion = window.open('', 'PRINT', 'height=600,width=400');
   
   if (ventanaImpresion) {
