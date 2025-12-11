@@ -108,14 +108,21 @@ export default function EyeExamsPanel({ patientId, consultationId = null, onSell
   const [cl, setCl] = useState({ keratometry: { od: { k1:"", k2:"", axis:"" }, os: { k1:"", k2:"", axis:"" } }, trial: { od: { baseCurve:"", diameter:"", power:"", av:"", overRefraction:"" }, os: { baseCurve:"", diameter:"", power:"", av:"", overRefraction:"" }, notes: "" }, final: { design: "", brand: "", od: { baseCurve:"", diameter:"", power:"" }, os: { baseCurve:"", diameter:"", power:"" } } });
   const [recs, setRecs] = useState({ design: "", material: "", coating: "", usage: "" });
 
-  // ⚡ NUEVO: Estado para el catálogo
+  // Estado para el catálogo
   const [catalogOptions, setCatalogOptions] = useState({ designs: [], materials: [], treatments: [] });
 
-  // ⚡ NUEVO: Cargar catálogo al iniciar
+  // 🔥 CORRECCIÓN: Cargar catálogo de forma ASÍNCRONA (Esto arregla el error de pantalla blanca)
   useEffect(() => {
-    const labs = getLabs();
-    const fullCatalog = labs.flatMap(l => l.lensCatalog || []);
-    setCatalogOptions(getCatalogOptions(fullCatalog));
+    const loadCatalog = async () => {
+        try {
+            const labs = await getLabs(); // Ahora esperamos a la promesa
+            const fullCatalog = labs.flatMap(l => l.lensCatalog || []);
+            setCatalogOptions(getCatalogOptions(fullCatalog));
+        } catch (error) {
+            console.error("Error cargando catálogo en EyeExams:", error);
+        }
+    };
+    loadCatalog();
   }, []);
 
   const refreshData = async () => {

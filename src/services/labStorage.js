@@ -10,30 +10,41 @@ import {
   orderBy 
 } from "firebase/firestore";
 
-const COLLECTION_NAME = "labs"; // Nombre de la colección en la nube
+const COLLECTION_NAME = "labs";
 
-// --- 1. LECTURA (Obtener todos los laboratorios desde la Nube) ---
+// --- 1. LECTURA BLINDADA (Con Fallback de Seguridad) ---
 export async function getLabs() {
   try {
-    // Pedimos los datos a Firebase ordenados por nombre
-    const q = query(collection(db, COLLECTION_NAME), orderBy("name", "asc"));
-    const snapshot = await getDocs(q);
-    
-    // Convertimos el formato extraño de Firebase a una lista normal
-    return snapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data()
-    }));
+    // INTENTO 1: Pedir ordenado desde la Nube (La forma ideal)
+    try {
+        const q = query(collection(db, COLLECTION_NAME), orderBy("name", "asc"));
+        const snapshot = await getDocs(q);
+        return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    } catch (indexError) {
+        // ⚠️ SI FALLA (Porque falta el índice en Firebase):
+        // No rompemos la app. Capturamos el error y usamos el Plan B.
+        console.warn("⚠️ Aviso: Falló la consulta ordenada (falta índice). Usando modo compatibilidad...", indexError);
+        
+        // INTENTO 2: Pedir todo SIN ordenar (Esto SIEMPRE funciona)
+        const snapshot = await getDocs(collection(db, COLLECTION_NAME));
+        
+        // Recuperamos los datos
+        const list = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        
+        // Y los ordenamos aquí mismo en la computadora (Javascript)
+        // Así el usuario los ve ordenados aunque Firebase no lo haya hecho.
+        return list.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+    }
   } catch (error) {
-    console.error("Error obteniendo laboratorios:", error);
-    return [];
+    // Si falla hasta el Plan B (ej. sin internet), devolvemos vacío para no trabar la pantalla
+    console.error("❌ Error crítico obteniendo laboratorios:", error);
+    return []; 
   }
 }
 
 // --- 2. CREACIÓN (Guardar en la Nube) ---
 export async function createLab(labData) {
   try {
-    // Limpiamos datos para evitar errores (undefined no le gusta a Firebase)
     const cleanData = JSON.parse(JSON.stringify(labData));
     
     const docRef = await addDoc(collection(db, COLLECTION_NAME), {
