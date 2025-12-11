@@ -20,12 +20,17 @@ import CartList from "@/components/sales/CartList";
 import PaymentForm from "@/components/sales/PaymentForm";
 import SaleDetailModal from "./SaleDetailModal";
 
+// --- CAMBIO IMPORTANTE: Usamos el Helper de Popup en lugar del Componente ---
+// Asegúrate de que este archivo exista en src/utils/TicketHelper.js
+import { imprimirTicket } from "@/utils/TicketHelper"; 
+
 // UI Components
 import Card from "@/components/ui/Card";
-import Input from "@/components/ui/Input"; // Se mantiene por si se usa en logística
+import Input from "@/components/ui/Input"; 
 import Badge from "@/components/ui/Badge";
+import { Printer } from 'lucide-react'; // Icono para el botón de imprimir
 
-export default function SalesPanel({ patientId, prefillData, onClearPrefill }) {
+export default function SalesPanel({ patientId, prefillData, onClearPrefill, branchId }) {
   const navigate = useNavigate();
   const notify = useNotify();
   const confirm = useConfirm();
@@ -45,6 +50,8 @@ export default function SalesPanel({ patientId, prefillData, onClearPrefill }) {
   const [itemDetails, setItemDetails] = useState({ material: "", design: "", treatment: "", frameModel: "", frameStatus: "NUEVO", requiresBisel: true });
   const [currentRx, setCurrentRx] = useState(normalizeRxValue());
 
+  // NOTA: Ya no necesitamos el estado 'ticketToPrint' porque la impresión es directa via JS
+
   const loadData = async () => {
       const [p, s, x, c, l, t, e] = await Promise.all([
           getAllProducts(), getSalesByPatientId(patientId), getExamsByPatient(patientId),
@@ -59,21 +66,19 @@ export default function SalesPanel({ patientId, prefillData, onClearPrefill }) {
 
   const pos = usePOS(patientId, terminals, loadData);
 
-  // Efecto Prefill (Si vienes desde el botón "Vender" en el perfil del paciente)
+  // Efecto Prefill
   useEffect(() => {
       if (prefillData?.type === 'EXAM') {
           const e = prefillData.data;
-          
-          // Buscamos la Rx base y las recomendaciones
           const baseRx = e.refraction?.finalRx || e.rx || {};
-          const recs = e.recommendations || {}; // 👈 Extraemos recomendaciones
+          const recs = e.recommendations || {}; 
 
           setCurrentRx({
               od: { sph: parseDiopter(baseRx.od?.sph), cyl: parseDiopter(baseRx.od?.cyl), axis: baseRx.od?.axis, add: parseDiopter(baseRx.od?.add) },
               os: { sph: parseDiopter(baseRx.os?.sph), cyl: parseDiopter(baseRx.os?.cyl), axis: baseRx.os?.axis, add: parseDiopter(baseRx.os?.add) },
               pd: baseRx.pd, 
               notes: baseRx.notes,
-              recommendations: recs // 👈 CLAVE: Las inyectamos aquí
+              recommendations: recs 
           });
           setShowOpticalSpecs(true);
           onClearPrefill && onClearPrefill();
@@ -86,18 +91,10 @@ export default function SalesPanel({ patientId, prefillData, onClearPrefill }) {
       const exam = exams.find(x => x.id === examId);
       if(!exam) return;
 
-      // 1. Obtener la Rx (finalRx es donde se guarda ahora, fallback a .rx por compatibilidad)
       const rxData = exam.refraction?.finalRx || exam.rx || normalizeRxValue();
-      
-      // 2. Obtener recomendaciones (Evitamos undefined)
       const recommendations = exam.recommendations || {};
 
-      // 3. Fusionar todo en el estado actual
-      setCurrentRx({
-          ...rxData,
-          recommendations: recommendations // 👈 CLAVE: Esto permite que OpticalSelector las lea
-      });
-
+      setCurrentRx({ ...rxData, recommendations });
       setShowOpticalSpecs(true); 
       notify.success("Rx y Recomendación importadas");
       e.target.value = "";
@@ -126,19 +123,10 @@ export default function SalesPanel({ patientId, prefillData, onClearPrefill }) {
 
   const handleAddSmartLens = (lens) => {
       const specs = { ...itemDetails, design: lens.design, material: lens.material, treatment: lens.treatment };
-      
-      // La lógica de precio ahora viene en 'lens'
       pos.addToCart({ 
-          kind: "LENSES", 
-          description: `Lente ${lens.name}`, 
-          qty: 1, 
-          unitPrice: lens.calculatedPrice || 0, 
-          originalPrice: lens.originalPrice || lens.calculatedPrice, 
-          cost: lens.calculatedCost, 
-          requiresLab: true, 
-          rxSnapshot: currentRx, 
-          labName: lens.labName, 
-          specs 
+          kind: "LENSES", description: `Lente ${lens.name}`, qty: 1, 
+          unitPrice: lens.calculatedPrice || 0, originalPrice: lens.originalPrice || lens.calculatedPrice, 
+          cost: lens.calculatedCost, requiresLab: true, rxSnapshot: currentRx, labName: lens.labName, specs 
       });
   };
 
@@ -149,14 +137,25 @@ export default function SalesPanel({ patientId, prefillData, onClearPrefill }) {
       }
   };
 
+  // --- NUEVO HANDLER DE IMPRESIÓN ---
+  const handlePrintClick = (e, sale) => {
+      e.stopPropagation(); // Evitar abrir el modal de detalle
+      if (!sale) return;
+      
+      // Llamamos al helper que abre la ventana limpia
+      imprimirTicket(sale); 
+  };
+
   return (
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      
+      {/* Ya no necesitamos el TicketTemplate oculto porque usamos Popup */}
+
       {viewSale && <SaleDetailModal sale={viewSale} patient={{firstName:"", lastName:""}} onClose={()=>setViewSale(null)} onUpdate={loadData} />}
 
       {/* COLUMNA IZQUIERDA (8/12) - CONFIGURACIÓN */}
       <div className="lg:col-span-8 space-y-6">
           
-          {/* TARJETA DE LOGÍSTICA E IMPORTACIÓN */}
           <Card className="border-t-4 border-t-primary">
               <h3 className="text-sm font-bold text-textMuted uppercase tracking-wider mb-4">Configuración de Venta</h3>
               
@@ -172,7 +171,6 @@ export default function SalesPanel({ patientId, prefillData, onClearPrefill }) {
                   </div>
               </div>
 
-              {/* BARRA DE IMPORTACIÓN */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 bg-surfaceHighlight rounded-xl border border-dashed border-border">
                   <div className="relative">
                       <select onChange={handleImportExam} className="w-full pl-10 pr-4 py-2 bg-surface border border-border rounded-lg text-sm text-textMain focus:ring-1 focus:ring-primary outline-none cursor-pointer">
@@ -192,7 +190,6 @@ export default function SalesPanel({ patientId, prefillData, onClearPrefill }) {
               </div>
           </Card>
 
-          {/* SELECTORES DE PRODUCTOS */}
           <div className="space-y-6">
               <OpticalSelector 
                   show={showOpticalSpecs} onToggle={()=>setShowOpticalSpecs(true)}
@@ -233,15 +230,26 @@ export default function SalesPanel({ patientId, prefillData, onClearPrefill }) {
               </div>
               <div className="divide-y divide-border">
                   {salesHistory.slice(0,5).map(s => (
-                      <div key={s.id} onClick={()=>setViewSale(s)} className="p-4 cursor-pointer hover:bg-surfaceHighlight transition-colors group">
-                          <div className="flex justify-between items-center mb-1">
-                              <div className="font-bold text-white group-hover:text-primary transition-colors">{s.description}</div>
-                              <div className="font-bold text-emerald-400">${s.total.toLocaleString()}</div>
+                      <div key={s.id} className="p-4 hover:bg-surfaceHighlight transition-colors group relative">
+                          <div onClick={()=>setViewSale(s)} className="cursor-pointer">
+                              <div className="flex justify-between items-center mb-1">
+                                  <div className="font-bold text-white group-hover:text-primary transition-colors">{s.description || "Venta de Mostrador"}</div>
+                                  <div className="font-bold text-emerald-400">${s.total?.toLocaleString()}</div>
+                              </div>
+                              <div className="flex justify-between items-center text-xs text-textMuted">
+                                  <div>{new Date(s.createdAt).toLocaleDateString()}</div>
+                                  <Badge color={s.saleType==="LAB"?"blue":"gray"}>{s.saleType==="LAB"?"TALLER":"SIMPLE"}</Badge>
+                              </div>
                           </div>
-                          <div className="flex justify-between items-center text-xs text-textMuted">
-                              <div>{new Date(s.createdAt).toLocaleDateString()}</div>
-                              <Badge color={s.saleType==="LAB"?"blue":"gray"}>{s.saleType==="LAB"?"TALLER":"SIMPLE"}</Badge>
-                          </div>
+
+                          {/* BOTÓN IMPRIMIR ACTUALIZADO */}
+                          <button 
+                            onClick={(e) => handlePrintClick(e, s)}
+                            className="absolute right-2 top-2 p-2 bg-slate-700 hover:bg-blue-600 text-white rounded-lg opacity-0 group-hover:opacity-100 transition-all shadow-lg z-10 flex items-center justify-center"
+                            title="Imprimir Ticket Térmico"
+                          >
+                            <Printer size={16} />
+                          </button>
                       </div>
                   ))}
               </div>
