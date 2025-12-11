@@ -1,132 +1,261 @@
 import qz from 'qz-tray';
-import { sha256 } from 'js-sha256'; // O usa una librería de hash estándar si ya tienes
+import { sha256 } from 'js-sha256';
 
-// Configuración de seguridad (Necesaria para quitar alertas molestas en producción,
-// pero para pruebas locales la versión gratis te pedirá permiso una vez).
-qz.api.setSha256Type(function(data) {
-    return sha256(data);
-});
+// Configuración de seguridad para QZ Tray
+qz.api.setSha256Type(function(data) { return sha256(data); });
 
+// --- CONEXIÓN ---
 export const connectQZ = async () => {
     if (!qz.websocket.isActive()) {
-        await qz.websocket.connect();
+        try { 
+            await qz.websocket.connect(); 
+        } catch (e) { 
+            console.error("Error conectando a QZ Tray:", e); 
+            throw e; 
+        }
     }
 };
 
-export const printTicketQZ = async (ticketData) => {
+// --- HELPER: BUSCAR IMPRESORA TÉRMICA ---
+const findThermalPrinter = async () => {
+    const printers = await qz.printers.find();
+    // Ajusta estos nombres según cómo se llame tu impresora en el sistema
+    const myPrinter = printers.find(p => 
+        p.includes("WL88S") || 
+        p.includes("POS") || 
+        p.includes("Epson") || 
+        p.includes("Generic") ||
+        p.includes("T88")
+    );
+    if (!myPrinter) throw new Error("No se encontró impresora térmica compatible.");
+    return myPrinter;
+};
+
+// --- HELPER: ENCABEZADO FISCAL (Común para todos los tickets de cliente) ---
+const getFiscalHeader = (branchConfig) => {
+    const fiscal = branchConfig?.fiscalData || {};
+    const commercialName = branchConfig?.name || "LUSSO VISUAL";
+    
+    return [
+        '\x1B\x40',     // Inicializar
+        '\x1B\x61\x01', // Centrar
+        
+        // 1. Nombre Comercial (Grande)
+        '\x1B\x21\x30', 
+        `${commercialName}\n`,
+        
+        // 2. Datos Fiscales (Normal)
+        '\x1B\x21\x00', 
+        fiscal.taxName ? `${fiscal.taxName}\n` : '',
+        fiscal.rfc ? `RFC: ${fiscal.rfc}\n` : '',
+        fiscal.taxRegime ? `${fiscal.taxRegime}\n` : '',
+        
+        // 3. Dirección
+        fiscal.address ? `${fiscal.address}\n` : '',
+        (fiscal.city || fiscal.cp) ? `CP: ${fiscal.cp || ""} ${fiscal.city || ""}\n` : '',
+        fiscal.phone ? `Tel: ${fiscal.phone}\n` : '',
+        
+        `${new Date().toLocaleString()}\n`,
+        '--------------------------------\n'
+    ];
+};
+
+// =========================================================
+// 1. TICKET DE VENTA ESTÁNDAR (Gotas, Accesorios, Varios)
+// =========================================================
+export const printTicketQZ = async (ticketData, branchConfig) => {
     try {
         await connectQZ();
-        
-        // 1. Busca la impresora automáticamente
-        // Intenta encontrar la que tenga "WL88S", "POS", "Epson" o "88" en el nombre
-        const printers = await qz.printers.find();
-        const myPrinter = printers.find(p => p.includes("WL88S") || p.includes("POS") || p.includes("Epson"));
-        
-        if (!myPrinter) throw new Error("No se encontró la impresora térmica");
-
+        const myPrinter = await findThermalPrinter();
         const config = qz.configs.create(myPrinter);
 
-        // 2. DISEÑO DEL TICKET (Comandos ESC/POS)
-        // \x1B\x40 = Reset
-        // \x1B\x61\x01 = Centrar
-        // \x1B\x21\x08 = Negrita (Emphasized)
-        // \x1B\x64\x02 = Saltar 2 líneas
+        const header = getFiscalHeader(branchConfig);
         
-        const data = [
-            '\x1B\x40', // Init
-            '\x1B\x61\x01', // Center
-            '\x1B\x21\x30', // Double Height + Width (Título Grande)
-            'LUSSO VISUAL\n',
-            '\x1B\x21\x00', // Normal text
-            'Optica & Consultorio\n',
-            `${new Date().toLocaleString()}\n`,
-            '\x1B\x61\x00', // Left align
+        const body = [
+            '\x1B\x61\x00', // Alineación Izquierda
+            `Cliente: ${ticketData.patientName || "Mostrador"}\n`,
+            `Folio:   ${ticketData.id ? ticketData.id.slice(0,8).toUpperCase() : "---"}\n`,
             '--------------------------------\n',
-            `Cliente: ${ticketData.patientName}\n`,
-            `Folio:   ${ticketData.id}\n`,
-            '--------------------------------\n',
-            // Headers
             'CANT  DESCRIPCION       IMPORTE\n',
         ];
 
         // Productos
-        ticketData.items.forEach(item => {
-           // Truco para alinear columnas con espacios
-           const qty = item.qty.toString().padEnd(4); // 4 espacios para cantidad
-           const price = `$${(item.qty * item.unitPrice).toFixed(2)}`.padStart(9);
-           // Recortamos descripción si es muy larga para que quepa
-           const desc = item.description.substring(0, 16).padEnd(17); 
-           
-           data.push(`${qty} ${desc} ${price}\n`);
-        });
+        if (ticketData.items) {
+            ticketData.items.forEach(item => {
+               const qty = (item.qty || 1).toString().padEnd(3); 
+               const priceVal = (item.qty || 1) * (item.unitPrice || 0);
+               const price = `$${priceVal.toFixed(2)}`.padStart(9);
+               const desc = (item.description || "Item").substring(0, 18).padEnd(19); 
+               body.push(`${qty} ${desc} ${price}\n`);
+            });
+        }
 
-        data.push('--------------------------------\n');
-        
-        // Totales
-        data.push('\x1B\x61\x02'); // Right align
-        data.push(`TOTAL: $${ticketData.total.toFixed(2)}\n`);
-        data.push('\x1B\x61\x01'); // Center align
-        data.push('\n');
-        data.push('¡Gracias por su compra!\n');
-        data.push('No cambios en micas graduadas\n');
-        data.push('\n\n\n'); // Espacio final
-        data.push('\x1D\x56\x42\x00'); // CUT PAPER (Corte total)
-        
-        // Opcional: Abrir cajón
-        // data.push('\x1B\x70\x00\x19\xFA'); 
+        const footer = [
+            '--------------------------------\n',
+            '\x1B\x61\x02', // Derecha
+            `TOTAL: $${parseFloat(ticketData.total || 0).toFixed(2)}\n`,
+            
+            '\x1B\x61\x01', // Centro
+            '\n',
+            '¡Gracias por su compra!\n',
+            'No cambios en micas graduadas\n',
+            '\n\n\n\n', 
+            '\x1D\x56\x42\x00' // Corte Parcial
+        ];
 
-        // 3. ENVIAR A IMPRIMIR
+        const data = [...header, ...body, ...footer];
         await qz.print(config, data);
-        
         return true;
 
     } catch (err) {
-        console.error("Error QZ:", err);
-        throw err; // Lanzamos error para que el frontend sepa que falló
+        console.error("Fallo QZ Ticket Estándar:", err);
+        throw err; 
     }
 };
 
-// ... (código anterior de connectQZ y printTicketQZ) ...
-
-// ==========================================
-// NUEVA FUNCIÓN: TICKET DE ORDEN DE LABORATORIO
-// ==========================================
-export const printWorkOrderQZ = async (workOrderData) => {
+// =========================================================
+// 2. TICKET PREMIUM ÓPTICO (Lentes con RX y Garantías)
+// =========================================================
+export const printOpticalTicketQZ = async (saleData, branchConfig) => {
     try {
         await connectQZ();
-        
-        // Buscamos la impresora (igual que antes)
-        const printers = await qz.printers.find();
-        const myPrinter = printers.find(p => p.includes("WL88S") || p.includes("POS") || p.includes("Epson") || p.includes("Generic"));
-        
-        if (!myPrinter) throw new Error("Impresora no encontrada");
-
+        const myPrinter = await findThermalPrinter();
         const config = qz.configs.create(myPrinter);
 
-        // Preparamos datos
-        const { 
-            shopName = "LUSSO VISUAL",
-            patientName, 
-            boxNumber, 
-            rx, // Objeto con { od: {...}, oi: {...}, dip: ... }
-            lens, // { design, material, treatment }
-            frame, // { model, description }
-            id
-        } = workOrderData;
+        // A. Preparar RX (Buscamos primer lente)
+        const lensItem = saleData.items.find(i => i.kind === 'LENSES' || i.kind === 'CONTACT_LENS');
+        const rx = lensItem?.rxSnapshot || {};
+        const safeRx = {
+            od: rx.od || rx.right || {},
+            oi: rx.oi || rx.os || rx.left || {}
+        };
 
-        // Comandos ESC/POS
+        const header = getFiscalHeader(branchConfig);
+
         const data = [
-            '\x1B\x40', // Reset
-            '\x1B\x61\x01', // Center
-            '\x1B\x21\x30', // Titulo Grande
+            ...header,
+            
+            // Datos Paciente
+            '\x1B\x61\x00', // Izquierda
+            `PACIENTE: ${saleData.patientName.substring(0, 30)}\n`,
+            `FOLIO:    ${saleData.id.slice(0, 8).toUpperCase()}\n`,
+            `ATENDIO:  ${saleData.soldBy || "Staff"}\n`,
+            '--------------------------------\n',
+
+            // SECCIÓN RX (Estilo Invertido)
+            '\x1B\x61\x01', // Centro
+            '\x1D\x42\x01', // INVERSE ON
+            '   GRADUACION FINAL (RX)    \n', 
+            '\x1D\x42\x00', // INVERSE OFF
+            '\x1B\x61\x00', // Izquierda
+            
+            // Tabla RX
+            'OJO  ESF    CIL    EJE   ADIC\n',
+            '--------------------------------\n'
+        ];
+
+        const fNum = (n) => (n || "0.00").toString().padEnd(7);
+        const fAx = (n) => (n || "0").toString().padEnd(6);
+
+        data.push(`OD   ${fNum(safeRx.od.sph)}${fNum(safeRx.od.cyl)}${fAx(safeRx.od.axis)}${fNum(safeRx.od.add)}\n`);
+        data.push(`OI   ${fNum(safeRx.oi.sph)}${fNum(safeRx.oi.cyl)}${fAx(safeRx.oi.axis)}${fNum(safeRx.oi.add)}\n`);
+        
+        if (lensItem) {
+            data.push(`\n`);
+            // data.push(`TIPO: ${lensItem.specs?.design || "Monofocal"}\n`); // Opcional
+            data.push(`MAT:  ${lensItem.specs?.material || "CR-39"}\n`);
+            if(lensItem.specs?.treatment) data.push(`TRAT: ${lensItem.specs.treatment}\n`);
+        }
+        
+        data.push('--------------------------------\n');
+
+        // Detalle de Compra
+        data.push('\x1B\x61\x01'); // Centro
+        data.push('\x1D\x42\x01', '      DETALLE DE COMPRA     \n', '\x1D\x42\x00');
+        data.push('\x1B\x61\x00'); // Izquierda
+
+        saleData.items.forEach(item => {
+            const qty = item.qty || 1;
+            let desc = item.description;
+            // Simplificamos nombres largos para que quepan
+            if (item.kind === 'FRAMES') desc = `ARMAZON: ${item.description}`;
+            if (item.kind === 'LENSES') desc = `PAREJA LENTES OFTALMICOS`;
+            
+            const price = `$${(qty * item.unitPrice).toFixed(2)}`;
+            
+            data.push('\x1B\x45\x01'); // Bold ON
+            data.push(`${qty} x ${desc.substring(0, 25)}\n`);
+            data.push('\x1B\x45\x00'); // Bold OFF
+            
+            data.push('\x1B\x61\x02'); // Derecha
+            data.push(`${price}\n`);
+            data.push('\x1B\x61\x00'); // Izquierda
+        });
+
+        data.push('--------------------------------\n');
+
+        // Estado de Cuenta
+        const total = saleData.total || 0;
+        const pagado = saleData.paidAmount || 0;
+        const saldo = saleData.balance || 0;
+
+        data.push('\x1B\x61\x02'); // Derecha
+        data.push(`TOTAL:      $${total.toFixed(2)}\n`);
+        data.push(`A CUENTA:   $${pagado.toFixed(2)}\n`);
+        
+        // Saldo resaltado
+        data.push('\x1B\x45\x01'); // Bold ON
+        data.push('\x1D\x21\x11'); // Doble Alto
+        data.push(`RESTA:  $${saldo.toFixed(2)}\n`);
+        data.push('\x1D\x21\x00'); // Normal
+        data.push('\x1B\x45\x00'); // Bold OFF
+        
+        data.push('--------------------------------\n');
+
+        // Garantías
+        data.push('\x1B\x61\x01'); // Centro
+        data.push('GARANTIA DE ADAPTACION:\n');
+        data.push('30 dias naturales en graduacion.\n');
+        data.push('Defectos de fabrica armazon: 90 dias.\n');
+        data.push('No aplica en rayaduras o mal uso.\n');
+        data.push('\n');
+        data.push('¡Gracias por confiarnos su vision!\n');
+        
+        data.push('\n\n\n\n'); 
+        data.push('\x1D\x56\x42\x00'); // Corte
+
+        await qz.print(config, data);
+        return true;
+
+    } catch (err) {
+        console.error("Error Optical Ticket:", err);
+        throw err;
+    }
+};
+
+// =========================================================
+// 3. ORDEN DE TALLER / LABORATORIO (Interno)
+// =========================================================
+export const printWorkOrderQZ = async (workOrderData, branchConfig) => {
+    try {
+        await connectQZ();
+        const myPrinter = await findThermalPrinter();
+        const config = qz.configs.create(myPrinter);
+        
+        const { patientName, boxNumber, rx, lens, frame, id } = workOrderData;
+        const commercialName = branchConfig?.name || "LUSSO VISUAL";
+
+        const data = [
+            '\x1B\x40', 
+            '\x1B\x61\x01', // Centro
+            '\x1B\x21\x30', // Grande
             'ORDEN DE TRABAJO\n',
             '\x1B\x21\x00', // Normal
-            `${shopName}\n`,
+            `${commercialName}\n`,
             `${new Date().toLocaleString()}\n`,
             '--------------------------------\n',
             
-            // Datos Cliente y Caja
-            '\x1B\x61\x00', // Left Align
+            '\x1B\x61\x00', // Izquierda
             '\x1B\x45\x01', // Bold ON
             `PACIENTE: ${patientName.substring(0, 20)}\n`,
             `CAJA: #${boxNumber || "S/N"}\n`, 
@@ -134,64 +263,45 @@ export const printWorkOrderQZ = async (workOrderData) => {
             '\x1B\x45\x00', // Bold OFF
             '--------------------------------\n',
 
-            // --- TABLA DE GRADUACIÓN ---
-            '\x1B\x61\x01', // Center
+            '\x1B\x61\x01', // Centro
             'RX FINAL\n',
-            '\x1B\x61\x00', // Left
+            '\x1B\x61\x00', // Izquierda
             'EYE  SPH    CYL    EJE   ADD\n',
         ];
 
-        // Función auxiliar para formatear números de RX
         const fmt = (val) => (val || "0.00").toString().padEnd(7);
         const fmtAxis = (val) => (val || "0").toString().padEnd(5);
 
-        // OJO DERECHO
-        if (rx.od) {
-            const odLine = `OD   ${fmt(rx.od.sph)}${fmt(rx.od.cyl)}${fmtAxis(rx.od.axis)}${fmt(rx.od.add)}\n`;
-            data.push(odLine);
-        }
-        
-        // OJO IZQUIERDO
-        if (rx.oi) {
-            const oiLine = `OI   ${fmt(rx.oi.sph)}${fmt(rx.oi.cyl)}${fmtAxis(rx.oi.axis)}${fmt(rx.oi.add)}\n`;
-            data.push(oiLine);
-        }
+        if (rx.od) data.push(`OD   ${fmt(rx.od.sph)}${fmt(rx.od.cyl)}${fmtAxis(rx.od.axis)}${fmt(rx.od.add)}\n`);
+        if (rx.oi) data.push(`OI   ${fmt(rx.oi.sph)}${fmt(rx.oi.cyl)}${fmtAxis(rx.oi.axis)}${fmt(rx.oi.add)}\n`);
 
-        // DIP
         data.push(`\nDIP LEJOS: ${rx.dip || "--"} mm\n`);
-        if(rx.dipNear) data.push(`DIP CERCA: ${rx.dipNear} mm\n`);
-        
         data.push('--------------------------------\n');
 
-        // --- DETALLES DEL LENTE ---
-        data.push('\x1B\x45\x01'); // Bold
+        data.push('\x1B\x45\x01'); 
         data.push('LENTE / MICA:\n');
-        data.push('\x1B\x45\x00'); // Normal
+        data.push('\x1B\x45\x00'); 
         data.push(`DISENO:   ${lens.design || "Monofocal"}\n`);
         data.push(`MATERIAL: ${lens.material || "CR-39"}\n`);
         data.push(`TRATAM:   ${lens.treatment || "N/A"}\n`);
         data.push('--------------------------------\n');
 
-        // --- DETALLES DEL ARMAZÓN ---
-        data.push('\x1B\x45\x01'); // Bold
+        data.push('\x1B\x45\x01'); 
         data.push('ARMAZON:\n');
-        data.push('\x1B\x45\x00'); // Normal
+        data.push('\x1B\x45\x00'); 
         if (frame) {
             data.push(`MODELO: ${frame.description || "Propio"}\n`);
-            // data.push(`COLOR:  ${frame.color || "--"}\n`); 
         } else {
             data.push('ARMAZON PROPIO DEL CLIENTE\n');
         }
 
-        // Espacio final y corte
         data.push('\n\n\n\n'); 
-        data.push('\x1D\x56\x42\x00'); // Corte Parcial
+        data.push('\x1D\x56\x42\x00');
 
         await qz.print(config, data);
         return true;
-
     } catch (err) {
-        console.error("Error imprimiendo Orden Taller:", err);
+        console.error("Error WorkOrder:", err);
         throw err;
     }
 };

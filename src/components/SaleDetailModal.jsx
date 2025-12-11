@@ -424,7 +424,7 @@ export default function SaleDetailModal({ sale: initialSale, patient, onClose, o
         {/* ===================================== */}
         <div className="flex justify-end gap-3 mt-6 border-t border-border pt-4">
             {/* 1. IMPRIMIR TICKET DE VENTA (Siempre visible) */}
-            <Button variant="secondary" onClick={() => imprimirTicket(sale)}>
+            <Button variant="secondary" onClick={() => imprimirTicket(sale, currentBranch)}>
                 🧾 Ticket Venta
             </Button>
 
@@ -433,7 +433,7 @@ export default function SaleDetailModal({ sale: initialSale, patient, onClose, o
                 <Button 
                     variant="primary" 
                     className="bg-indigo-600 hover:bg-indigo-700 text-white border-indigo-500/50"
-                    onClick={handlePrintWorkOrder}
+                    onClick={() => printWorkOrderQZ(workOrderData, currentBranch)}
                 >
                     👓 Orden Taller
                 </Button>
