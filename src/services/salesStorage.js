@@ -7,49 +7,17 @@ import { getCurrentShift } from "./shiftsStorage";
 import { cancelWorkOrderBySaleItem } from "./workOrdersStorage"; 
 import { adjustStock } from "./inventoryStorage";
 import { adjustPatientPoints } from "./patientsStorage"; 
-import { createExpense } from "./expensesStorage"; 
+// Eliminamos createExpense de la importación porque ahora lo haremos nativo en la transacción
+// import { createExpense } from "./expensesStorage"; 
 
 const COLLECTION_NAME = "sales";
 const COLLECTION_PRODUCTS = "products";
 const COLLECTION_PATIENTS = "patients";
 const COLLECTION_LOGS = "inventory_logs";
+const COLLECTION_EXPENSES = "expenses"; // 🟢 Nueva referencia directa
 
-// --- HELPER INTERNO: CALCULAR Y REGISTRAR COMISIÓN ---
-async function registerCardCommission(payment, saleId, branchId) {
-    try {
-        if (payment.method !== "TARJETA" || !payment.terminal) return;
-
-        const terminals = await getTerminals();
-        const termConfig = terminals.find(t => t.name === payment.terminal);
-        
-        if (!termConfig) return;
-
-        let ratePct = Number(termConfig.fee) || 0;
-        
-        const monthsMatch = (payment.cardType || "").match(/(\d+)/);
-        if (monthsMatch) {
-            const months = monthsMatch[1];
-            if (termConfig.rates && termConfig.rates[months]) {
-                ratePct += Number(termConfig.rates[months]);
-            }
-        }
-
-        const commissionAmount = (Number(payment.amount) * ratePct) / 100;
-
-        if (commissionAmount > 0) {
-            await createExpense({
-                description: `Comisión Tarjeta (${payment.terminal} - ${payment.cardType || 'C'}): Venta #${saleId.slice(0,6)}`,
-                amount: commissionAmount,
-                category: "COMISION_BANCARIA",
-                method: "OTRO", 
-                date: new Date().toISOString()
-            }, branchId);
-            console.log(`✅ Comisión registrada: $${commissionAmount}`);
-        }
-    } catch (error) {
-        console.error("Error registrando comisión automática:", error);
-    }
-}
+// 🟢 HELPER: Redondeo seguro a 2 decimales (Vital para dinero)
+const roundMoney = (amount) => Math.round(Number(amount) * 100) / 100;
 
 // --- LECTURA ---
 export async function getAllSales(branchId = "lusso_main") {
@@ -89,15 +57,16 @@ export async function getSalesMetricsByShift(shiftId) {
         if (Array.isArray(sale.payments)) {
             sale.payments.forEach(pay => {
                 if (pay.shiftId === shiftId) {
-                    totalIncome += Number(pay.amount);
+                    const amount = roundMoney(pay.amount);
+                    totalIncome += amount;
                     const m = (pay.method || "OTRO").toUpperCase();
-                    if (incomeByMethod[m] !== undefined) incomeByMethod[m] += Number(pay.amount);
-                    else incomeByMethod["OTRO"] = (incomeByMethod["OTRO"] || 0) + Number(pay.amount);
+                    if (incomeByMethod[m] !== undefined) incomeByMethod[m] += amount;
+                    else incomeByMethod["OTRO"] = (incomeByMethod["OTRO"] || 0) + amount;
                 }
             });
         }
     });
-    return { totalIncome, incomeByMethod };
+    return { totalIncome: roundMoney(totalIncome), incomeByMethod };
 }
 
 export async function getFinancialReport(startDate, endDate, branchId = "lusso_main") { 
@@ -112,13 +81,20 @@ export async function getFinancialReport(startDate, endDate, branchId = "lusso_m
     snapshot.forEach(doc => {
         const s = doc.data();
         const sDate = s.createdAt.slice(0, 10);
-        if (sDate >= startDate && sDate <= endDate) totalSalesGenerated += Number(s.total) || 0;
-        if (s.balance > 0.01) totalReceivable += Number(s.balance);
+        
+        if (sDate >= startDate && sDate <= endDate) {
+            totalSalesGenerated += roundMoney(s.total || 0);
+        }
+        
+        if (s.balance > 0.01) {
+            totalReceivable += roundMoney(s.balance);
+        }
+
         if (Array.isArray(s.payments)) {
             s.payments.forEach(p => {
                 const pDate = p.paidAt.slice(0, 10);
                 if (pDate >= startDate && pDate <= endDate) {
-                    const amount = Number(p.amount) || 0;
+                    const amount = roundMoney(p.amount || 0);
                     totalIncome += amount;
                     const method = (p.method || "OTRO").toUpperCase();
                     incomeByMethod[method] = (incomeByMethod[method] || 0) + amount;
@@ -126,10 +102,17 @@ export async function getFinancialReport(startDate, endDate, branchId = "lusso_m
             });
         }
     });
-    return { totalSales: totalSalesGenerated, totalIncome, totalReceivable, incomeByMethod }; 
+    
+    return { 
+        totalSales: roundMoney(totalSalesGenerated), 
+        totalIncome: roundMoney(totalIncome), 
+        totalReceivable: roundMoney(totalReceivable), 
+        incomeByMethod 
+    }; 
 }
 
 export async function getProfitabilityReport(startDate, endDate, branchId = "lusso_main") { 
+    // Nota: Mantenemos la lógica original pero aplicamos redondeo
     const q = query(
         collection(db, COLLECTION_NAME), 
         where("branchId", "==", branchId),
@@ -142,25 +125,30 @@ export async function getProfitabilityReport(startDate, endDate, branchId = "lus
 
     snapshot.forEach(doc => {
         const s = doc.data();
-        const saleTotal = Number(s.total) || 0;
+        const saleTotal = roundMoney(s.total || 0);
         let saleCost = 0;
+        
         if (Array.isArray(s.items)) {
             s.items.forEach(item => {
                 if (item.qty > 0) {
-                    saleCost += (Number(item.cost) || 0) * item.qty;
+                    const itemCost = roundMoney((Number(item.cost) || 0) * item.qty);
+                    saleCost += itemCost;
+                    
                     const cat = item.kind || "OTHER";
                     if (!byCategory[cat]) byCategory[cat] = { sales: 0, cost: 0, profit: 0 };
-                    const itemSale = (item.unitPrice * item.qty); 
+                    
+                    const itemSale = roundMoney(item.unitPrice * item.qty); 
                     byCategory[cat].sales += itemSale;
-                    byCategory[cat].cost += ((Number(item.cost)||0) * item.qty);
-                    byCategory[cat].profit += itemSale - ((Number(item.cost)||0) * item.qty);
+                    byCategory[cat].cost += itemCost;
+                    byCategory[cat].profit += roundMoney(itemSale - itemCost);
                 }
             });
         }
         global.sales += saleTotal;
-        global.cost += saleCost;
-        global.profit += (saleTotal - saleCost);
+        global.cost += roundMoney(saleCost);
+        global.profit += roundMoney(saleTotal - saleCost);
     });
+    
     return { global, byCategory }; 
 }
 
@@ -171,7 +159,9 @@ export async function createSale(payload, branchId = "lusso_main") {
   const currentShift = await getCurrentShift(branchId);
   if (!currentShift) throw new Error("⛔ CAJA CERRADA: No hay un turno abierto en esta sucursal.");
   
+  // 🟢 LECTURAS PREVIAS (Para usarlas dentro de la transacción sin violar reglas)
   const loyalty = await getLoyaltySettings(); 
+  const terminals = await getTerminals(); // Traemos terminales para calcular comisiones
   
   const saleResult = await runTransaction(db, async (transaction) => {
     // 1. Validar Paciente
@@ -209,11 +199,11 @@ export async function createSale(payload, branchId = "lusso_main") {
     const now = new Date().toISOString();
     const hasLabItems = sanitizedItems.some(i => i.requiresLab === true);
     
-    // 4. Puntos
+    // 4. Puntos y Pagos
     let pointsToAward = 0; 
     let referrerPoints = 0;
     const paymentsWithShift = (payload.payments || []).map(p => ({ ...p, shiftId: currentShift.id }));
-    const paidAmount = paymentsWithShift.reduce((sum, p) => sum + Number(p.amount), 0);
+    const paidAmount = roundMoney(paymentsWithShift.reduce((sum, p) => sum + Number(p.amount), 0));
     const pointsUsed = paymentsWithShift.filter(p => p.method === "PUNTOS").reduce((sum, p) => sum + Number(p.amount), 0);
         
     if (pointsUsed > 0 && (patientData.points || 0) < pointsUsed) {
@@ -237,7 +227,46 @@ export async function createSale(payload, branchId = "lusso_main") {
         });
     }
 
+    // 🟢 4.5 CÁLCULO ATÓMICO DE COMISIONES BANCARIAS
+    // Esto asegura que si se vende con tarjeta, SE CREA el gasto de comisión en el mismo acto.
+    paymentsWithShift.forEach(pay => {
+        if (pay.method === "TARJETA" && pay.terminal) {
+            const termConfig = terminals.find(t => t.name === pay.terminal);
+            if (termConfig) {
+                let ratePct = Number(termConfig.fee) || 0;
+                // Ajuste por meses sin intereses si aplica
+                const monthsMatch = (pay.cardType || "").match(/(\d+)/);
+                if (monthsMatch) {
+                    const months = monthsMatch[1];
+                    if (termConfig.rates && termConfig.rates[months]) {
+                        ratePct += Number(termConfig.rates[months]);
+                    }
+                }
+                
+                const commissionAmount = roundMoney((Number(pay.amount) * ratePct) / 100);
+                
+                if (commissionAmount > 0) {
+                    const expenseRef = doc(collection(db, COLLECTION_EXPENSES));
+                    transaction.set(expenseRef, {
+                        description: `Comisión Tarjeta (${pay.terminal} - ${pay.cardType || 'C'}): Venta (Nueva)`,
+                        amount: commissionAmount,
+                        category: "COMISION_BANCARIA",
+                        method: "OTRO",
+                        branchId: branchId,
+                        date: now,
+                        createdAt: now
+                        // Nota: Ponemos "Venta (Nueva)" porque aún no tenemos el ID exacto aquí de forma fácil para interpolar,
+                        // pero garantizamos que el gasto existe.
+                    });
+                }
+            }
+        }
+    });
+
     const newSaleRef = doc(collection(db, COLLECTION_NAME));
+    const totalSale = roundMoney(payload.total || 0);
+    const balance = Math.max(0, roundMoney(totalSale - paidAmount));
+
     const newSale = {
         branchId: branchId,
         patientId: payload.patientId,
@@ -247,11 +276,11 @@ export async function createSale(payload, branchId = "lusso_main") {
         kind: sanitizedItems[0]?.kind || "OTHER",
         saleType: hasLabItems ? "LAB" : "SIMPLE",
         description: payload.description || (hasLabItems ? "Venta Óptica" : "Venta Mostrador"),
-        subtotalGross: Number(payload.subtotalGross) || 0,
-        discount: Number(payload.discount) || 0,
-        total: Number(payload.total) || 0,
+        subtotalGross: roundMoney(payload.subtotalGross || 0),
+        discount: roundMoney(payload.discount || 0),
+        total: totalSale,
         paidAmount: paidAmount,
-        balance: Math.max(0, payload.total - paidAmount),
+        balance: balance,
         items: sanitizedItems,
         payments: paymentsWithShift,
         shiftId: currentShift.id,
@@ -260,12 +289,11 @@ export async function createSale(payload, branchId = "lusso_main") {
         pointsAwarded: pointsToAward,
         status: "PENDING"
     };
-    if (newSale.balance <= 0.01) newSale.status = "PAID";
+    if (balance <= 0.01) newSale.status = "PAID";
 
+    // Lógica WorkOrders (Lab)
     if (hasLabItems) {
-        const total = Number(newSale.total) || 0;
-        const paid = Number(newSale.paidAmount) || 0;
-        const ratio = total > 0 ? paid / total : 1;
+        const ratio = totalSale > 0 ? paidAmount / totalSale : 1;
         const initialStatus = ratio >= 0.5 ? "TO_PREPARE" : "ON_HOLD";
 
         const lenses = sanitizedItems.filter(i => i.kind === "LENSES");
@@ -340,24 +368,16 @@ export async function createSale(payload, branchId = "lusso_main") {
     return { id: newSaleRef.id, ...newSale };
   });
 
-  if (saleResult && saleResult.payments) {
-      for (const p of saleResult.payments) {
-          await registerCardCommission(p, saleResult.id, branchId);
-      }
-  }
-
   return saleResult;
 }
 
-// --- MODIFICACIONES DE VENTA (ABONOS CORREGIDO) ---
+// --- MODIFICACIONES DE VENTA ---
 export async function addPaymentToSale(saleId, payment) {
   const shift = await getCurrentShift(); 
   if (!shift) throw new Error("⛔ CAJA CERRADA: Abre un turno para abonos.");
 
-  // 1. Obtener Config de Lealtad antes de la transacción
   const loyalty = await getLoyaltySettings();
-
-  let saleBranchId = null;
+  const terminals = await getTerminals(); // 🟢 Importante para comisiones en abonos
 
   await runTransaction(db, async (transaction) => {
       const saleRef = doc(db, COLLECTION_NAME, saleId);
@@ -365,19 +385,17 @@ export async function addPaymentToSale(saleId, payment) {
       if (!saleSnap.exists()) throw new Error("Venta no encontrada");
       
       const saleData = saleSnap.data();
-      saleBranchId = saleData.branchId; 
+      const branchId = saleData.branchId; 
 
       if (saleData.branchId && shift.branchId && saleData.branchId !== shift.branchId) {
           throw new Error(`⛔ SUCURSAL INCORRECTA: Venta de "${saleData.branchId}".`);
       }
 
-      // Validar Paciente para Puntos
       const patientRef = doc(db, COLLECTION_PATIENTS, saleData.patientId);
       const patientSnap = await transaction.get(patientRef);
       if (!patientSnap.exists()) throw new Error("Paciente no encontrado");
       const patientData = patientSnap.data();
 
-      // Validar Referido si existe
       let referrerRef = null;
       let referrerSnap = null;
       if (loyalty.enabled && patientData.referredBy) {
@@ -385,15 +403,14 @@ export async function addPaymentToSale(saleId, payment) {
           referrerSnap = await transaction.get(referrerRef);
       }
 
-      const currentPaid = (saleData.payments || []).reduce((sum, p) => sum + (Number(p.amount)||0), 0);
-      const balance = saleData.total - currentPaid;
+      const currentPaid = roundMoney((saleData.payments || []).reduce((sum, p) => sum + (Number(p.amount)||0), 0));
+      const balance = roundMoney(saleData.total - currentPaid);
       
-      const amountToPay = Math.min(Number(payment.amount), balance);
+      const amountToPay = roundMoney(Math.min(Number(payment.amount), balance));
       if (amountToPay <= 0) return; 
 
       const method = payment.method || "EFECTIVO";
 
-      // Lógica de Puntos USADOS (Pagar con puntos)
       let pointsUsed = 0;
       if (method === "PUNTOS") {
           const pPoints = patientData.points || 0;
@@ -401,7 +418,6 @@ export async function addPaymentToSale(saleId, payment) {
           pointsUsed = amountToPay;
       }
 
-      // Lógica de Puntos GANADOS (Award) - 🔥 ESTO FALTABA
       let pointsToAward = 0;
       let referrerPoints = 0;
 
@@ -415,7 +431,34 @@ export async function addPaymentToSale(saleId, payment) {
           }
       }
 
-      // Crear Objeto Pago
+      // 🟢 COMISIÓN ATÓMICA PARA ABONOS
+      if (method === "TARJETA" && payment.terminal) {
+         const termConfig = terminals.find(t => t.name === payment.terminal);
+         if (termConfig) {
+             let ratePct = Number(termConfig.fee) || 0;
+             const monthsMatch = (payment.cardType || "").match(/(\d+)/);
+             if (monthsMatch) {
+                 const months = monthsMatch[1];
+                 if (termConfig.rates && termConfig.rates[months]) {
+                     ratePct += Number(termConfig.rates[months]);
+                 }
+             }
+             const commissionAmount = roundMoney((amountToPay * ratePct) / 100);
+             if (commissionAmount > 0) {
+                 const expenseRef = doc(collection(db, COLLECTION_EXPENSES));
+                 transaction.set(expenseRef, {
+                     description: `Comisión Tarjeta (${payment.terminal}): Abono a Venta #${saleId.slice(0,6)}`,
+                     amount: commissionAmount,
+                     category: "COMISION_BANCARIA",
+                     method: "OTRO",
+                     branchId: branchId,
+                     date: new Date().toISOString(),
+                     createdAt: new Date().toISOString()
+                 });
+             }
+         }
+      }
+
       const newPayment = {
           id: crypto.randomUUID(),
           amount: amountToPay,
@@ -428,39 +471,34 @@ export async function addPaymentToSale(saleId, payment) {
       };
 
       const newPayments = [...(saleData.payments||[]), newPayment];
-      const newBalance = saleData.total - (currentPaid + amountToPay);
+      const newPaidTotal = roundMoney(currentPaid + amountToPay);
+      const newBalance = roundMoney(saleData.total - newPaidTotal);
 
-      // Actualizar Venta
       transaction.update(saleRef, {
           payments: newPayments,
           balance: newBalance,
-          paidAmount: currentPaid + amountToPay,
+          paidAmount: newPaidTotal,
           status: newBalance <= 0.01 ? "PAID" : "PENDING",
-          pointsAwarded: (saleData.pointsAwarded || 0) + pointsToAward, // 👈 Sumamos puntos ganados al registro de venta
+          pointsAwarded: (saleData.pointsAwarded || 0) + pointsToAward, 
           updatedAt: new Date().toISOString()
       });
 
-      // Actualizar Puntos del Paciente (Neto)
       const netPointsChange = pointsToAward - pointsUsed;
       if (netPointsChange !== 0) {
           transaction.update(patientRef, { points: (Number(patientData.points) || 0) + netPointsChange });
       }
 
-      // Actualizar Puntos del Referido
       if (referrerPoints > 0 && referrerSnap.exists()) {
           transaction.update(referrerRef, { points: (Number(referrerSnap.data().points) || 0) + referrerPoints });
       }
   });
-
-  if (payment.method === "TARJETA" && saleBranchId) {
-      await registerCardCommission(payment, saleId, saleBranchId);
-  }
 }
 
-// 🟢 NUEVA FUNCIÓN: ELIMINAR UN PAGO INDIVIDUAL
+// 🟢 ELIMINAR PAGO INDIVIDUAL
 export async function deletePaymentFromSale(saleId, paymentId) {
     const currentShift = await getCurrentShift();
     if (!currentShift) throw new Error("⛔ CAJA CERRADA: Necesitas turno abierto para corregir pagos.");
+    const loyalty = await getLoyaltySettings();
 
     await runTransaction(db, async (transaction) => {
         const saleRef = doc(db, COLLECTION_NAME, saleId);
@@ -474,7 +512,7 @@ export async function deletePaymentFromSale(saleId, paymentId) {
         
         const paymentToDelete = saleData.payments[paymentIndex];
         
-        // 1. Revertir Puntos USADOS (Si pagó con puntos, se los devolvemos)
+        // 1. Revertir Puntos USADOS
         if (paymentToDelete.method === "PUNTOS") {
             const patientRef = doc(db, COLLECTION_PATIENTS, saleData.patientId);
             const patientSnap = await transaction.get(patientRef);
@@ -484,10 +522,8 @@ export async function deletePaymentFromSale(saleId, paymentId) {
             }
         }
 
-        // 2. Revertir Puntos GANADOS (Si ganó puntos, se los quitamos)
-        const loyalty = await getLoyaltySettings();
+        // 2. Revertir Puntos GANADOS
         let pointsToRevoke = 0;
-
         if (loyalty.enabled && paymentToDelete.method !== "PUNTOS") {
             const rate = loyalty.earningRates[paymentToDelete.method] || loyalty.earningRates["GLOBAL"] || 0;
             pointsToRevoke = Math.floor((Number(paymentToDelete.amount) * rate) / 100);
@@ -503,16 +539,15 @@ export async function deletePaymentFromSale(saleId, paymentId) {
 
         // 3. Recalcular
         const newPayments = saleData.payments.filter(p => p.id !== paymentId);
-        const newPaidAmount = newPayments.reduce((sum, p) => sum + Number(p.amount), 0);
-        const newBalance = saleData.total - newPaidAmount;
+        const newPaidAmount = roundMoney(newPayments.reduce((sum, p) => sum + Number(p.amount), 0));
+        const newBalance = roundMoney(saleData.total - newPaidAmount);
 
-        // 4. Actualizar Venta (Restamos puntos ganados del registro de venta)
         transaction.update(saleRef, {
             payments: newPayments,
             paidAmount: newPaidAmount,
             balance: newBalance,
             status: newBalance <= 0.01 ? "PAID" : "PENDING",
-            pointsAwarded: Math.max(0, (saleData.pointsAwarded || 0) - pointsToRevoke), // 👈 Restamos puntos revocados
+            pointsAwarded: Math.max(0, (saleData.pointsAwarded || 0) - pointsToRevoke), 
             updatedAt: new Date().toISOString()
         });
     });
@@ -565,7 +600,7 @@ export async function processReturn(saleId, itemId, qtyToReturn, refundMethod = 
 
     const grossRefund = item.unitPrice * qtyToReturn;
     const discountRecapture = grossRefund * discountRatio; 
-    const netRefund = Math.round((grossRefund - discountRecapture) * 100) / 100;
+    const netRefund = roundMoney(grossRefund - discountRecapture);
 
     let newPayments = [...(sale.payments||[])];
     
@@ -602,11 +637,11 @@ export async function processReturn(saleId, itemId, qtyToReturn, refundMethod = 
         qty: item.qty - qtyToReturn
     };
 
-    const newSubtotal = updatedItems.reduce((sum, i) => sum + (i.qty * i.unitPrice), 0);
-    const newDiscount = Math.max(0, (sale.discount || 0) - discountRecapture);
-    const newTotal = Math.max(0, newSubtotal - newDiscount);
-    const newPaidAmount = newPayments.reduce((sum, p) => sum + (Number(p.amount)||0), 0);
-    const newBalance = Math.max(0, newTotal - newPaidAmount);
+    const newSubtotal = roundMoney(updatedItems.reduce((sum, i) => sum + (i.qty * i.unitPrice), 0));
+    const newDiscount = roundMoney(Math.max(0, (sale.discount || 0) - discountRecapture));
+    const newTotal = roundMoney(Math.max(0, newSubtotal - newDiscount));
+    const newPaidAmount = roundMoney(newPayments.reduce((sum, p) => sum + (Number(p.amount)||0), 0));
+    const newBalance = roundMoney(Math.max(0, newTotal - newPaidAmount));
 
     let newStatus = sale.status;
     if (newBalance <= 0.01) newStatus = newTotal === 0 ? "REFUNDED" : "PAID";
@@ -614,11 +649,11 @@ export async function processReturn(saleId, itemId, qtyToReturn, refundMethod = 
     await updateDoc(saleRef, { 
         items: updatedItems, 
         subtotalGross: newSubtotal,
-        discount: Math.round(newDiscount * 100) / 100,
-        total: Math.round(newTotal * 100) / 100, 
+        discount: newDiscount,
+        total: newTotal, 
         payments: newPayments,
-        paidAmount: Math.round(newPaidAmount * 100) / 100,
-        balance: Math.round(newBalance * 100) / 100,
+        paidAmount: newPaidAmount,
+        balance: newBalance,
         status: newStatus,
         pointsAwarded: Math.max(0, (sale.pointsAwarded || 0) - pointsToRevoke), 
         updatedAt: new Date().toISOString() 
