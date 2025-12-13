@@ -1,10 +1,7 @@
-// src/utils/TicketHelper.js
 import { printTicketQZ, printOpticalTicketQZ } from '../services/QZService'; 
 
-// 🟢 IMPORTS PARA WHATSAPP
+// 🟢 IMPORTS PARA WHATSAPP (Sin Firebase Storage)
 import { jsPDF } from "jspdf";
-import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
-import { storage } from "@/firebase/config"; 
 import { sendTicketPdf } from "@/services/whatsappService";
 
 export const imprimirTicket = async (venta, branchConfig) => {
@@ -167,7 +164,8 @@ export const imprimirTicket = async (venta, branchConfig) => {
 };
 
 /**
- * 🟢 FUNCIÓN ACTUALIZADA: Genera PDF con DATOS FISCALES completos, lo sube y avisa a n8n
+ * 🟢 FUNCIÓN ACTUALIZADA (Plan B): Envía PDF en Base64 directo a N8N
+ * Sin subir a Firebase Storage para evitar errores CORS.
  */
 export const enviarTicketWhatsapp = async (venta, paciente, branchConfig) => {
     // Validaciones
@@ -182,7 +180,7 @@ export const enviarTicketWhatsapp = async (venta, paciente, branchConfig) => {
     }
 
     try {
-        // 1. GENERAR PDF
+        // 1. GENERAR PDF (Igual que antes)
         const doc = new jsPDF({
             unit: 'mm',
             format: [80, 250] // Formato largo tipo ticket
@@ -192,7 +190,7 @@ export const enviarTicketWhatsapp = async (venta, paciente, branchConfig) => {
         let y = 10;
         const fiscal = branchConfig.fiscalData || {}; // Obtenemos datos fiscales
         
-        // --- ENCABEZADO FISCAL (Igual que el impreso) ---
+        // --- ENCABEZADO FISCAL ---
         doc.setFontSize(12);
         doc.setFont("helvetica", "bold");
         doc.text(branchConfig.name || "ÓPTICA", 40, y, { align: "center" });
@@ -201,17 +199,14 @@ export const enviarTicketWhatsapp = async (venta, paciente, branchConfig) => {
         doc.setFontSize(8);
         doc.setFont("helvetica", "normal");
 
-        // Razón Social / Tax Name
         if (fiscal.taxName) {
             doc.text(fiscal.taxName, 40, y, { align: "center" });
             y += 4;
         }
-        // RFC
         if (fiscal.rfc) {
             doc.text(`RFC: ${fiscal.rfc}`, 40, y, { align: "center" });
             y += 4;
         }
-        // Régimen Fiscal
         if (fiscal.taxRegime) {
             doc.setFontSize(7);
             doc.text(fiscal.taxRegime, 40, y, { align: "center" });
@@ -219,15 +214,13 @@ export const enviarTicketWhatsapp = async (venta, paciente, branchConfig) => {
             y += 4;
         }
         
-        // Dirección (Fiscal o de Sucursal)
         const direccion = fiscal.address || branchConfig.address || "";
         if (direccion) {
-            const splitDir = doc.splitTextToSize(direccion, 70); // Ajustar al ancho
+            const splitDir = doc.splitTextToSize(direccion, 70); 
             doc.text(splitDir, 40, y, { align: "center" });
             y += (splitDir.length * 3.5) + 1;
         }
         
-        // Teléfono
         const telefono = fiscal.phone || branchConfig.phone || "";
         if (telefono) {
             doc.text(`Tel: ${telefono}`, 40, y, { align: "center" });
@@ -267,20 +260,13 @@ export const enviarTicketWhatsapp = async (venta, paciente, branchConfig) => {
         doc.setFont("helvetica", "bold");
         doc.text(`TOTAL: $${Number(venta.total).toFixed(2)}`, 75, y, { align: "right" });
         
-        // 2. CONVERTIR A BLOB
-        const pdfBlob = doc.output('blob');
+        // 2. CONVERTIR A BASE64 (Aquí está el cambio clave)
+        // Generamos el string completo codificado
+        const base64String = doc.output('datauristring');
 
-        // 3. SUBIR A FIREBASE
-        const fileName = `tickets/${venta.branchId}/${venta.id}_${Date.now()}.pdf`;
-        const storageRef = ref(storage, fileName);
-        
-        console.log("Subiendo ticket a la nube...");
-        
-        const snapshot = await uploadBytes(storageRef, pdfBlob);
-        const downloadURL = await getDownloadURL(snapshot.ref);
-
-        // 4. ENVIAR A N8N
-        await sendTicketPdf(venta, paciente, downloadURL);
+        // 3. ENVIAR A N8N DIRECTO (Sin subir a nube)
+        console.log("Enviando Ticket Base64 a n8n...");
+        await sendTicketPdf(venta, paciente, base64String);
 
         alert("✅ Ticket enviado a procesar por WhatsApp.");
 

@@ -13,10 +13,11 @@ import { getEmployees } from "@/services/employeesStorage";
 import { getTerminals } from "@/services/settingsStorage"; 
 import { useAuth } from "@/context/AuthContext"; 
 import WorkOrderEditForm from "./sales/WorkOrderEditForm";
+import { getPatientById } from "@/services/patientsStorage"; 
 
 // Servicios de Impresión y WhatsApp
 import { printWorkOrderQZ } from "@/services/QZService"; 
-import { imprimirTicket, enviarTicketWhatsapp } from "@/utils/TicketHelper"; // 👈 IMPORTANTE: Agregado enviarTicketWhatsapp
+import { imprimirTicket, enviarTicketWhatsapp } from "@/utils/TicketHelper"; 
 
 // UI Kit
 import ModalWrapper from "@/components/ui/ModalWrapper";
@@ -25,20 +26,25 @@ import Button from "@/components/ui/Button";
 import Select from "@/components/ui/Select"; 
 import Input from "@/components/ui/Input";   
 
-export default function SaleDetailModal({ sale: initialSale, patient, onClose, onUpdate }) {
-  const { currentBranch } = useAuth(); // Obtenemos la config actual (Lusso/Mundo)
+export default function SaleDetailModal({ sale: initialSale, patient: initialPatient, onClose, onUpdate }) {
+  const { currentBranch } = useAuth(); 
   const [sale, setSale] = useState(initialSale);
+  
+  // State for patient data
+  const [patient, setPatient] = useState(initialPatient || null);
+  const [loadingPatient, setLoadingPatient] = useState(false); // 🟢 New loading state
+
   const [activeTab, setActiveTab] = useState("GENERAL");
   
-  // --- ESTADOS VENDEDOR ---
+  // --- SELLER STATES ---
   const [soldBy, setSoldBy] = useState(sale.soldBy || "");
   const [isEditingSeller, setIsEditingSeller] = useState(false);
 
-  // --- ESTADOS DEVOLUCIÓN ---
+  // --- RETURN STATES ---
   const [refundMethod, setRefundMethod] = useState("EFECTIVO");
   const [returnToStock, setReturnToStock] = useState(true);
 
-  // --- ESTADOS PAGOS ---
+  // --- PAYMENT STATES ---
   const [editingPaymentId, setEditingPaymentId] = useState(null); 
   const [tempMethod, setTempMethod] = useState("");
   const [showAddPayment, setShowAddPayment] = useState(false);
@@ -53,13 +59,43 @@ export default function SaleDetailModal({ sale: initialSale, patient, onClose, o
 
   const isLabSale = sale.saleType === "LAB" || (!sale.saleType && sale.items.some(i => i.requiresLab));
 
+  // 🟢 ENHANCED LOAD EFFECT
   useEffect(() => {
-      Promise.all([getLabs(), getEmployees(), getAllWorkOrders(), getTerminals()]).then(([l, e, w, t]) => {
-          setLabs(l); setEmployees(e);
-          setWorkOrders(w.filter(wo => wo.saleId === sale.id));
-          setTerminals(t);
-      });
-  }, [sale.id]);
+      async function loadData() {
+          // 1. If patient is missing or incomplete (no phone), fetch it
+          if ((!patient || !patient.phone) && sale.patientId) {
+              setLoadingPatient(true);
+              try {
+                  console.log("Fetching patient data for:", sale.patientId);
+                  const pData = await getPatientById(sale.patientId);
+                  if (pData) {
+                      setPatient(pData);
+                  }
+              } catch (e) {
+                  console.error("Error fetching patient:", e);
+              } finally {
+                  setLoadingPatient(false);
+              }
+          }
+
+          // 2. Load catalogs
+          try {
+              const [l, e, w, t] = await Promise.all([
+                  getLabs(), 
+                  getEmployees(), 
+                  getAllWorkOrders(), 
+                  getTerminals()
+              ]);
+              setLabs(l); 
+              setEmployees(e);
+              setWorkOrders(w.filter(wo => wo.saleId === sale.id));
+              setTerminals(t);
+          } catch (error) {
+              console.error(error);
+          }
+      }
+      loadData();
+  }, [sale.id, sale.patientId]); 
 
   const refreshLocalSale = async () => {
       const fresh = await getSaleById(sale.id);
@@ -135,9 +171,6 @@ export default function SaleDetailModal({ sale: initialSale, patient, onClose, o
       alert("Orden actualizada");
   };
 
-  // ==========================================
-  // 🖨️ IMPRIMIR ORDEN TALLER
-  // ==========================================
   const handlePrintWorkOrder = async () => {
     try {
         const lensItem = sale.items.find(i => i.kind === 'LENSES' || i.kind === 'CONTACT_LENS');
@@ -412,12 +445,13 @@ export default function SaleDetailModal({ sale: initialSale, patient, onClose, o
                 🧾 Ticket Venta
             </Button>
             
-            {/* 🟢 NUEVO: ENVIAR WHATSAPP (A n8n) */}
+            {/* 🟢 NUEVO: ENVIAR WHATSAPP (A n8n) - Ahora espera a que 'patient' esté listo */}
             <Button 
-                className="bg-green-600 hover:bg-green-700 text-white border-green-500/50"
-                onClick={() => enviarTicketWhatsapp(sale, patient, currentBranch)}
+                className={`text-white border-green-500/50 ${loadingPatient ? 'bg-gray-600 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700'}`}
+                onClick={() => !loadingPatient && enviarTicketWhatsapp(sale, patient, currentBranch)}
+                disabled={loadingPatient}
             >
-                📱 Enviar WA
+                {loadingPatient ? '⏳ Cargando...' : '📱 Enviar WA'}
             </Button>
 
             {/* 2. IMPRIMIR ORDEN TALLER (Solo si tiene lentes) */}

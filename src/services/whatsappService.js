@@ -43,8 +43,9 @@ export async function sendOrderStatusNotification(order, patient) {
 
 /**
  * Envía notificación de TICKET PDF (Venta)
+ * 🟢 ACTUALIZADO: Recibe Base64 en lugar de URL
  */
-export async function sendTicketPdf(sale, patient, pdfUrl) {
+export async function sendTicketPdf(sale, patient, pdfBase64) {
   try {
     const branchConfig = getBranchConfig(sale.branchId || "lusso_main");
     const webhookUrl = branchConfig.whatsappConfig?.ticketWebhook;
@@ -58,13 +59,15 @@ export async function sendTicketPdf(sale, patient, pdfUrl) {
         phone: patient.phone,
         patientName: sale.patientName,
         saleId: sale.id,
-        pdfUrl: pdfUrl,
+        pdfBase64: pdfBase64, // 👈 CAMBIO CLAVE: Enviamos el archivo codificado aquí
         total: sale.total,
         branchName: branchConfig.name,
         messageType: "TICKET_PDF"
     };
 
-    console.log(`📤 Enviando PDF a n8n (${branchConfig.name})...`);
+    console.log(`📤 Enviando PDF Base64 a n8n (${branchConfig.name})...`);
+    
+    // Enviamos el payload (que ahora incluye el archivo)
     fetch(webhookUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
