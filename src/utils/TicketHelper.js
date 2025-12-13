@@ -1,6 +1,12 @@
 // src/utils/TicketHelper.js
 import { printTicketQZ, printOpticalTicketQZ } from '../services/QZService'; 
 
+// 🟢 IMPORTS PARA WHATSAPP
+import { jsPDF } from "jspdf";
+import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import { storage } from "@/firebase/config"; 
+import { sendTicketPdf } from "@/services/whatsappService";
+
 export const imprimirTicket = async (venta, branchConfig) => {
   if (!venta) return;
 
@@ -8,9 +14,6 @@ export const imprimirTicket = async (venta, branchConfig) => {
   // 1. INTENTO PRIORITARIO: QZ TRAY (USB DIRECTO / RAW)
   // ============================================================
   try {
-    // 🔍 ANÁLISIS INTELIGENTE DE LA VENTA
-    // Detectamos si la venta incluye productos ópticos (Lentes, L.C., Armazones)
-    // o si algún item requiere laboratorio explícitamente.
     const esVentaOptica = venta.items.some(i => 
         i.kind === 'LENSES' || 
         i.kind === 'CONTACT_LENS' || 
@@ -19,38 +22,29 @@ export const imprimirTicket = async (venta, branchConfig) => {
     );
 
     if (esVentaOptica) {
-        // ✅ MODO PREMIUM CLÍNICO:
-        // Incluye Tabla de Rx, Desglose de Lente/Armazón y Garantías de Salud Visual
         await printOpticalTicketQZ(venta, branchConfig);
         console.log("✅ Impresión ÓPTICA exitosa vía QZ Tray");
     } else {
-        // 🛒 MODO ESTÁNDAR (Simplificado):
-        // Para gotas, accesorios o servicios generales
         await printTicketQZ(venta, branchConfig);
         console.log("✅ Impresión ESTÁNDAR exitosa vía QZ Tray");
     }
     
-    return; // ¡Éxito! Terminamos aquí, no abrimos ventana web.
+    return; 
 
   } catch (error) {
-    // Si llegamos aquí es porque estamos en iPad/Móvil o QZ está cerrado.
-    // Continuamos al método Web (Fallback) sin detener el flujo.
     console.warn("⚠️ QZ Tray no disponible o falló. Usando impresión Web (Fallback).", error);
   }
 
   // ============================================================
   // 2. FALLBACK: IMPRESIÓN WEB ESTÁNDAR (HTML / PDF)
   // ============================================================
-  // Este código se ejecuta solo si QZ Tray falló o no está disponible.
-  // Genera un ticket HTML legalmente válido para imprimir desde el navegador.
 
   const commercialName = branchConfig?.name || "LUSSO VISUAL";
-  const fiscal = branchConfig?.fiscalData || {}; // Datos Fiscales Dinámicos
+  const fiscal = branchConfig?.fiscalData || {}; 
   
   const fecha = new Date().toLocaleString();
   const total = parseFloat(venta.total || 0).toFixed(2);
   
-  // Generamos las filas de productos (HTML)
   const itemsHtml = (venta.items || []).map(item => `
     <tr style="vertical-align: top;">
       <td style="padding-top: 4px;">${item.qty}</td>
@@ -62,7 +56,6 @@ export const imprimirTicket = async (venta, branchConfig) => {
     </tr>
   `).join('');
 
-  // Pagos (HTML)
   const pagosHtml = (venta.payments || []).map(p => `
     <div style="display: flex; justify-content: space-between; font-size: 10px;">
        <span>${p.method}:</span>
@@ -70,7 +63,6 @@ export const imprimirTicket = async (venta, branchConfig) => {
     </div>
   `).join('');
 
-  // Definimos el HTML completo del Ticket (Diseño Web Legal)
   const ticketHtml = `
     <html>
       <head>
@@ -82,7 +74,7 @@ export const imprimirTicket = async (venta, branchConfig) => {
             font-family: 'Courier New', monospace; 
             font-size: 11px; 
             color: black;
-            width: 72mm; /* Ancho seguro estándar */
+            width: 72mm;
           }
           .center { text-align: center; }
           .bold { font-weight: bold; }
@@ -92,8 +84,6 @@ export const imprimirTicket = async (venta, branchConfig) => {
           th { text-align: left; border-bottom: 1px solid black; }
           .small { font-size: 10px; }
           .tiny { font-size: 9px; }
-          
-          /* Ocultar header/footer del navegador al imprimir */
           @media print {
             @page { margin: 0; size: auto; }
             body { margin: 0; }
@@ -157,24 +147,145 @@ export const imprimirTicket = async (venta, branchConfig) => {
         </div>
         
         <script>
-          // Autoprint y cerrar (comentado close para pruebas)
           window.onload = function() {
             window.print();
-            // window.close(); 
           }
         </script>
       </body>
     </html>
   `;
 
-  // Abrimos ventana emergente
   const ventanaImpresion = window.open('', 'PRINT', 'height=600,width=400');
   
   if (ventanaImpresion) {
     ventanaImpresion.document.write(ticketHtml);
-    ventanaImpresion.document.close(); // Necesario para terminar carga
-    ventanaImpresion.focus(); // Enfocar para asegurar impresión
+    ventanaImpresion.document.close(); 
+    ventanaImpresion.focus(); 
   } else {
     alert("Por favor permite las ventanas emergentes (Pop-ups) para imprimir.");
   }
+};
+
+/**
+ * 🟢 FUNCIÓN ACTUALIZADA: Genera PDF con DATOS FISCALES completos, lo sube y avisa a n8n
+ */
+export const enviarTicketWhatsapp = async (venta, paciente, branchConfig) => {
+    // Validaciones
+    if (!paciente?.phone) {
+        alert("El paciente no tiene celular registrado.");
+        return;
+    }
+
+    if (!branchConfig?.whatsappConfig?.ticketWebhook) {
+        alert("Esta sucursal no tiene configurado el envío por WhatsApp.");
+        return;
+    }
+
+    try {
+        // 1. GENERAR PDF
+        const doc = new jsPDF({
+            unit: 'mm',
+            format: [80, 250] // Formato largo tipo ticket
+        });
+        
+        const margen = 5;
+        let y = 10;
+        const fiscal = branchConfig.fiscalData || {}; // Obtenemos datos fiscales
+        
+        // --- ENCABEZADO FISCAL (Igual que el impreso) ---
+        doc.setFontSize(12);
+        doc.setFont("helvetica", "bold");
+        doc.text(branchConfig.name || "ÓPTICA", 40, y, { align: "center" });
+        y += 5;
+        
+        doc.setFontSize(8);
+        doc.setFont("helvetica", "normal");
+
+        // Razón Social / Tax Name
+        if (fiscal.taxName) {
+            doc.text(fiscal.taxName, 40, y, { align: "center" });
+            y += 4;
+        }
+        // RFC
+        if (fiscal.rfc) {
+            doc.text(`RFC: ${fiscal.rfc}`, 40, y, { align: "center" });
+            y += 4;
+        }
+        // Régimen Fiscal
+        if (fiscal.taxRegime) {
+            doc.setFontSize(7);
+            doc.text(fiscal.taxRegime, 40, y, { align: "center" });
+            doc.setFontSize(8);
+            y += 4;
+        }
+        
+        // Dirección (Fiscal o de Sucursal)
+        const direccion = fiscal.address || branchConfig.address || "";
+        if (direccion) {
+            const splitDir = doc.splitTextToSize(direccion, 70); // Ajustar al ancho
+            doc.text(splitDir, 40, y, { align: "center" });
+            y += (splitDir.length * 3.5) + 1;
+        }
+        
+        // Teléfono
+        const telefono = fiscal.phone || branchConfig.phone || "";
+        if (telefono) {
+            doc.text(`Tel: ${telefono}`, 40, y, { align: "center" });
+            y += 5;
+        }
+
+        // --- DATOS VENTA ---
+        doc.text(new Date().toLocaleString(), 40, y, { align: "center" });
+        y += 5;
+        
+        doc.setFont("helvetica", "bold");
+        doc.text(`Folio: ${venta.id.slice(0,8).toUpperCase()}`, 40, y, { align: "center" });
+        doc.setFont("helvetica", "normal");
+        y += 5;
+        
+        doc.text("------------------------------------------------", 40, y, { align: "center" });
+        y += 5;
+
+        // --- ITEMS ---
+        doc.setFontSize(9);
+        (venta.items || []).forEach(item => {
+            const desc = `${item.qty} x ${item.description}`;
+            const splitDesc = doc.splitTextToSize(desc, 50);
+            doc.text(splitDesc, margen, y);
+            
+            const precio = `$${(item.qty * item.unitPrice).toFixed(2)}`;
+            doc.text(precio, 75, y, { align: "right" });
+            
+            y += (splitDesc.length * 4) + 2;
+        });
+
+        doc.text("------------------------------------------------", 40, y, { align: "center" });
+        y += 5;
+
+        // --- TOTALES ---
+        doc.setFontSize(11);
+        doc.setFont("helvetica", "bold");
+        doc.text(`TOTAL: $${Number(venta.total).toFixed(2)}`, 75, y, { align: "right" });
+        
+        // 2. CONVERTIR A BLOB
+        const pdfBlob = doc.output('blob');
+
+        // 3. SUBIR A FIREBASE
+        const fileName = `tickets/${venta.branchId}/${venta.id}_${Date.now()}.pdf`;
+        const storageRef = ref(storage, fileName);
+        
+        console.log("Subiendo ticket a la nube...");
+        
+        const snapshot = await uploadBytes(storageRef, pdfBlob);
+        const downloadURL = await getDownloadURL(snapshot.ref);
+
+        // 4. ENVIAR A N8N
+        await sendTicketPdf(venta, paciente, downloadURL);
+
+        alert("✅ Ticket enviado a procesar por WhatsApp.");
+
+    } catch (error) {
+        console.error("Error en flujo WhatsApp:", error);
+        alert("Error al enviar el ticket. Revisa la consola.");
+    }
 };

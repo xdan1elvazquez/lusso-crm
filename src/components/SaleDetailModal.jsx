@@ -11,12 +11,12 @@ import { getAllWorkOrders, updateWorkOrder } from "@/services/workOrdersStorage"
 import { getLabs } from "@/services/labStorage"; 
 import { getEmployees } from "@/services/employeesStorage"; 
 import { getTerminals } from "@/services/settingsStorage"; 
-import { useAuth } from "@/context/AuthContext"; // Para obtener nombre de sucursal
+import { useAuth } from "@/context/AuthContext"; 
 import WorkOrderEditForm from "./sales/WorkOrderEditForm";
 
-// Servicios de Impresión
+// Servicios de Impresión y WhatsApp
 import { printWorkOrderQZ } from "@/services/QZService"; 
-import { imprimirTicket } from "@/utils/TicketHelper";   
+import { imprimirTicket, enviarTicketWhatsapp } from "@/utils/TicketHelper"; // 👈 IMPORTANTE: Agregado enviarTicketWhatsapp
 
 // UI Kit
 import ModalWrapper from "@/components/ui/ModalWrapper";
@@ -136,28 +136,23 @@ export default function SaleDetailModal({ sale: initialSale, patient, onClose, o
   };
 
   // ==========================================
-  // 🖨️ IMPRIMIR ORDEN TALLER (CORREGIDO)
+  // 🖨️ IMPRIMIR ORDEN TALLER
   // ==========================================
   const handlePrintWorkOrder = async () => {
     try {
-        // 1. Buscar lente con Rx
         const lensItem = sale.items.find(i => i.kind === 'LENSES' || i.kind === 'CONTACT_LENS');
         
         if (!lensItem) {
             return alert("⚠️ Esta venta no contiene lentes graduados para generar orden.");
         }
 
-        // 2. Buscar armazón
         const frameItem = sale.items.find(i => i.kind === 'FRAMES');
-
-        // 3. Preparar RX BLINDADA
         const snapshot = lensItem.rxSnapshot || {};
         const safeRx = {
             od: snapshot.od || snapshot.right || {},
             oi: snapshot.oi || snapshot.os || snapshot.left || {} 
         };
 
-        // 4. Preparar datos
         const workOrderData = {
             id: sale.id,
             patientName: sale.patientName,
@@ -175,7 +170,6 @@ export default function SaleDetailModal({ sale: initialSale, patient, onClose, o
             } : null
         };
 
-        // 5. Enviar a QZ (¡Pasando currentBranch aquí!)
         await printWorkOrderQZ(workOrderData, currentBranch);
         
     } catch (error) {
@@ -236,7 +230,7 @@ export default function SaleDetailModal({ sale: initialSale, patient, onClose, o
                             )}
                         </div>
                     </div>
-                    {/* ... (Resto de la pestaña GENERAL igual) ... */}
+                    
                     <div className="space-y-2">
                         {sale.items.map((item, i) => (
                             <div key={i} className="border border-border p-3 rounded-lg flex justify-between items-center bg-background hover:border-primary/30 transition-colors">
@@ -266,7 +260,6 @@ export default function SaleDetailModal({ sale: initialSale, patient, onClose, o
             {/* --- TAB 2: TALLER --- */}
             {activeTab === "LAB" && isLabSale && (
                 <div className="space-y-4 animate-fadeIn">
-                    {/* ... (Contenido de Taller igual) ... */}
                     {workOrders.map(wo => (
                         <div key={wo.id} className="relative bg-surface border border-border rounded-xl overflow-hidden hover:border-blue-500/50 transition-colors group">
                             <div className={`absolute left-0 top-0 bottom-0 w-1.5 ${wo.status === 'CANCELLED' ? 'bg-red-500' : 'bg-blue-500'}`} />
@@ -417,6 +410,14 @@ export default function SaleDetailModal({ sale: initialSale, patient, onClose, o
             {/* 1. IMPRIMIR TICKET DE VENTA (Siempre visible) */}
             <Button variant="secondary" onClick={() => imprimirTicket(sale, currentBranch)}>
                 🧾 Ticket Venta
+            </Button>
+            
+            {/* 🟢 NUEVO: ENVIAR WHATSAPP (A n8n) */}
+            <Button 
+                className="bg-green-600 hover:bg-green-700 text-white border-green-500/50"
+                onClick={() => enviarTicketWhatsapp(sale, patient, currentBranch)}
+            >
+                📱 Enviar WA
             </Button>
 
             {/* 2. IMPRIMIR ORDEN TALLER (Solo si tiene lentes) */}

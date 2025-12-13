@@ -1,6 +1,6 @@
 import { db } from "@/firebase/config";
 import { 
-  collection, getDocs, setDoc, updateDoc, deleteDoc, doc, query, orderBy, where, addDoc, arrayUnion // 👈 Agregado arrayUnion
+  collection, getDocs, setDoc, updateDoc, deleteDoc, doc, query, orderBy, where, addDoc, arrayUnion 
 } from "firebase/firestore";
 
 const COLLECTION_NAME = "work_orders";
@@ -18,7 +18,6 @@ export async function getAllWorkOrders(branchId = "lusso_main") {
 }
 
 export async function getWorkOrdersByPatientId(patientId) {
-  // Órdenes globales del paciente (todas las sucursales)
   const q = query(collection(db, COLLECTION_NAME), where("patientId", "==", patientId));
   const snapshot = await getDocs(q);
   return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -49,10 +48,13 @@ export async function createWorkOrder(payload) {
     // Garantías
     isWarranty: Boolean(payload.isWarranty),
     warrantyHistory: payload.warrantyHistory || [], 
-    history: [], // 👈 Inicializamos historial vacío
+    history: [], // Historial vacío inicial
 
+    // Estado y Notificaciones
     rxNotes: payload.rxNotes || "",
     status: payload.status || "TO_PREPARE",
+    lastNotificationAt: null, // 🟢 P-2: Nuevo campo para control de mensajes
+    notificationCount: 0,     // 🟢 P-2: Contador de intentos
     
     createdAt: payload.createdAt || new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -69,7 +71,7 @@ export async function createWorkOrder(payload) {
   }
 }
 
-// 🟢 ACTUALIZACIÓN: Soporte para historial y auditoría
+// Actualización genérica con soporte de auditoría
 export async function updateWorkOrder(id, patch, auditEntry = null) {
   const docRef = doc(db, COLLECTION_NAME, id);
   
@@ -87,6 +89,35 @@ export async function updateWorkOrder(id, patch, auditEntry = null) {
   }
 
   await updateDoc(docRef, updatePayload);
+}
+
+// 🟢 P-2: Función helper para registrar notificaciones (Manuales o Automáticas)
+export async function markAsNotified(id, method = "WHATSAPP", notes = "") {
+    const docRef = doc(db, COLLECTION_NAME, id);
+    const now = new Date().toISOString();
+    
+    await updateDoc(docRef, {
+        lastNotificationAt: now,
+        notificationCount: increment(1),
+        history: arrayUnion({
+            action: "NOTIFICACION_ENVIADA",
+            details: `Vía ${method}. ${notes}`,
+            timestamp: now,
+            actor: "SYSTEM_OR_USER" 
+        })
+    });
+}
+
+// 🟢 P-2: Función para cambiar estado con registro explícito
+export async function advanceOrderStatus(id, newStatus, userConfig = {}) {
+    if (!STATUS_FLOW.includes(newStatus)) throw new Error("Estado inválido");
+    
+    await updateWorkOrder(id, { status: newStatus }, {
+        action: "CAMBIO_ESTADO",
+        details: `Cambio a ${newStatus}`,
+        actor: userConfig.name || "Usuario",
+        prevStatus: userConfig.prevStatus || "?"
+    });
 }
 
 export async function deleteWorkOrder(id) {
@@ -134,7 +165,7 @@ export async function applyWarranty(id, reason, extraCost) {
           action: "GARANTIA_APLICADA",
           details: `Motivo: ${reason} (Costo extra: ${extraCost})`,
           timestamp: new Date().toISOString(),
-          actor: "USER" // Idealmente pasar el usuario real si es posible
+          actor: "USER" 
       })
   });
 }

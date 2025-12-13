@@ -1,6 +1,7 @@
 import { initializeApp } from "firebase/app";
-import { getFirestore } from "firebase/firestore"; // 👈 Necesario para la base de datos
-import { getAuth } from "firebase/auth";           // 👈 Necesario para el login
+import { getFirestore } from "firebase/firestore";
+import { getAuth } from "firebase/auth";
+import { getStorage } from "firebase/storage"; // 👈 1. Importamos Storage
 
 const firebaseConfig = {
   apiKey: "AIzaSyBMf9pWpfCvJ-E7Oalz3uIGW3lKlF1GhDA",
@@ -15,7 +16,7 @@ const firebaseConfig = {
 // Inicializamos la app
 const app = initializeApp(firebaseConfig);
 
-// 👇 ¡ESTAS SON LAS LÍNEAS MÁGICAS QUE FALTAN! 
-// Exportamos las herramientas para usarlas en los otros archivos
+// Exportamos las herramientas
 export const db = getFirestore(app);
 export const auth = getAuth(app);
+export const storage = getStorage(app); // 👈 2. Exportamos storage para usarlo en tickets

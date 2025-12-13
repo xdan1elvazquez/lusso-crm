@@ -17,11 +17,17 @@ export const BRANCHES_CONFIG = {
       text: "text-slate-900"
     },
     address: "Matriz - Av. Principal 123",
-    phone: "55 1234 5678"
+    phone: "55 1234 5678",
+
+    whatsappConfig: {
+        statusWebhook: "https://n8n.nubeweb.studio/webhook/lusso-crm", 
+        ticketWebhook: "https://n8n.nubeweb.studio/webhook/lusso-crm"
+    }
+
   },
   mundo_main: {
     id: "mundo_main",
-    name: "Mundo Óptico",
+    name: "Mundo Visual",
     logo: "/mundo-logo.png",
     colors: {
       primary: "bg-emerald-900", // Verde oscuro
@@ -31,7 +37,12 @@ export const BRANCHES_CONFIG = {
       text: "text-emerald-900"
     },
     address: "Sucursal Norte - Calle 45",
-    phone: "55 9876 5432"
+    phone: "55 9876 5432",
+
+    whatsappConfig: {
+        statusWebhook: "https://tu-n8n-mundo.com/webhook/cambio-estado",
+        ticketWebhook: "https://tu-n8n-mundo.com/webhook/enviar-ticket"
+    }
   }
 };
 

@@ -5,7 +5,6 @@ import {
   getDoc, 
   addDoc, 
   updateDoc, 
-  // deleteDoc, // 👈 Ya no usamos esto para borrado físico
   doc, 
   query, 
   orderBy,
@@ -14,6 +13,31 @@ import {
 } from "firebase/firestore";
 
 const COLLECTION_NAME = "patients";
+
+// 🟢 HELPER P-2: Normalización de Teléfono para WhatsApp (México)
+// Transforma (55) 1234-5678 -> +5215512345678
+function cleanPhone(rawPhone) {
+  if (!rawPhone) return "";
+  // 1. Quitamos todo lo que no sea número
+  const digits = String(rawPhone).replace(/\D/g, "");
+  
+  // 2. Lógica para México (10 dígitos)
+  if (digits.length === 10) {
+      // Agregamos prefijo internacional +52 y el 1 para celular
+      return `+521${digits}`; 
+  }
+  // 3. Si ya trae el 52 (12 dígitos) ej: 525512345678 -> +5215512345678
+  if (digits.length === 12 && digits.startsWith("52")) {
+      return `+${digits.slice(0,2)}1${digits.slice(2)}`; // Aseguramos el '1' intermedio
+  }
+  // 4. Si ya trae el 521 (13 dígitos)
+  if (digits.length === 13 && digits.startsWith("521")) {
+      return `+${digits}`;
+  }
+  
+  // Si no cumple formato estándar, devolvemos el original limpio de símbolos
+  return digits || rawPhone;
+}
 
 export async function setPatientPoints(id, newTotal) {
   const docRef = doc(db, COLLECTION_NAME, id);
@@ -36,7 +60,6 @@ export async function getPatientById(id) {
   if (!id) return null;
   const docRef = doc(db, COLLECTION_NAME, id);
   const snapshot = await getDoc(docRef);
-  // Opcional: Podrías verificar si snapshot.data().deletedAt existe para mostrar un aviso
   return snapshot.exists() ? { id: snapshot.id, ...snapshot.data() } : null;
 }
 
@@ -45,7 +68,7 @@ export async function getPatientsRecommendedBy(patientId) {
   const q = query(
     collection(db, COLLECTION_NAME), 
     where("referredBy", "==", patientId),
-    where("deletedAt", "==", null) // 👈 Aseguramos no traer borrados
+    where("deletedAt", "==", null) 
   );
   const snapshot = await getDocs(q);
   return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -55,12 +78,16 @@ export async function getPatientsRecommendedBy(patientId) {
 export async function createPatient(data) {
   const now = new Date().toISOString();
   
+  // 🟢 APLICAMOS LIMPIEZA P-2 AL CREAR
+  const finalPhone = cleanPhone(data.phone);
+
   const newPatient = {
     firstName: data.firstName?.trim() || "", 
     lastName: data.lastName?.trim() || "",
     
-    // Contacto
-    phone: data.phone?.trim() || "", 
+    // Contacto Normalizado
+    phone: finalPhone, 
+    rawPhone: data.phone?.trim() || "", // Guardamos el original por si acaso
     homePhone: data.homePhone?.trim() || "",
     email: data.email?.trim() || "",
     
@@ -113,6 +140,13 @@ export async function updatePatient(id, data) {
   const now = new Date().toISOString();
   
   const updatePayload = { ...data, updatedAt: now };
+  
+  // 🟢 APLICAMOS LIMPIEZA P-2 AL EDITAR
+  if (updatePayload.phone) {
+      updatePayload.rawPhone = updatePayload.phone; // Backup del input original
+      updatePayload.phone = cleanPhone(updatePayload.phone); // Normalización
+  }
+
   delete updatePayload.id; 
 
   await updateDoc(docRef, updatePayload);

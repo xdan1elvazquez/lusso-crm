@@ -1,11 +1,21 @@
 import { useMemo, useState, useEffect } from "react";
 import { useAuth } from "@/context/AuthContext"; 
-import { getAllWorkOrders, updateWorkOrder, nextStatus, prevStatus, applyWarranty, deleteWorkOrder } from "@/services/workOrdersStorage";
+import { 
+    getAllWorkOrders, 
+    updateWorkOrder, 
+    nextStatus, 
+    prevStatus, 
+    applyWarranty, 
+    deleteWorkOrder,
+    markAsNotified // 👈 IMPORTANTE: Agregado
+} from "@/services/workOrdersStorage";
 import { getPatients } from "@/services/patientsStorage"; 
 import { getAllSales } from "@/services/salesStorage"; 
 import { getLabs } from "@/services/labStorage"; 
 import { getEmployees } from "@/services/employeesStorage"; 
 import { createExpense } from "@/services/expensesStorage";
+import { sendOrderStatusNotification } from "@/services/whatsappService"; // 👈 IMPORTANTE: Agregado
+
 import LoadingState from "@/components/LoadingState";
 import SaleDetailModal from "@/components/SaleDetailModal";
 
@@ -148,6 +158,35 @@ export default function WorkOrdersPage() {
           
           notify.success("Trabajo entregado y archivado");
           refreshData();
+      }
+  };
+
+  // 🟢 NUEVO HANDLER: Notificar al Paciente por WhatsApp
+  const handleNotifyPatient = async (order) => {
+      const patient = patientMap[order.patientId];
+      if (!patient?.phone) {
+          notify.info("⚠️ El paciente no tiene celular registrado.");
+          return;
+      }
+
+      const ok = await confirm({
+          title: "Enviar Aviso WhatsApp",
+          message: `¿Enviar notificación de estado "${order.status}" a ${patient.firstName}?`,
+          confirmText: "Enviar Mensaje"
+      });
+
+      if (ok) {
+          // 1. Enviar a n8n
+          const sent = await sendOrderStatusNotification(order, patient);
+          
+          if (sent) {
+              // 2. Registrar en historial
+              await markAsNotified(order.id, "WHATSAPP", "Enviado manualmente desde tablero");
+              notify.success("✅ Solicitud enviada a WhatsApp");
+              refreshData(); // Para ver contador de notificaciones si se implementa UI
+          } else {
+              notify.error("❌ Error al enviar. Revisa la consola.");
+          }
       }
   };
 
@@ -329,10 +368,9 @@ export default function WorkOrdersPage() {
     );
   };
 
-  // 🟢 ACTUALIZACIÓN: Modal de Pago con Selector de Categoría
   const PayLabModalContent = ({ order, onClose }) => {
       const [method, setMethod] = useState("EFECTIVO");
-      const [category, setCategory] = useState("COSTO_LAB"); // 👈 Default
+      const [category, setCategory] = useState("COSTO_LAB"); 
 
       const handlePay = async () => {
           await createExpense({
@@ -355,7 +393,6 @@ export default function WorkOrdersPage() {
             </div>
             
             <div className="grid grid-cols-2 gap-4">
-                {/* Selector de Categoría */}
                 <Select label="Clasificación del Gasto" value={category} onChange={e => setCategory(e.target.value)}>
                     <option value="COSTO_LAB">🧪 Laboratorio</option>
                     <option value="COSTO_TALLER">🛠️ Taller / Bisel</option>
@@ -474,6 +511,7 @@ export default function WorkOrdersPage() {
                                           onPayLab={() => setPayLabModal(o)}
                                           onDeliver={() => handleDeliver(o)} 
                                           onViewHistory={() => setViewHistoryOrder(o)}
+                                          onNotify={() => handleNotifyPatient(o)} // 👈 PASAMOS LA FUNCIÓN
                                       />
                                   ))
                               )}
@@ -523,7 +561,7 @@ export default function WorkOrdersPage() {
 }
 
 // --- TARJETA DE TRABAJO ---
-function KanbanCard({ order, patient, sale, onAdvance, onRegress, onWarranty, onDelete, onViewSale, onPayLab, onDeliver, onViewHistory }) {
+function KanbanCard({ order, patient, sale, onAdvance, onRegress, onWarranty, onDelete, onViewSale, onPayLab, onDeliver, onViewHistory, onNotify }) {
     const item = sale?.items?.find(it => it.id === order.saleItemId);
     const hasBalance = sale && sale.balance > 0;
     const pendingLabPay = order.labCost > 0 && !order.isPaid;
@@ -631,7 +669,11 @@ function KanbanCard({ order, patient, sale, onAdvance, onRegress, onWarranty, on
                 </div>
 
                 <div className="flex justify-between items-center text-[10px] font-medium text-textMuted px-1">
-                    <button onClick={onWarranty} className="hover:text-red-400 transition-colors">🛡️ Garantía</button>
+                    <div className="flex gap-2 items-center">
+                       <button onClick={onWarranty} className="hover:text-red-400 transition-colors">🛡️ Garantía</button>
+                       <button onClick={onNotify} className="hover:text-green-400 transition-colors flex items-center gap-1" title="Avisar por WhatsApp">📱 Avisar</button>
+                    </div>
+                    
                     <div className="flex gap-3">
                         <button onClick={onViewHistory} className="hover:text-blue-300 transition-colors">🕒 Historial</button>
                         <button onClick={onViewSale} className="hover:text-primary transition-colors">👁️ Ver Detalles</button>
