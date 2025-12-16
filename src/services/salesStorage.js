@@ -1,23 +1,27 @@
 import { db } from "@/firebase/config";
 import { 
-  collection, doc, runTransaction, getDocs, getDoc, updateDoc, deleteDoc, query, where, orderBy, addDoc 
+  collection, doc, runTransaction, getDocs, getDoc, updateDoc, deleteDoc, query, where, orderBy 
 } from "firebase/firestore";
 import { getLoyaltySettings, getTerminals } from "./settingsStorage"; 
 import { getCurrentShift } from "./shiftsStorage"; 
 import { cancelWorkOrderBySaleItem } from "./workOrdersStorage"; 
 import { adjustStock } from "./inventoryStorage";
 import { adjustPatientPoints } from "./patientsStorage"; 
-// Eliminamos createExpense de la importación porque ahora lo haremos nativo en la transacción
-// import { createExpense } from "./expensesStorage"; 
+import { roundMoney } from "@/utils/currency";
+import { 
+    prepareInventoryUpdates, 
+    calculateLoyaltyPoints, 
+    prepareBankCommissions, 
+    prepareWorkOrders 
+} from "@/domain/sales/SalePreparers";
+// 🟢 REFACTOR: Constantes
+import { PAYMENT_METHODS, EXPENSE_CATEGORIES, WO_STATUS } from "@/utils/constants";
 
 const COLLECTION_NAME = "sales";
 const COLLECTION_PRODUCTS = "products";
 const COLLECTION_PATIENTS = "patients";
 const COLLECTION_LOGS = "inventory_logs";
-const COLLECTION_EXPENSES = "expenses"; // 🟢 Nueva referencia directa
-
-// 🟢 HELPER: Redondeo seguro a 2 decimales (Vital para dinero)
-const roundMoney = (amount) => Math.round(Number(amount) * 100) / 100;
+const COLLECTION_EXPENSES = "expenses"; 
 
 // --- LECTURA ---
 export async function getAllSales(branchId = "lusso_main") {
@@ -112,7 +116,6 @@ export async function getFinancialReport(startDate, endDate, branchId = "lusso_m
 }
 
 export async function getProfitabilityReport(startDate, endDate, branchId = "lusso_main") { 
-    // Nota: Mantenemos la lógica original pero aplicamos redondeo
     const q = query(
         collection(db, COLLECTION_NAME), 
         where("branchId", "==", branchId),
@@ -152,121 +155,68 @@ export async function getProfitabilityReport(startDate, endDate, branchId = "lus
     return { global, byCategory }; 
 }
 
-// --- CREACIÓN (ATÓMICA + VALIDACIONES) ---
+// --- CREACIÓN (ATÓMICA) ---
 export async function createSale(payload, branchId = "lusso_main") {
   if (!payload?.patientId) throw new Error("patientId requerido");
   
   const currentShift = await getCurrentShift(branchId);
   if (!currentShift) throw new Error("⛔ CAJA CERRADA: No hay un turno abierto en esta sucursal.");
   
-  // 🟢 LECTURAS PREVIAS (Para usarlas dentro de la transacción sin violar reglas)
   const loyalty = await getLoyaltySettings(); 
-  const terminals = await getTerminals(); // Traemos terminales para calcular comisiones
+  const terminals = await getTerminals(); 
   
   const saleResult = await runTransaction(db, async (transaction) => {
-    // 1. Validar Paciente
+    // 1. LECTURAS
     const patientRef = doc(db, COLLECTION_PATIENTS, payload.patientId);
     const patientSnap = await transaction.get(patientRef);
     if (!patientSnap.exists()) throw new Error("Paciente no encontrado");
     const patientData = patientSnap.data();
     if (patientData.deletedAt) throw new Error(`⛔ PACIENTE ELIMINADO.`);
 
-    // 2. Validar Referido
     let referrerRef = null;
-    let referrerSnap = null;
+    let referrerData = null;
     if (loyalty.enabled && patientData.referredBy) {
         referrerRef = doc(db, COLLECTION_PATIENTS, patientData.referredBy);
-        referrerSnap = await transaction.get(referrerRef);
+        const referrerSnap = await transaction.get(referrerRef);
+        if (referrerSnap.exists()) referrerData = referrerSnap.data();
     }
 
     const sanitizedItems = payload.items.map(i => ({ ...i, id: i.id || crypto.randomUUID() }));
+    const productDataMap = new Map();
     
-    // 3. Stock
-    const inventoryUpdates = [];
     for (const item of sanitizedItems) {
         if (item.inventoryProductId) {
             const prodRef = doc(db, COLLECTION_PRODUCTS, item.inventoryProductId);
             const prodSnap = await transaction.get(prodRef);
-            if (!prodSnap.exists()) throw new Error(`Producto no encontrado: ${item.description}`);
-            const prodData = prodSnap.data();
-            if (!prodData.isOnDemand && (prodData.stock || 0) < item.qty) {
-                throw new Error(`Stock insuficiente: ${prodData.brand} ${prodData.model}`);
+            if (prodSnap.exists()) {
+                productDataMap.set(item.inventoryProductId, prodSnap.data());
             }
-            inventoryUpdates.push({ ref: prodRef, newStock: (Number(prodData.stock) || 0) - item.qty, qty: item.qty });
         }
     }
 
+    // 2. LÓGICA DE NEGOCIO
     const now = new Date().toISOString();
-    const hasLabItems = sanitizedItems.some(i => i.requiresLab === true);
-    
-    // 4. Puntos y Pagos
-    let pointsToAward = 0; 
-    let referrerPoints = 0;
     const paymentsWithShift = (payload.payments || []).map(p => ({ ...p, shiftId: currentShift.id }));
+    const totalSale = roundMoney(payload.total || 0);
     const paidAmount = roundMoney(paymentsWithShift.reduce((sum, p) => sum + Number(p.amount), 0));
-    const pointsUsed = paymentsWithShift.filter(p => p.method === "PUNTOS").reduce((sum, p) => sum + Number(p.amount), 0);
-        
+    
+    // 🟢 REFACTOR: Constante
+    const pointsUsed = paymentsWithShift.filter(p => p.method === PAYMENT_METHODS.POINTS).reduce((sum, p) => sum + Number(p.amount), 0);
     if (pointsUsed > 0 && (patientData.points || 0) < pointsUsed) {
         throw new Error(`Saldo insuficiente de puntos.`);
     }
 
-    if (loyalty.enabled) {
-        paymentsWithShift.forEach(pay => {
-            const amount = Number(pay.amount) || 0;
-            if (amount <= 0) return;
-            const method = pay.method || "EFECTIVO";
-            if (method !== "PUNTOS") {
-                const ownRate = loyalty.earningRates[method] !== undefined ? loyalty.earningRates[method] : loyalty.earningRates["GLOBAL"];
-                pointsToAward += Math.floor((amount * ownRate) / 100);
-
-                if (referrerSnap && referrerSnap.exists()) {
-                    const refRate = Number(loyalty.referralBonusPercent) || 0;
-                    referrerPoints += Math.floor((amount * refRate) / 100);
-                }
-            }
-        });
-    }
-
-    // 🟢 4.5 CÁLCULO ATÓMICO DE COMISIONES BANCARIAS
-    // Esto asegura que si se vende con tarjeta, SE CREA el gasto de comisión en el mismo acto.
-    paymentsWithShift.forEach(pay => {
-        if (pay.method === "TARJETA" && pay.terminal) {
-            const termConfig = terminals.find(t => t.name === pay.terminal);
-            if (termConfig) {
-                let ratePct = Number(termConfig.fee) || 0;
-                // Ajuste por meses sin intereses si aplica
-                const monthsMatch = (pay.cardType || "").match(/(\d+)/);
-                if (monthsMatch) {
-                    const months = monthsMatch[1];
-                    if (termConfig.rates && termConfig.rates[months]) {
-                        ratePct += Number(termConfig.rates[months]);
-                    }
-                }
-                
-                const commissionAmount = roundMoney((Number(pay.amount) * ratePct) / 100);
-                
-                if (commissionAmount > 0) {
-                    const expenseRef = doc(collection(db, COLLECTION_EXPENSES));
-                    transaction.set(expenseRef, {
-                        description: `Comisión Tarjeta (${pay.terminal} - ${pay.cardType || 'C'}): Venta (Nueva)`,
-                        amount: commissionAmount,
-                        category: "COMISION_BANCARIA",
-                        method: "OTRO",
-                        branchId: branchId,
-                        date: now,
-                        createdAt: now
-                        // Nota: Ponemos "Venta (Nueva)" porque aún no tenemos el ID exacto aquí de forma fácil para interpolar,
-                        // pero garantizamos que el gasto existe.
-                    });
-                }
-            }
-        }
-    });
+    const inventoryOps = prepareInventoryUpdates(sanitizedItems, productDataMap);
+    const loyaltyResult = calculateLoyaltyPoints(paymentsWithShift, patientData, referrerData, loyalty);
+    const bankExpenses = prepareBankCommissions(paymentsWithShift, terminals, branchId, now);
 
     const newSaleRef = doc(collection(db, COLLECTION_NAME));
-    const totalSale = roundMoney(payload.total || 0);
-    const balance = Math.max(0, roundMoney(totalSale - paidAmount));
+    const workOrders = prepareWorkOrders(sanitizedItems, newSaleRef.id, branchId, payload.patientId, now, totalSale, paidAmount);
 
+    // 3. ESCRITURAS
+    const hasLabItems = sanitizedItems.some(i => i.requiresLab === true);
+    const balance = Math.max(0, roundMoney(totalSale - paidAmount));
+    
     const newSale = {
         branchId: branchId,
         patientId: payload.patientId,
@@ -286,83 +236,40 @@ export async function createSale(payload, branchId = "lusso_main") {
         shiftId: currentShift.id,
         createdAt: now,
         updatedAt: now,
-        pointsAwarded: pointsToAward,
-        status: "PENDING"
+        pointsAwarded: loyaltyResult.pointsToAward,
+        status: (balance <= 0.01) ? "PAID" : "PENDING"
     };
-    if (balance <= 0.01) newSale.status = "PAID";
-
-    // Lógica WorkOrders (Lab)
-    if (hasLabItems) {
-        const ratio = totalSale > 0 ? paidAmount / totalSale : 1;
-        const initialStatus = ratio >= 0.5 ? "TO_PREPARE" : "ON_HOLD";
-
-        const lenses = sanitizedItems.filter(i => i.kind === "LENSES");
-        const frames = sanitizedItems.filter(i => i.kind === "FRAMES");
-        const contacts = sanitizedItems.filter(i => i.kind === "CONTACT_LENS");
-        let availableFrames = [...frames];
-
-        for (const lens of lenses) {
-            const linkedFrame = availableFrames.shift(); 
-            const workOrderId = `wo_${newSaleRef.id}_${lens.id}`; 
-            const workOrderRef = doc(db, "work_orders", workOrderId);
-            transaction.set(workOrderRef, {
-                id: workOrderId, 
-                branchId: branchId,
-                patientId: payload.patientId,
-                saleId: newSaleRef.id,
-                saleItemId: lens.id,
-                type: "LENTES",
-                status: initialStatus,
-                labName: lens.labName || "",
-                labCost: Number(lens.cost) || 0,
-                rxNotes: lens.rxSnapshot ? JSON.stringify(lens.rxSnapshot) : "",
-                frameCondition: linkedFrame ? `Nuevo: ${linkedFrame.description}` : "Propio/No especificado",
-                dueDate: lens.dueDate || null,
-                createdAt: now,
-                updatedAt: now,
-                isWarranty: false,
-                warrantyHistory: [],
-                history: []
-            });
-        }
-        for (const cl of contacts) {
-            const workOrderId = `wo_${newSaleRef.id}_${cl.id}`; 
-            const workOrderRef = doc(db, "work_orders", workOrderId);
-            transaction.set(workOrderRef, {
-                id: workOrderId, 
-                branchId: branchId,
-                patientId: payload.patientId,
-                saleId: newSaleRef.id,
-                saleItemId: cl.id,
-                type: "LC",
-                status: initialStatus,
-                labName: "Lentes de Contacto",
-                labCost: Number(cl.cost) || 0,
-                rxNotes: cl.rxSnapshot ? JSON.stringify(cl.rxSnapshot) : "",
-                dueDate: cl.dueDate || null,
-                createdAt: now,
-                updatedAt: now,
-                isWarranty: false,
-                warrantyHistory: [],
-                history: []
-            });
-        }
-    }
 
     transaction.set(newSaleRef, newSale);
 
-    inventoryUpdates.forEach(update => {
-        transaction.update(update.ref, { stock: update.newStock });
-        const logRef = doc(collection(db, COLLECTION_LOGS));
-        transaction.set(logRef, { productId: update.ref.id, type: "SALE", quantity: -update.qty, finalStock: update.newStock, reference: `Venta #${newSaleRef.id.slice(0,6)}`, date: now });
+    workOrders.forEach(wo => {
+        const { _id, ...woData } = wo;
+        const woRef = doc(db, "work_orders", _id);
+        transaction.set(woRef, woData);
     });
 
-    const netPointsChange = pointsToAward - pointsUsed;
+    bankExpenses.forEach(expense => {
+        const expenseRef = doc(collection(db, COLLECTION_EXPENSES));
+        transaction.set(expenseRef, expense);
+    });
+
+    inventoryOps.updates.forEach(upd => {
+        const ref = doc(db, COLLECTION_PRODUCTS, upd.productId);
+        transaction.update(ref, { stock: upd.newStock });
+    });
+
+    inventoryOps.logs.forEach(log => {
+        const logRef = doc(collection(db, COLLECTION_LOGS));
+        transaction.set(logRef, { ...log, reference: `Venta #${newSaleRef.id.slice(0,6)}`, date: now });
+    });
+
+    const netPointsChange = loyaltyResult.pointsToAward - pointsUsed;
     if (netPointsChange !== 0) {
         transaction.update(patientRef, { points: (Number(patientData.points) || 0) + netPointsChange });
     }
-    if (referrerPoints > 0 && referrerSnap.exists()) {
-        transaction.update(referrerRef, { points: (Number(referrerSnap.data().points) || 0) + referrerPoints });
+
+    if (loyaltyResult.referrerPoints > 0 && referrerRef) {
+        transaction.update(referrerRef, { points: (Number(referrerData.points) || 0) + loyaltyResult.referrerPoints });
     }
 
     return { id: newSaleRef.id, ...newSale };
@@ -377,7 +284,8 @@ export async function addPaymentToSale(saleId, payment) {
   if (!shift) throw new Error("⛔ CAJA CERRADA: Abre un turno para abonos.");
 
   const loyalty = await getLoyaltySettings();
-  const terminals = await getTerminals(); // 🟢 Importante para comisiones en abonos
+  const terminals = await getTerminals(); 
+  const branchId = shift.branchId;
 
   await runTransaction(db, async (transaction) => {
       const saleRef = doc(db, COLLECTION_NAME, saleId);
@@ -385,9 +293,7 @@ export async function addPaymentToSale(saleId, payment) {
       if (!saleSnap.exists()) throw new Error("Venta no encontrada");
       
       const saleData = saleSnap.data();
-      const branchId = saleData.branchId; 
-
-      if (saleData.branchId && shift.branchId && saleData.branchId !== shift.branchId) {
+      if (saleData.branchId && branchId && saleData.branchId !== branchId) {
           throw new Error(`⛔ SUCURSAL INCORRECTA: Venta de "${saleData.branchId}".`);
       }
 
@@ -409,10 +315,11 @@ export async function addPaymentToSale(saleId, payment) {
       const amountToPay = roundMoney(Math.min(Number(payment.amount), balance));
       if (amountToPay <= 0) return; 
 
-      const method = payment.method || "EFECTIVO";
-
+      // 🟢 REFACTOR: Constante
+      const method = payment.method || PAYMENT_METHODS.CASH;
       let pointsUsed = 0;
-      if (method === "PUNTOS") {
+      
+      if (method === PAYMENT_METHODS.POINTS) {
           const pPoints = patientData.points || 0;
           if (pPoints < amountToPay) throw new Error("Saldo insuficiente de puntos");
           pointsUsed = amountToPay;
@@ -420,43 +327,25 @@ export async function addPaymentToSale(saleId, payment) {
 
       let pointsToAward = 0;
       let referrerPoints = 0;
-
-      if (loyalty.enabled && method !== "PUNTOS") {
+      if (loyalty.enabled && method !== PAYMENT_METHODS.POINTS) {
           const ownRate = loyalty.earningRates[method] !== undefined ? loyalty.earningRates[method] : loyalty.earningRates["GLOBAL"];
           pointsToAward = Math.floor((amountToPay * ownRate) / 100);
-
           if (referrerSnap && referrerSnap.exists()) {
               const refRate = Number(loyalty.referralBonusPercent) || 0;
               referrerPoints = Math.floor((amountToPay * refRate) / 100);
           }
       }
 
-      // 🟢 COMISIÓN ATÓMICA PARA ABONOS
-      if (method === "TARJETA" && payment.terminal) {
-         const termConfig = terminals.find(t => t.name === payment.terminal);
-         if (termConfig) {
-             let ratePct = Number(termConfig.fee) || 0;
-             const monthsMatch = (payment.cardType || "").match(/(\d+)/);
-             if (monthsMatch) {
-                 const months = monthsMatch[1];
-                 if (termConfig.rates && termConfig.rates[months]) {
-                     ratePct += Number(termConfig.rates[months]);
-                 }
-             }
-             const commissionAmount = roundMoney((amountToPay * ratePct) / 100);
-             if (commissionAmount > 0) {
-                 const expenseRef = doc(collection(db, COLLECTION_EXPENSES));
-                 transaction.set(expenseRef, {
-                     description: `Comisión Tarjeta (${payment.terminal}): Abono a Venta #${saleId.slice(0,6)}`,
-                     amount: commissionAmount,
-                     category: "COMISION_BANCARIA",
-                     method: "OTRO",
-                     branchId: branchId,
-                     date: new Date().toISOString(),
-                     createdAt: new Date().toISOString()
-                 });
-             }
-         }
+      // Cálculo Comisiones Abono
+      // 🟢 REFACTOR: Constante
+      if (method === PAYMENT_METHODS.CARD && payment.terminal) {
+          const tempPayments = [{ ...payment, amount: amountToPay, method: PAYMENT_METHODS.CARD }];
+          const expenses = prepareBankCommissions(tempPayments, terminals, branchId, new Date().toISOString());
+          
+          expenses.forEach(exp => {
+              const expenseRef = doc(collection(db, COLLECTION_EXPENSES));
+              transaction.set(expenseRef, exp);
+          });
       }
 
       const newPayment = {
@@ -513,7 +402,8 @@ export async function deletePaymentFromSale(saleId, paymentId) {
         const paymentToDelete = saleData.payments[paymentIndex];
         
         // 1. Revertir Puntos USADOS
-        if (paymentToDelete.method === "PUNTOS") {
+        // 🟢 REFACTOR: Constante
+        if (paymentToDelete.method === PAYMENT_METHODS.POINTS) {
             const patientRef = doc(db, COLLECTION_PATIENTS, saleData.patientId);
             const patientSnap = await transaction.get(patientRef);
             if (patientSnap.exists()) {
@@ -524,7 +414,8 @@ export async function deletePaymentFromSale(saleId, paymentId) {
 
         // 2. Revertir Puntos GANADOS
         let pointsToRevoke = 0;
-        if (loyalty.enabled && paymentToDelete.method !== "PUNTOS") {
+        // 🟢 REFACTOR: Constante
+        if (loyalty.enabled && paymentToDelete.method !== PAYMENT_METHODS.POINTS) {
             const rate = loyalty.earningRates[paymentToDelete.method] || loyalty.earningRates["GLOBAL"] || 0;
             pointsToRevoke = Math.floor((Number(paymentToDelete.amount) * rate) / 100);
             
@@ -614,7 +505,8 @@ export async function processReturn(saleId, itemId, qtyToReturn, refundMethod = 
             note: `Reembolso: ${item.description} (Aj. Desc)`
         });
 
-        if (refundMethod === "PUNTOS") {
+        // 🟢 REFACTOR: Constante
+        if (refundMethod === PAYMENT_METHODS.POINTS) {
             try { await adjustPatientPoints(sale.patientId, netRefund); } 
             catch(e) { console.error("Error devolviendo puntos", e); }
         }

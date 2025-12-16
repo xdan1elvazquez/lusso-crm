@@ -1,11 +1,13 @@
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
-import { useAuth } from "@/context/AuthContext"; // 👈 1. Importar Auth
+import { useAuth } from "@/context/AuthContext";
 import { getFinancialReport, getProfitabilityReport } from "@/services/salesStorage";
 import { getExpensesReport } from "@/services/expensesStorage";
 import { getAllShifts } from "@/services/shiftsStorage"; 
 import LoadingState from "@/components/LoadingState";
 import TerminalsManager from "@/components/settings/TerminalsManager";
+// 🟢 REFACTOR: Lógica de Dominio Extraída
+import { calculateFinancialMetrics, calculateMarginPercent } from "@/domain/finance/FinanceCalculator";
 
 // UI Kit
 import Card from "@/components/ui/Card";
@@ -25,7 +27,7 @@ const getMonthRange = (monthStr) => {
 };
 
 export default function FinancePage() {
-  const { user } = useAuth(); // 👈 2. Obtener usuario y branchId
+  const { user } = useAuth(); 
   const [loading, setLoading] = useState(true);
   const [filterType, setFilterType] = useState("MONTH");
   const [filterValue, setFilterValue] = useState(getMonthStr());
@@ -45,13 +47,11 @@ export default function FinancePage() {
     : new Date(filterValue).toLocaleDateString('es-MX', { dateStyle: 'full' });
 
   useEffect(() => {
-      // Seguridad: esperar a que cargue el usuario
       if (!user?.branchId) return;
 
       async function loadFinance() {
           setLoading(true);
           try {
-              // 👈 3. Pasar branchId a TODOS los reportes para segregar datos
               const [fin, prof, exp, allShifts] = await Promise.all([
                   getFinancialReport(startDate, endDate, user.branchId),
                   getProfitabilityReport(startDate, endDate, user.branchId),
@@ -65,23 +65,10 @@ export default function FinancePage() {
           } catch(e) { console.error(e); } finally { setLoading(false); }
       }
       loadFinance();
-  }, [filterValue, filterType, user]); // Recargar si cambia el usuario
+  }, [filterValue, filterType, user]); 
 
-  const cashFlowBalance = (Number(financialReport.totalIncome) || 0) - (Number(expensesReport.totalExpense) || 0);
-  
-  const globalStats = profitabilityReport.global || {};
-  const totalSalesVal = Number(globalStats.sales) || 0;
-  const totalCostVal = Number(globalStats.cost) || 0;
-  const grossProfitVal = Number(globalStats.profit) || 0;
-  const operatingExpensesVal = Number(expensesReport.totalExpense) || 0;
-
-  const pnl = {
-      totalSales: totalSalesVal,
-      costOfGoodsSold: totalCostVal,
-      grossProfit: grossProfitVal,
-      operatingExpenses: operatingExpensesVal,
-      ebitda: grossProfitVal - operatingExpensesVal
-  };
+  // 🟢 REFACTOR: Usamos el calculador
+  const { cashFlowBalance, pnl } = calculateFinancialMetrics(financialReport, expensesReport, profitabilityReport);
 
   if (loading) return <LoadingState />;
 
@@ -225,7 +212,8 @@ export default function FinancePage() {
                           {Object.entries(profitabilityReport.byCategory).map(([key, data]) => {
                               const sales = Number(data.sales) || 0;
                               const profit = Number(data.profit) || 0;
-                              const marginPercent = sales > 0 ? (profit / sales) * 100 : 0;
+                              // 🟢 REFACTOR: Uso del helper
+                              const marginPercent = calculateMarginPercent(sales, profit);
                               return (
                                   <tr key={key} className="hover:bg-white/5 transition-colors">
                                       <td className="p-4 font-medium text-white">{CATEGORY_LABELS[key] || key}</td>

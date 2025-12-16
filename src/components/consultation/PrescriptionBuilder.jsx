@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { getAllProducts } from "@/services/inventoryStorage";
+import { buildPrescriptionInstruction } from "@/utils/prescriptionHelper"; // 🟢 Nuevo import
 
 // UI Kit
 import Button from "@/components/ui/Button";
@@ -37,16 +38,22 @@ export default function PrescriptionBuilder({ onAdd }) {
   };
 
   const generateLine = () => {
-    const name = selectedMed ? `${selectedMed.brand} ${selectedMed.model}` : manualName; 
-    if (!name) return;
+    const productName = selectedMed ? `${selectedMed.brand} ${selectedMed.model}` : manualName; 
     
-    let instruction = ""; 
-    if (type === "DROPS") instruction = `Aplicar ${dose} gota(s) en ${eye} cada ${freq} hrs por ${duration} días.`; 
-    else if (type === "OINTMENT") instruction = `Aplicar ${dose} cm en fondo de saco ${eye} cada ${freq} hrs por ${duration} días.`; 
-    else if (type === "ORAL") instruction = `Tomar ${dose} (tab/cap) cada ${freq} hrs por ${duration} días.`; 
-    else instruction = `Aplicar cada ${freq} hrs por ${duration} días.`;
+    // 🟢 REFACTOR: Usamos el helper
+    const result = buildPrescriptionInstruction({
+        productName, type, dose, eye, freq, duration
+    });
     
-    onAdd(`• ${name}: ${instruction}`, selectedMed ? { productId: selectedMed.id, productName: `${selectedMed.brand} ${selectedMed.model}`, qty: 1, price: selectedMed.price, instructions: instruction } : null);
+    if (!result) return;
+    
+    onAdd(result.fullText, selectedMed ? { 
+        productId: selectedMed.id, 
+        productName: result.fullText.split(":")[0].replace("• ", ""), 
+        qty: 1, 
+        price: selectedMed.price, 
+        instructions: result.instructionOnly 
+    } : null);
     
     setManualName(""); 
     setSelectedMed(null);

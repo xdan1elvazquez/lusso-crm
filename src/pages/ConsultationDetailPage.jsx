@@ -28,17 +28,18 @@ import AttachmentsPanel from "@/components/consultation/AttachmentsPanel";
 
 // 📍 CONFIGURACIÓN
 import { getEmptySystems, QUICK_DATA, ALICIA_TEMPLATES } from "@/utils/consultationConfig";
-import { IPAS_NV_CONFIG } from "@/utils/ipasNervousVisualConfig";
 import { IPAS_EXTENDED_CONFIG } from "@/utils/ipasExtendedConfig";
 import { getPhysicalExamDefaults } from "@/utils/physicalExamConfig";
-import { getRegionalExamDefaults, PE_REGIONS_CONFIG } from "@/utils/physicalExamRegionsConfig";
-import { getNeuroDefaults, PE_NEURO_CONFIG } from "@/utils/physicalExamNeuroConfig";
-import { getOphthalmoDefaults, OPHTHALMO_CONFIG } from "@/utils/ophthalmologyConfig";
+import { getRegionalExamDefaults } from "@/utils/physicalExamRegionsConfig";
+import { getNeuroDefaults } from "@/utils/physicalExamNeuroConfig";
+import { getOphthalmoDefaults } from "@/utils/ophthalmologyConfig";
+
+// 🟢 REFACTOR: Lógica de Dominio Extraída
+import { generateClinicalSummaryText } from "@/domain/clinical/ClinicalSummary";
 
 // 👇 UI KIT NUEVO
 import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
-import Input from "@/components/ui/Input"; // Usado para textareas estilizados también
 import Badge from "@/components/ui/Badge";
 import ModalWrapper from "@/components/ui/ModalWrapper";
 import LoadingState from "@/components/LoadingState";
@@ -220,72 +221,11 @@ export default function ConsultationDetailPage() {
   const removeMedFromList = (i) => { setForm(prev => ({ ...prev, prescribedMeds: prev.prescribedMeds.filter((_, idx) => idx !== i) })); };
   const handleAllSystemsNormal = () => { if(confirm("¿Marcar todo IPAS como NORMAL?")) { setForm(f => ({ ...f, systemsReview: { ...getEmptySystems(), nervousVisual: {}, extended: {} } })); } };
 
-  // 📝 GENERADOR DE RESUMEN CLÍNICO (INTACTO)
-  const generateClinicalSummary = () => {
-      let summaryLines = [];
-      summaryLines.push("INTERROGATORIO POR APARATOS Y SISTEMAS:");
-      const nv = form.systemsReview.nervousVisual || {};
-      Object.values(IPAS_NV_CONFIG).forEach(block => {
-          const symptoms = nv[block.id] || {};
-          const actives = Object.entries(symptoms).filter(([_, val]) => val.present);
-          if (actives.length > 0) {
-              const details = actives.map(([k, val]) => {
-                  const symConfig = block.symptoms.find(s => s.id === k);
-                  const label = symConfig?.label || k;
-                  return `${label} (${val.intensity || ''})`;
-              });
-              summaryLines.push(`${block.title}: ${details.join("; ")}.`);
-          }
-      });
-      summaryLines.push(""); 
-      summaryLines.push("EXPLORACIÓN FÍSICA GENERAL:");
-      const pe = form.physicalExam?.general || getPhysicalExamDefaults();
-      let vitals = [];
-      if(pe.vitals?.ta) vitals.push(`TA: ${pe.vitals.ta}`);
-      if(pe.vitals?.fc) vitals.push(`FC: ${pe.vitals.fc}`);
-      if(pe.anthro?.imc) vitals.push(`IMC: ${pe.anthro.imc}`);
-      if(vitals.length) summaryLines.push(`Signos Vitales: ${vitals.join(", ")}.`);
-      const h = pe.habitus || {};
-      summaryLines.push(`Inspección General: Facies ${h.facies}, apariencia ${h.apariencia}.`);
-      const pr = form.physicalExam?.regional || {};
-      Object.keys(PE_REGIONS_CONFIG).forEach(key => {
-          const config = PE_REGIONS_CONFIG[key];
-          const data = pr[key] || {};
-          if (data.notas) summaryLines.push(`${config.title}: ${data.notas}`);
-      });
-      const neuro = form.physicalExam?.neuro || {};
-      let neuroText = [];
-      Object.keys(PE_NEURO_CONFIG).forEach(key => {
-          const config = PE_NEURO_CONFIG[key];
-          const data = neuro[key] || {};
-          if (data.notas) neuroText.push(`${config.title}: ${data.notas}`);
-      });
-      if (neuroText.length) summaryLines.push("Neuro: " + neuroText.join("; "));
-      summaryLines.push("");
-      summaryLines.push("EXPLORACIÓN OFTALMOLÓGICA DETALLADA:");
-      const oph = form.ophthalmologyExam;
-      Object.keys(OPHTHALMO_CONFIG).forEach(key => {
-          const config = OPHTHALMO_CONFIG[key];
-          const data = oph[key];
-          if (!data.isNormal) {
-              const od = Object.entries(data.od).filter(([_,v])=>v).map(([k,v])=>`${k}: ${v}`).join(", ");
-              const os = Object.entries(data.os).filter(([_,v])=>v).map(([k,v])=>`${k}: ${v}`).join(", ");
-              if(od || os) summaryLines.push(`${config.title}: [OD] ${od || "Sin datos"} | [OI] ${os || "Sin datos"}`);
-          }
-      });
-      summaryLines.push("");
-      summaryLines.push(`DIAGNÓSTICO: ${form.diagnosis || "Pendiente"}`);
-      if (form.diagnoses.length) summaryLines.push(`CIE-11: ${form.diagnoses.map(d=>d.name).join(", ")}`);
-      summaryLines.push(`PLAN: ${form.treatment || "Pendiente"}`);
-      if (form.prescribedMeds.length) summaryLines.push(`Medicamentos: ${form.prescribedMeds.map(m=>m.productName).join(", ")}`);
-      summaryLines.push(`PRONÓSTICO: ${form.prognosis || "Reservado"}`);
-      return summaryLines.join("\n");
-  };
-
-  const handleCopySummary = () => { const text = generateClinicalSummary(); navigator.clipboard.writeText(text).then(() => alert("Resumen copiado.")); };
+  // 🟢 REFACTOR: Ahora usamos la función importada
+  const handleCopySummary = () => { const text = generateClinicalSummaryText(form); navigator.clipboard.writeText(text).then(() => alert("Resumen copiado.")); };
 
   const handlePrintClinicalNote = () => {
-      const summaryText = generateClinicalSummary().replace(/\n/g, "<br/>"); 
+      const summaryText = generateClinicalSummaryText(form).replace(/\n/g, "<br/>"); 
       const date = new Date().toLocaleDateString();
       const dxHtml = form.diagnoses.length > 0 ? form.diagnoses.map(d => `<div><strong>${d.type === "PRINCIPAL" ? "Dx Principal:" : "Dx:"}</strong> ${d.name}</div>`).join("") : `<div>${form.diagnosis || "Sin diagnóstico."}</div>`;
       const win = window.open('', '', 'width=900,height=700');

@@ -1,9 +1,10 @@
 import React from "react";
-import { preventNegativeKey, sanitizeMoney, formatMoneyBlur } from "@/utils/inputHandlers";
+import { preventNegativeKey, sanitizeMoney } from "@/utils/inputHandlers";
+import { formatMoneyInput } from "@/utils/currency";
+import { calculateTerminalFeePercent, calculateFeeAmount } from "@/domain/sales/SalesCalculator";
 import Button from "@/components/ui/Button";
-
-// 🟢 AGREGAMOS "PUNTOS" AQUI
-const PAYMENT_METHODS = ["EFECTIVO", "TARJETA", "TRANSFERENCIA", "PUNTOS", "OTRO"];
+// 🟢 REFACTOR: Constantes
+import { PAYMENT_METHODS, CARD_TYPES } from "@/utils/constants";
 
 export default function PaymentForm({ 
     subtotal, 
@@ -15,25 +16,20 @@ export default function PaymentForm({
     isProcessing,
     cartLength 
 }) {
-  const updateFee = (termId, months) => {
-      const term = terminals.find(t => t.id === termId);
-      if (!term) return 0;
-      return months === "1" ? (Number(term.fee)||0) : (Number(term.rates?.[months]) || Number(term.fee) || 0);
-  };
 
   const handleTerminalChange = (e) => { 
       const tId = e.target.value; 
-      const newFee = updateFee(tId, payment.installments); 
+      const newFee = calculateTerminalFeePercent(tId, payment.installments, terminals);
       setPayment(p => ({ ...p, terminalId: tId, feePercent: newFee })); 
   };
 
   const handleInstallmentsChange = (e) => { 
       const months = e.target.value; 
-      const newFee = updateFee(payment.terminalId, months); 
+      const newFee = calculateTerminalFeePercent(payment.terminalId, months, terminals); 
       setPayment(p => ({ ...p, installments: months, feePercent: newFee })); 
   };
 
-  const calculatedFee = payment.method === "TARJETA" ? (Number(payment.initial) * Number(payment.feePercent) / 100) : 0;
+  const calculatedFee = calculateFeeAmount(payment.initial, payment.feePercent);
   
   const controlClass = "w-full bg-background border border-border rounded-lg px-3 py-2 text-sm text-white focus:border-primary outline-none";
 
@@ -84,25 +80,24 @@ export default function PaymentForm({
                         onKeyDown={preventNegativeKey}
                         value={payment.initial} 
                         onChange={e => setPayment({...payment, initial: sanitizeMoney(e.target.value)})} 
-                        onBlur={e => setPayment(p => ({...p, initial: formatMoneyBlur(p.initial)}))}
+                        onBlur={e => setPayment(p => ({...p, initial: formatMoneyInput(p.initial)}))} 
                         placeholder="Monto" 
                         className={`${controlClass} pl-6 font-bold text-emerald-400 border-emerald-500/30 focus:border-emerald-500`}
                     />
                 </div>
                 <select value={payment.method} onChange={e => setPayment({...payment, method: e.target.value})} className={controlClass}>
-                    {PAYMENT_METHODS.map(m => <option key={m} value={m}>{m}</option>)}
+                    {/* 🟢 REFACTOR: Mapeo desde constantes */}
+                    {Object.values(PAYMENT_METHODS).map(m => <option key={m} value={m}>{m}</option>)}
                 </select>
             </div>
             
-            {/* Mensaje Informativo si selecciona Puntos */}
-            {payment.method === "PUNTOS" && (
+            {payment.method === PAYMENT_METHODS.POINTS && (
                 <div className="text-[10px] text-yellow-400 bg-yellow-400/10 p-2 rounded border border-yellow-400/20">
                     ⚠️ Se validará que el cliente tenga suficientes puntos al cobrar (1 Punto = $1 Peso).
                 </div>
             )}
 
-            {/* Opciones Tarjeta */}
-            {payment.method === "TARJETA" && (
+            {payment.method === PAYMENT_METHODS.CARD && (
                 <div className="bg-background p-3 rounded-lg border border-border animate-[fadeIn_0.2s_ease-out]">
                     <select value={payment.terminalId} onChange={handleTerminalChange} className={`${controlClass} mb-2`}>
                         <option value="">Seleccionar Terminal</option>
@@ -110,8 +105,8 @@ export default function PaymentForm({
                     </select>
                     <div className="grid grid-cols-2 gap-2 mb-2">
                         <select value={payment.cardType} onChange={e => setPayment({...payment, cardType: e.target.value})} className={controlClass}>
-                            <option value="TDD">Débito</option>
-                            <option value="TDC">Crédito</option>
+                            <option value={CARD_TYPES.DEBIT}>Débito</option>
+                            <option value={CARD_TYPES.CREDIT}>Crédito</option>
                         </select>
                         <select value={payment.installments} onChange={handleInstallmentsChange} className={controlClass}>
                             <option value="1">1 Pago</option>

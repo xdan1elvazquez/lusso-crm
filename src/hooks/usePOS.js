@@ -1,13 +1,11 @@
 import { useState } from "react";
 import { createSale } from "@/services/salesStorage";
-import { useNotify, useConfirm } from "@/context/UIContext";
-
-// 🟢 HELPER: Redondeo seguro a 2 decimales para evitar errores de punto flotante
-const roundMoney = (amount) => Math.round(Number(amount) * 100) / 100;
+import { useNotify } from "@/context/UIContext";
+import { calculateCartTotals } from "@/domain/sales/SalesCalculator";
+import { roundMoney } from "@/utils/currency";
 
 export function usePOS(patientId, terminals, refreshCallback) {
   const notify = useNotify();
-  const confirm = useConfirm();
   
   const [cart, setCart] = useState([]);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -18,19 +16,12 @@ export function usePOS(patientId, terminals, refreshCallback) {
   });
   const [logistics, setLogistics] = useState({ boxNumber: "", soldBy: "" });
 
-  // Totales Globales
-  const subtotal = roundMoney(cart.reduce((sum, item) => sum + (item.qty * item.unitPrice), 0));
-  const discountInput = Number(payment.discount) || 0;
-  
-  // Cálculo del descuento global
-  let discountAmount = 0;
-  if (payment.discountType === "PERCENT") {
-      discountAmount = roundMoney(subtotal * (discountInput / 100));
-  } else {
-      discountAmount = roundMoney(discountInput);
-  }
-
-  const total = Math.max(0, roundMoney(subtotal - discountAmount));
+  // 🟢 REFACTOR: Usamos la calculadora de dominio pura
+  const { subtotal, total, discountAmount } = calculateCartTotals(
+      cart, 
+      payment.discount, 
+      payment.discountType
+  );
 
   // --- ACCIONES CARRITO ---
 
@@ -70,11 +61,9 @@ export function usePOS(patientId, terminals, refreshCallback) {
       setLogistics({ boxNumber: "", soldBy: "" });
   };
 
-  // 🔥 CORRECCIÓN P0: Lógica unificada (Atomic Transaction)
   const handleCheckout = async () => {
     if (cart.length === 0) return;
 
-    // Validación de seguridad para totales negativos
     if (total < 0) {
         notify.error("El total no puede ser negativo. Revisa los descuentos.");
         return;
@@ -84,7 +73,6 @@ export function usePOS(patientId, terminals, refreshCallback) {
     try {
         const globalPaymentAmount = Number(payment.initial) || 0;
 
-        // Construir objeto de pago único
         let payObj = null;
         if (globalPaymentAmount > 0) {
              payObj = { 
@@ -95,6 +83,7 @@ export function usePOS(patientId, terminals, refreshCallback) {
              
              if (payment.method === "TARJETA") {
                 const term = terminals.find(t => t.id === payment.terminalId);
+                // 🟢 REFACTOR: Usamos roundMoney importado para el fee
                 const feeAmount = roundMoney((globalPaymentAmount * (Number(payment.feePercent)||0)) / 100);
                 
                 payObj = { 
@@ -107,8 +96,6 @@ export function usePOS(patientId, terminals, refreshCallback) {
             }
         }
 
-        // Llamada ÚNICA al backend.
-        // El servicio createSale detectará items de laboratorio y creará las WorkOrders necesarias.
         await createSale({
             patientId,
             boxNumber: logistics.boxNumber,
@@ -116,7 +103,7 @@ export function usePOS(patientId, terminals, refreshCallback) {
             discount: discountAmount,
             total: total,
             payments: payObj ? [payObj] : [],
-            description: null, // Dejamos que el backend decida la descripción automática
+            description: null,
             subtotalGross: subtotal,
             items: cart
         });
