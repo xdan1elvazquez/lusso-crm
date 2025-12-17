@@ -2,45 +2,49 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Helper function para verificar autenticación
     function isAuthenticated() {
       return request.auth != null;
     }
-
-    // Helper para verificar que NO se están borrando datos
-    function isNotDelete() {
-      return request.method != 'delete';
+    
+    // Helper para verificar si el usuario es Admin buscando en su doc de empleado.
+    // OJO: Esto tiene costo de lectura. Úsalo solo en colecciones críticas.
+    function isAdmin() {
+       return get(/databases/$(database)/documents/employees/$(request.auth.uid)).data.role == 'ADMIN';
     }
 
     // --- REGLAS P0: FINANZAS BLINDADAS ---
 
-    // 1. Auditoría: Solo crear, NUNCA borrar ni editar.
+    // 1. Auditoría: Solo crear, nadie borra.
     match /audit_logs/{docId} {
-      allow read: if isAuthenticated();
+      allow read: if isAuthenticated() && isAdmin(); // Solo admin lee auditoría
       allow create: if isAuthenticated();
-      allow update, delete: if false; // INMUTABLE
+      allow update, delete: if false; 
     }
 
-    // 2. Ledger Financiero: Solo crear, NUNCA borrar ni editar.
+    // 2. Ledger Financiero: MÁS ESTRICTO AHORA
     match /finance_ledger/{docId} {
-      allow read: if isAuthenticated();
+      // Solo Admin puede leer todo el ledger financiero. 
+      // Si tienes un rol 'CONTADOR', agrégalo aquí.
+      allow read: if isAuthenticated() && isAdmin(); 
       allow create: if isAuthenticated() 
                     && request.resource.data.amount is number
                     && request.resource.data.saleId is string;
-      allow update, delete: if false; // INMUTABLE
+      allow update, delete: if false; 
     }
 
-    // 3. Ventas: Se permite crear y actualizar, pero NO borrar (Soft delete preferible).
+    // 3. Empleados: Solo Admin puede gestionar usuarios
+    match /employees/{docId} {
+      allow read: if isAuthenticated(); // Todos leen para saber quién es quién
+      allow write: if isAuthenticated() && isAdmin(); // Solo Admin crea/edita permisos
+    }
+
+    // 4. Ventas: Abierto a operación, cerrado a borrado físico
     match /sales/{docId} {
       allow read, create, update: if isAuthenticated();
-      // Bloqueamos DELETE físico para proteger historial fiscal. 
-      // Si necesitas anular, usa update con status: 'CANCELLED'
-      allow delete: if false; 
+      allow delete: if false;
     }
 
-    // --- REGLAS GENERALES (COMPATIBILIDAD) ---
-    // Mantenemos la regla abierta para el resto de colecciones (pacientes, inventario, etc.)
-    // para no romper funcionalidades existentes en este paquete.
+    // --- REGLAS GENERALES ---
     match /{document=**} {
       allow read, write: if isAuthenticated();
     }

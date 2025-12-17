@@ -3,7 +3,8 @@ import { auth } from "../firebase/config";
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut } from "firebase/auth";
 import { getEmployeeByEmail } from "@/services/employeesStorage"; 
 import { getBranchConfig, DEFAULT_BRANCH_ID } from "@/utils/branchesConfig";
-import { getBranchSettings } from "@/services/branchStorage"; 
+import { getBranchSettings } from "@/services/branchStorage";
+import { ROLE_DEFAULTS } from "@/utils/rbacConfig"; // 👈 IMPORTAR
 
 const AuthContext = createContext();
 
@@ -17,7 +18,7 @@ export function AuthProvider({ children }) {
   const [currentBranch, setCurrentBranch] = useState(getBranchConfig(DEFAULT_BRANCH_ID)); 
   const [loading, setLoading] = useState(true);
 
-  // Recarga manual de configuración (útil para Admin)
+  // Recarga manual
   const refreshBranchSettings = async () => {
       const branchIdToLoad = user?.branchId || DEFAULT_BRANCH_ID;
       try {
@@ -29,10 +30,8 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       if (currentUser) {
-          // 1. Buscamos perfil en base de datos
           const employeeProfile = await getEmployeeByEmail(currentUser.email);
           
-          // 🚨 SEGURIDAD: Si existe perfil y está desactivado, cerrar sesión
           if (employeeProfile && employeeProfile.isActive === false) {
               await signOut(auth);
               alert("⛔ Tu acceso ha sido revocado por el administrador.");
@@ -40,13 +39,41 @@ export function AuthProvider({ children }) {
           }
 
           let finalUserData = employeeProfile || { role: "GUEST", name: currentUser.email };
+          
+          // --- LÓGICA DE PERMISOS ---
+          // Si tiene permisos explícitos en DB, úsalos. Si no, carga los defaults del rol.
+          // El Admin siempre tiene todo, aunque se le borren flags accidentalmente.
+          const userRole = finalUserData.role || "GUEST";
+          const defaultPerms = ROLE_DEFAULTS[userRole] || [];
+          
+          // Convertimos array de defaults a objeto para fácil acceso si no hay custom
+          // O usamos el objeto 'permissions' que viene de la DB (mapa booleano)
+          
+          // Estrategia: "permissions" en DB es un objeto { view_finance: true, ... }
+          // Si existe, se respeta. Si no existe, se construye del default.
+          
+          let computedPermissions = {};
+          
+          if (finalUserData.permissions) {
+              computedPermissions = finalUserData.permissions;
+          } else {
+              // Construir desde defaults
+              defaultPerms.forEach(p => { computedPermissions[p] = true; });
+          }
+
+          // Force Admin override (seguridad extrema)
+          if (userRole === "ADMIN") {
+              Object.values(ROLE_DEFAULTS.ADMIN).forEach(p => computedPermissions[p] = true);
+          }
+
+          finalUserData.computedPermissions = computedPermissions;
+          // ---------------------------
+
           setUserData(finalUserData);
 
-          // 2. Definir Sucursal
           const userBranchId = finalUserData.branchId || DEFAULT_BRANCH_ID;
           setUser({ ...currentUser, branchId: userBranchId });
           
-          // 3. Cargar Configuración Visual/Fiscal
           const dynamicBranchConfig = await getBranchSettings(userBranchId);
           setCurrentBranch(dynamicBranchConfig);
 
@@ -62,8 +89,6 @@ export function AuthProvider({ children }) {
   }, []);
 
   const login = async (email, password) => {
-    // Verificación previa opcional (Auth de Firebase ya valida pass, 
-    // pero el useEffect arriba valida el estado 'isActive')
     return signInWithEmailAndPassword(auth, email, password);
   };
 
@@ -71,10 +96,19 @@ export function AuthProvider({ children }) {
     return signOut(auth);
   };
 
+  // Helper para verificar permisos en UI y Router
+  const can = (permissionKey) => {
+      if (!userData) return false;
+      if (userData.role === "ADMIN") return true; // Admin maestro
+      return userData.computedPermissions?.[permissionKey] === true;
+  };
+
   const value = {
     user,
     userData, 
     role: userData?.role || "GUEST",
+    permissions: userData?.computedPermissions || {},
+    can, // 👈 Exponemos la función
     currentBranch, 
     refreshBranchSettings,
     login,

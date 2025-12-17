@@ -6,7 +6,7 @@ import {
 const COLLECTION_NAME = "employees";
 
 export const ROLES = {
-  ADMIN: "Administrador / Dueño", // 👈 NUEVO ROL MAESTRO
+  ADMIN: "Administrador / Dueño",
   DOCTOR: "Optometrista / Dr.",
   SALES: "Vendedor / Recepción",
   LAB: "Técnico de Lab",
@@ -14,7 +14,6 @@ export const ROLES = {
   OTHER: "Limpieza / General"
 };
 
-// --- LECTURA ---
 export async function getEmployees() {
   const q = query(
     collection(db, COLLECTION_NAME), 
@@ -25,7 +24,6 @@ export async function getEmployees() {
   return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 }
 
-// 👇 NUEVA FUNCIÓN CRÍTICA PARA AUTH
 export async function getEmployeeByEmail(email) {
   if (!email) return null;
   const q = query(
@@ -39,15 +37,17 @@ export async function getEmployeeByEmail(email) {
   return { id: doc.id, ...doc.data() };
 }
 
-// --- ESCRITURA ---
 export async function createEmployee(data) {
   const newEmp = {
     name: data.name,
-    email: data.email?.trim().toLowerCase() || "", // 👈 GUARDAR EMAIL
+    email: data.email?.trim().toLowerCase() || "",
     role: data.role || "OTHER",
+    branchId: data.branchId || "lusso_main",
     commissionPercent: Number(data.commissionPercent) || 0,
     baseSalary: Number(data.baseSalary) || 0,
-    active: true,
+    // Guardar permisos si vienen, o null para que use defaults
+    permissions: data.permissions || null, 
+    isActive: true, // Corregido nombre campo consistente
     deletedAt: null,
     createdAt: new Date().toISOString()
   };

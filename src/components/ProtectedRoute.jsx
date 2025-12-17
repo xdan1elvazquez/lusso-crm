@@ -1,23 +1,27 @@
-// src/components/ProtectedRoute.jsx
 import { Navigate, Outlet } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 
-export default function ProtectedRoute({ allowedRoles }) {
-  const { user, role, loading } = useAuth();
+export default function ProtectedRoute({ allowedRoles, requiredPermission }) {
+  const { user, role, loading, can } = useAuth();
 
   if (loading) return null;
 
-  // 1. Si no hay usuario, al login
+  // 1. Si no hay usuario
   if (!user) return <Navigate to="/login" replace />;
 
-  // 2. Si hay roles definidos y el usuario no tiene uno de ellos
+  // 2. CHECK POR ROL (Legacy / Global)
   if (allowedRoles && !allowedRoles.includes(role)) {
-      // Permitir acceso siempre al ADMIN como "llave maestra"
-      if (role !== "ADMIN") {
+      if (role !== "ADMIN") { // Admin siempre pasa
           return <Navigate to="/unauthorized" replace />;
       }
   }
 
-  // 3. Pase usted
+  // 3. CHECK POR PERMISO GRANULAR (Nuevo sistema)
+  if (requiredPermission) {
+      if (!can(requiredPermission)) {
+           return <Navigate to="/unauthorized" replace />;
+      }
+  }
+
   return <Outlet />;
 }
