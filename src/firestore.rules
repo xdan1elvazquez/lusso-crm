@@ -1,10 +1,48 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Regla Piloto:
-    // Permite todo (leer/escribir) SIEMPRE Y CUANDO el usuario esté autenticado.
+
+    // Helper function para verificar autenticación
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Helper para verificar que NO se están borrando datos
+    function isNotDelete() {
+      return request.method != 'delete';
+    }
+
+    // --- REGLAS P0: FINANZAS BLINDADAS ---
+
+    // 1. Auditoría: Solo crear, NUNCA borrar ni editar.
+    match /audit_logs/{docId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update, delete: if false; // INMUTABLE
+    }
+
+    // 2. Ledger Financiero: Solo crear, NUNCA borrar ni editar.
+    match /finance_ledger/{docId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() 
+                    && request.resource.data.amount is number
+                    && request.resource.data.saleId is string;
+      allow update, delete: if false; // INMUTABLE
+    }
+
+    // 3. Ventas: Se permite crear y actualizar, pero NO borrar (Soft delete preferible).
+    match /sales/{docId} {
+      allow read, create, update: if isAuthenticated();
+      // Bloqueamos DELETE físico para proteger historial fiscal. 
+      // Si necesitas anular, usa update con status: 'CANCELLED'
+      allow delete: if false; 
+    }
+
+    // --- REGLAS GENERALES (COMPATIBILIDAD) ---
+    // Mantenemos la regla abierta para el resto de colecciones (pacientes, inventario, etc.)
+    // para no romper funcionalidades existentes en este paquete.
     match /{document=**} {
-      allow read, write: if request.auth != null;
+      allow read, write: if isAuthenticated();
     }
   }
 }

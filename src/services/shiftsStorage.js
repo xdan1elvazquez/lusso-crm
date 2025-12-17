@@ -1,6 +1,6 @@
 import { db } from "@/firebase/config";
 import { 
-  collection, getDocs, addDoc, updateDoc, doc, query, where, orderBy, limit 
+  collection, getDocs, addDoc, updateDoc, doc, query, where, orderBy, limit, getDoc 
 } from "firebase/firestore";
 
 const COLLECTION_NAME = "shifts";
@@ -9,7 +9,7 @@ const COLLECTION_NAME = "shifts";
 export async function getAllShifts(branchId = "lusso_main") {
   const q = query(
       collection(db, COLLECTION_NAME), 
-      where("branchId", "==", branchId), // 👈 Filtro
+      where("branchId", "==", branchId), 
       orderBy("openedAt", "desc"), 
       limit(20)
   );
@@ -17,8 +17,14 @@ export async function getAllShifts(branchId = "lusso_main") {
   return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 }
 
+export async function getShiftById(id) {
+    if (!id) return null;
+    const ref = doc(db, COLLECTION_NAME, id);
+    const snap = await getDoc(ref);
+    return snap.exists() ? { id: snap.id, ...snap.data() } : null;
+}
+
 export async function getCurrentShift(branchId = "lusso_main") {
-  // Buscamos un turno que esté ABIERTO en esta sucursal
   const q = query(
       collection(db, COLLECTION_NAME), 
       where("branchId", "==", branchId),
@@ -26,12 +32,10 @@ export async function getCurrentShift(branchId = "lusso_main") {
   );
   const snapshot = await getDocs(q);
   if (snapshot.empty) return null;
-  const docData = snapshot.docs[0];
-  return { id: docData.id, ...docData.data() };
+  return { id: snapshot.docs[0].id, ...snapshot.docs[0].data() };
 }
 
 export async function getShiftInProcess(branchId = "lusso_main") {
-  // Buscamos un turno en PRE-CIERRE
   const q = query(
       collection(db, COLLECTION_NAME), 
       where("branchId", "==", branchId),
@@ -39,22 +43,18 @@ export async function getShiftInProcess(branchId = "lusso_main") {
   );
   const snapshot = await getDocs(q);
   if (snapshot.empty) return null;
-  const docData = snapshot.docs[0];
-  return { id: docData.id, ...docData.data() };
+  return { id: snapshot.docs[0].id, ...snapshot.docs[0].data() };
 }
 
 // --- ESCRITURA ---
 export async function openShift(data, branchId = "lusso_main") {
-  // Validación: no abrir si ya hay uno en esta sucursal
   const active = await getCurrentShift(branchId);
   const closing = await getShiftInProcess(branchId);
   
-  if (active || closing) {
-      throw new Error("Ya hay un turno activo o en proceso de cierre en esta sucursal.");
-  }
+  if (active || closing) throw new Error("Ya hay un turno activo en esta sucursal.");
   
   const newShift = {
-    branchId: branchId, // 👈 Nuevo campo
+    branchId, 
     user: data.user || "General",
     initialCash: Number(data.initialCash) || 0,
     status: "OPEN",
@@ -63,6 +63,7 @@ export async function openShift(data, branchId = "lusso_main") {
     declared: null, 
     expected: null, 
     difference: null,
+    snapshot: null, // 📸 SNAPSHOT: Aquí vivirá la foto final
     notes: ""
   };
   
@@ -77,7 +78,8 @@ export async function preCloseShift(id, declaredData) {
         declared: {
             cash: Number(declaredData.cash) || 0,
             card: Number(declaredData.card) || 0,
-            transfer: Number(declaredData.transfer) || 0
+            transfer: Number(declaredData.transfer) || 0,
+            other: Number(declaredData.other) || 0
         }
     });
 }
@@ -89,6 +91,7 @@ export async function closeShift(id, closeData) {
       closedAt: new Date().toISOString(),
       expected: closeData.expected, 
       difference: closeData.difference,
+      snapshot: closeData.snapshot || {}, // Guardamos la foto estática
       notes: closeData.notes || ""
   });
 }

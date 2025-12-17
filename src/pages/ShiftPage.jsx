@@ -1,9 +1,10 @@
 import { useState, useEffect } from "react";
-import { useAuth } from "@/context/AuthContext"; // 👈 1. Importar Auth
-import { getCurrentShift, getShiftInProcess, openShift, preCloseShift, closeShift, getAllShifts } from "@/services/shiftsStorage";
+import { useAuth } from "@/context/AuthContext"; 
+import { getCurrentShift, getShiftInProcess, openShift, preCloseShift, getAllShifts } from "@/services/shiftsStorage";
 import { getSalesMetricsByShift } from "@/services/salesStorage"; 
 import { getExpensesByShift } from "@/services/expensesStorage";
 import { getEmployees } from "@/services/employeesStorage";
+import { performShiftClosing } from "@/services/shiftClosingService"; // 👈 NUEVO IMPORT
 import { useNotify, useConfirm } from "@/context/UIContext";
 import LoadingState from "@/components/LoadingState";
 
@@ -16,7 +17,7 @@ import Badge from "@/components/ui/Badge";
 import ModalWrapper from "@/components/ui/ModalWrapper";
 
 export default function ShiftPage() {
-  const { user } = useAuth(); // 👈 2. Obtener branchId
+  const { user } = useAuth(); 
   const notify = useNotify();
   const confirm = useConfirm();
   
@@ -38,12 +39,10 @@ export default function ShiftPage() {
   const [metrics, setMetrics] = useState(null);
 
   const refreshData = async () => {
-      // Si no hay sucursal cargada, no hacemos nada (seguridad)
       if (!user?.branchId) return;
 
       setLoading(true);
       try {
-          // 👈 3. Pasar branchId a todas las consultas
           const [current, process, all, emps] = await Promise.all([
               getCurrentShift(user.branchId),
               getShiftInProcess(user.branchId),
@@ -62,11 +61,8 @@ export default function ShiftPage() {
       }
   };
 
-  // Recargar cuando el usuario (y su branchId) estén listos
   useEffect(() => { 
-      if (user?.branchId) {
-          refreshData(); 
-      }
+      if (user?.branchId) refreshData(); 
   }, [user]);
 
   useEffect(() => {
@@ -79,6 +75,7 @@ export default function ShiftPage() {
                   getSalesMetricsByShift(targetShift.id),
                   getExpensesByShift(targetShift.id)
               ]);
+              // Cálculo visual para la UI (El cálculo real y final lo hará el servicio al cerrar)
               const expectedCash = Number(targetShift.initialCash) + (sales.incomeByMethod.EFECTIVO || 0) - (expenses.byMethod.EFECTIVO || 0);
               const expectedCard = (sales.incomeByMethod.TARJETA || 0);
               const expectedTransfer = (sales.incomeByMethod.TRANSFERENCIA || 0) - (expenses.byMethod.TRANSFERENCIA || 0);
@@ -94,7 +91,6 @@ export default function ShiftPage() {
       if (openForm.initialCash === "") return notify.error("Indica fondo de caja");
       
       try {
-          // 👈 4. Crear turno en la sucursal correcta
           await openShift({ 
               user: openForm.user, 
               initialCash: openForm.initialCash 
@@ -115,22 +111,22 @@ export default function ShiftPage() {
       } catch (e) { notify.error(e.message); }
   };
 
+  // 🟢 CIERRE DEFINITIVO BLINDADO
   const handleFinalClose = async () => {
-      if (!metrics || !auditShift) return;
-      if(!await confirm({ title: "Cierre Definitivo", message: "¿Aprobar diferencias y cerrar turno?", confirmText: "Aprobar" })) return;
-
-      const declared = auditShift.declared; 
-      const diff = {
-          cash: declared.cash - metrics.expected.cash,
-          card: declared.card - metrics.expected.card,
-          transfer: declared.transfer - metrics.expected.transfer
-      };
+      if (!auditShift) return;
+      if(!await confirm({ title: "Cierre Definitivo", message: "¿Aprobar diferencias y cerrar turno? Esta acción es irreversible.", confirmText: "Aprobar" })) return;
 
       try {
-          await closeShift(auditShift.id, { expected: metrics.expected, declared: declared, difference: diff, notes: auditNotes });
+          // Usamos el nuevo servicio orquestador
+          await performShiftClosing(
+              auditShift.id, 
+              auditShift.declared, // Pasamos lo que declaró el cajero
+              auditNotes           // Notas del auditor
+          );
+          
           setAuditNotes("");
           await refreshData();
-          notify.success("Turno finalizado.");
+          notify.success("Turno finalizado y auditado.");
       } catch (e) { notify.error(e.message); }
   };
 
@@ -317,10 +313,13 @@ const AuditRow = ({ label, expected, declared }) => {
 };
 
 const ShiftDetailModal = ({ shift, onClose }) => {
-    const expected = shift.expected || { cash:0, card:0, transfer:0 };
-    const declared = shift.declared || { cash:0, card:0, transfer:0 };
-    const diff = shift.difference || { cash:0, card:0, transfer:0 };
-    const totalDiff = (diff.cash + diff.card + diff.transfer);
+    const snapshot = shift.snapshot || {}; // Usar snapshot si existe
+    const expected = snapshot.finalExpected || shift.expected || { cash:0, card:0, transfer:0 };
+    const declared = snapshot.finalDeclared || shift.declared || { cash:0, card:0, transfer:0 };
+    const diff = snapshot.finalDiff || shift.difference || { cash:0, card:0, transfer:0 };
+    
+    // Cálculo seguro
+    const totalDiff = (Number(diff.cash)||0) + (Number(diff.card)||0) + (Number(diff.transfer)||0);
 
     return (
         <ModalWrapper title="Detalle de Corte" onClose={onClose} width="650px">
@@ -332,7 +331,7 @@ const ShiftDetailModal = ({ shift, onClose }) => {
                         <div className="text-textMuted">Cierre: {shift.closedAt ? new Date(shift.closedAt).toLocaleString() : "En curso"}</div>
                     </div>
                     <div className="text-right space-y-1">
-                        <div className="text-emerald-400 font-bold text-lg">${shift.initialCash.toLocaleString()}</div>
+                        <div className="text-emerald-400 font-bold text-lg">${Number(shift.initialCash).toLocaleString()}</div>
                         <div className="text-xs text-textMuted uppercase">Fondo Inicial</div>
                         <Badge color={shift.status==="CLOSED"?"green":"yellow"}>{shift.status}</Badge>
                     </div>
@@ -382,10 +381,10 @@ const ShiftDetailModal = ({ shift, onClose }) => {
 const DetailRow = ({ label, sys, dec, diff }) => (
     <tr>
         <td className="p-3 text-textMain">{label}</td>
-        <td className="p-3 text-right text-textMuted">${sys.toLocaleString()}</td>
-        <td className="p-3 text-right text-white font-medium">${dec.toLocaleString()}</td>
-        <td className={`p-3 text-right font-bold ${diff === 0 ? "text-textMuted opacity-30" : diff > 0 ? "text-emerald-400" : "text-red-400"}`}>
-            {diff > 0 ? "+" : ""}{diff.toLocaleString()}
+        <td className="p-3 text-right text-textMuted">${(Number(sys)||0).toLocaleString()}</td>
+        <td className="p-3 text-right text-white font-medium">${(Number(dec)||0).toLocaleString()}</td>
+        <td className={`p-3 text-right font-bold ${(Number(diff)||0) === 0 ? "text-textMuted opacity-30" : (Number(diff)||0) > 0 ? "text-emerald-400" : "text-red-400"}`}>
+            {(Number(diff)||0) > 0 ? "+" : ""}{(Number(diff)||0).toLocaleString()}
         </td>
     </tr>
 );

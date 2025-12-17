@@ -1,6 +1,6 @@
 import { db } from "@/firebase/config";
 import { 
-  collection, doc, runTransaction, getDocs, getDoc, updateDoc, deleteDoc, query, where, orderBy 
+  collection, doc, runTransaction, getDocs, getDoc, updateDoc, query, where, orderBy 
 } from "firebase/firestore";
 import { getLoyaltySettings, getTerminals } from "./settingsStorage"; 
 import { getCurrentShift } from "./shiftsStorage"; 
@@ -14,14 +14,24 @@ import {
     prepareBankCommissions, 
     prepareWorkOrders 
 } from "@/domain/sales/SalePreparers";
-// 🟢 REFACTOR: Constantes
-import { PAYMENT_METHODS, EXPENSE_CATEGORIES, WO_STATUS } from "@/utils/constants";
+
+// --- NUEVOS IMPORTS ---
+import { logAuditAction } from "./auditStorage";
+import { recordLedgerEntry } from "./ledgerStorage";
+import { 
+  PAYMENT_METHODS, 
+  EXPENSE_CATEGORIES, 
+  WO_STATUS, 
+  AUDIT_ACTIONS, 
+  LEDGER_TYPES 
+} from "@/utils/constants";
 
 const COLLECTION_NAME = "sales";
 const COLLECTION_PRODUCTS = "products";
 const COLLECTION_PATIENTS = "patients";
 const COLLECTION_LOGS = "inventory_logs";
 const COLLECTION_EXPENSES = "expenses"; 
+const COLLECTION_WORK_ORDERS = "work_orders";
 
 // --- LECTURA ---
 export async function getAllSales(branchId = "lusso_main") {
@@ -58,6 +68,8 @@ export async function getSalesMetricsByShift(shiftId) {
     
     snapshot.forEach(doc => {
         const sale = doc.data();
+        if (sale.status === "CANCELLED") return;
+
         if (Array.isArray(sale.payments)) {
             sale.payments.forEach(pay => {
                 if (pay.shiftId === shiftId) {
@@ -84,6 +96,8 @@ export async function getFinancialReport(startDate, endDate, branchId = "lusso_m
 
     snapshot.forEach(doc => {
         const s = doc.data();
+        if (s.status === "CANCELLED") return;
+
         const sDate = s.createdAt.slice(0, 10);
         
         if (sDate >= startDate && sDate <= endDate) {
@@ -128,6 +142,8 @@ export async function getProfitabilityReport(startDate, endDate, branchId = "lus
 
     snapshot.forEach(doc => {
         const s = doc.data();
+        if (s.status === "CANCELLED") return;
+
         const saleTotal = roundMoney(s.total || 0);
         let saleCost = 0;
         
@@ -155,7 +171,7 @@ export async function getProfitabilityReport(startDate, endDate, branchId = "lus
     return { global, byCategory }; 
 }
 
-// --- CREACIÓN (ATÓMICA) ---
+// --- CREACIÓN (ATÓMICA CON AUDITORÍA) ---
 export async function createSale(payload, branchId = "lusso_main") {
   if (!payload?.patientId) throw new Error("patientId requerido");
   
@@ -164,6 +180,7 @@ export async function createSale(payload, branchId = "lusso_main") {
   
   const loyalty = await getLoyaltySettings(); 
   const terminals = await getTerminals(); 
+  const user = payload.soldBy || "Unknown";
   
   const saleResult = await runTransaction(db, async (transaction) => {
     // 1. LECTURAS
@@ -200,7 +217,6 @@ export async function createSale(payload, branchId = "lusso_main") {
     const totalSale = roundMoney(payload.total || 0);
     const paidAmount = roundMoney(paymentsWithShift.reduce((sum, p) => sum + Number(p.amount), 0));
     
-    // 🟢 REFACTOR: Constante
     const pointsUsed = paymentsWithShift.filter(p => p.method === PAYMENT_METHODS.POINTS).reduce((sum, p) => sum + Number(p.amount), 0);
     if (pointsUsed > 0 && (patientData.points || 0) < pointsUsed) {
         throw new Error(`Saldo insuficiente de puntos.`);
@@ -213,7 +229,6 @@ export async function createSale(payload, branchId = "lusso_main") {
     const newSaleRef = doc(collection(db, COLLECTION_NAME));
     const workOrders = prepareWorkOrders(sanitizedItems, newSaleRef.id, branchId, payload.patientId, now, totalSale, paidAmount);
 
-    // 3. ESCRITURAS
     const hasLabItems = sanitizedItems.some(i => i.requiresLab === true);
     const balance = Math.max(0, roundMoney(totalSale - paidAmount));
     
@@ -222,7 +237,7 @@ export async function createSale(payload, branchId = "lusso_main") {
         patientId: payload.patientId,
         patientName: `${patientData.firstName} ${patientData.lastName}`.trim(),
         boxNumber: payload.boxNumber || "",
-        soldBy: payload.soldBy || "",
+        soldBy: user,
         kind: sanitizedItems[0]?.kind || "OTHER",
         saleType: hasLabItems ? "LAB" : "SIMPLE",
         description: payload.description || (hasLabItems ? "Venta Óptica" : "Venta Mostrador"),
@@ -244,7 +259,7 @@ export async function createSale(payload, branchId = "lusso_main") {
 
     workOrders.forEach(wo => {
         const { _id, ...woData } = wo;
-        const woRef = doc(db, "work_orders", _id);
+        const woRef = doc(db, COLLECTION_WORK_ORDERS, _id);
         transaction.set(woRef, woData);
     });
 
@@ -272,13 +287,38 @@ export async function createSale(payload, branchId = "lusso_main") {
         transaction.update(referrerRef, { points: (Number(referrerData.points) || 0) + loyaltyResult.referrerPoints });
     }
 
+    // AUDITORÍA Y LEDGER
+    logAuditAction({
+        entityType: "SALE",
+        entityId: newSaleRef.id,
+        action: AUDIT_ACTIONS.CREATE_SALE,
+        user: user,
+        reason: "Nueva venta registrada",
+        previousState: null
+    }, transaction);
+
+    paymentsWithShift.forEach(payment => {
+        if (Number(payment.amount) > 0) {
+            recordLedgerEntry({
+                saleId: newSaleRef.id,
+                amount: Number(payment.amount),
+                type: LEDGER_TYPES.SALE, 
+                method: payment.method,
+                shiftId: currentShift.id,
+                user: user,
+                reference: `Pago Inicial Venta #${newSaleRef.id.slice(0,6)}`,
+                terminal: payment.terminal || null
+            }, transaction);
+        }
+    });
+
     return { id: newSaleRef.id, ...newSale };
   });
 
   return saleResult;
 }
 
-// --- MODIFICACIONES DE VENTA ---
+// --- MODIFICACIONES DE VENTA (ABONOS) ---
 export async function addPaymentToSale(saleId, payment) {
   const shift = await getCurrentShift(); 
   if (!shift) throw new Error("⛔ CAJA CERRADA: Abre un turno para abonos.");
@@ -286,6 +326,7 @@ export async function addPaymentToSale(saleId, payment) {
   const loyalty = await getLoyaltySettings();
   const terminals = await getTerminals(); 
   const branchId = shift.branchId;
+  const user = shift.user || "Cajero";
 
   await runTransaction(db, async (transaction) => {
       const saleRef = doc(db, COLLECTION_NAME, saleId);
@@ -293,6 +334,8 @@ export async function addPaymentToSale(saleId, payment) {
       if (!saleSnap.exists()) throw new Error("Venta no encontrada");
       
       const saleData = saleSnap.data();
+      if (saleData.status === "CANCELLED") throw new Error("⛔ VENTA CANCELADA: No recibe abonos.");
+
       if (saleData.branchId && branchId && saleData.branchId !== branchId) {
           throw new Error(`⛔ SUCURSAL INCORRECTA: Venta de "${saleData.branchId}".`);
       }
@@ -315,7 +358,6 @@ export async function addPaymentToSale(saleId, payment) {
       const amountToPay = roundMoney(Math.min(Number(payment.amount), balance));
       if (amountToPay <= 0) return; 
 
-      // 🟢 REFACTOR: Constante
       const method = payment.method || PAYMENT_METHODS.CASH;
       let pointsUsed = 0;
       
@@ -336,8 +378,6 @@ export async function addPaymentToSale(saleId, payment) {
           }
       }
 
-      // Cálculo Comisiones Abono
-      // 🟢 REFACTOR: Constante
       if (method === PAYMENT_METHODS.CARD && payment.terminal) {
           const tempPayments = [{ ...payment, amount: amountToPay, method: PAYMENT_METHODS.CARD }];
           const expenses = prepareBankCommissions(tempPayments, terminals, branchId, new Date().toISOString());
@@ -380,6 +420,26 @@ export async function addPaymentToSale(saleId, payment) {
       if (referrerPoints > 0 && referrerSnap.exists()) {
           transaction.update(referrerRef, { points: (Number(referrerSnap.data().points) || 0) + referrerPoints });
       }
+
+      logAuditAction({
+          entityType: "SALE",
+          entityId: saleId,
+          action: AUDIT_ACTIONS.ADD_PAYMENT,
+          user: user,
+          reason: `Abono de $${amountToPay} (${method})`,
+          previousState: { balance: saleData.balance, paid: saleData.paidAmount }
+      }, transaction);
+
+      recordLedgerEntry({
+          saleId: saleId,
+          amount: amountToPay,
+          type: LEDGER_TYPES.PAYMENT,
+          method: method,
+          shiftId: shift.id,
+          user: user,
+          reference: `Abono Venta #${saleId.slice(0,6)}`,
+          terminal: payment.terminal || null
+      }, transaction);
   });
 }
 
@@ -388,6 +448,7 @@ export async function deletePaymentFromSale(saleId, paymentId) {
     const currentShift = await getCurrentShift();
     if (!currentShift) throw new Error("⛔ CAJA CERRADA: Necesitas turno abierto para corregir pagos.");
     const loyalty = await getLoyaltySettings();
+    const user = currentShift.user || "Admin";
 
     await runTransaction(db, async (transaction) => {
         const saleRef = doc(db, COLLECTION_NAME, saleId);
@@ -401,8 +462,6 @@ export async function deletePaymentFromSale(saleId, paymentId) {
         
         const paymentToDelete = saleData.payments[paymentIndex];
         
-        // 1. Revertir Puntos USADOS
-        // 🟢 REFACTOR: Constante
         if (paymentToDelete.method === PAYMENT_METHODS.POINTS) {
             const patientRef = doc(db, COLLECTION_PATIENTS, saleData.patientId);
             const patientSnap = await transaction.get(patientRef);
@@ -412,9 +471,7 @@ export async function deletePaymentFromSale(saleId, paymentId) {
             }
         }
 
-        // 2. Revertir Puntos GANADOS
         let pointsToRevoke = 0;
-        // 🟢 REFACTOR: Constante
         if (loyalty.enabled && paymentToDelete.method !== PAYMENT_METHODS.POINTS) {
             const rate = loyalty.earningRates[paymentToDelete.method] || loyalty.earningRates["GLOBAL"] || 0;
             pointsToRevoke = Math.floor((Number(paymentToDelete.amount) * rate) / 100);
@@ -428,7 +485,6 @@ export async function deletePaymentFromSale(saleId, paymentId) {
             }
         }
 
-        // 3. Recalcular
         const newPayments = saleData.payments.filter(p => p.id !== paymentId);
         const newPaidAmount = roundMoney(newPayments.reduce((sum, p) => sum + Number(p.amount), 0));
         const newBalance = roundMoney(saleData.total - newPaidAmount);
@@ -441,131 +497,189 @@ export async function deletePaymentFromSale(saleId, paymentId) {
             pointsAwarded: Math.max(0, (saleData.pointsAwarded || 0) - pointsToRevoke), 
             updatedAt: new Date().toISOString()
         });
+
+        recordLedgerEntry({
+            saleId: saleId,
+            amount: -Math.abs(Number(paymentToDelete.amount)),
+            type: LEDGER_TYPES.ADJUSTMENT,
+            method: paymentToDelete.method,
+            shiftId: currentShift.id,
+            user: user,
+            reference: `Corrección: Eliminación Pago ${paymentToDelete.id.slice(0,4)}`,
+            terminal: paymentToDelete.terminal
+        }, transaction);
+
+        logAuditAction({
+            entityType: "SALE",
+            entityId: saleId,
+            action: AUDIT_ACTIONS.DELETE_PAYMENT,
+            user: user,
+            reason: `Eliminación de pago ${paymentToDelete.amount} (${paymentToDelete.method})`,
+            previousState: { paymentId: paymentId, amount: paymentToDelete.amount }
+        }, transaction);
     });
 }
 
-export async function updateSalePaymentMethod(saleId, paymentId, newMethod) {
-  const saleRef = doc(db, COLLECTION_NAME, saleId);
-  const saleSnap = await getDoc(saleRef);
-  if (!saleSnap.exists()) return false;
-  const saleData = saleSnap.data();
-  const newPayments = saleData.payments.map(p => p.id === paymentId ? { ...p, method: newMethod } : p);
-  await updateDoc(saleRef, { payments: newPayments, updatedAt: new Date().toISOString() });
-  return true;
-}
-
+// UPDATE LOGISTICS
 export async function updateSaleLogistics(id, data) {
     const saleRef = doc(db, COLLECTION_NAME, id);
     await updateDoc(saleRef, { soldBy: data.soldBy, updatedAt: new Date().toISOString() });
 }
 
+// --- DEVOLUCIONES (PROCESS RETURN) ---
 export async function processReturn(saleId, itemId, qtyToReturn, refundMethod = "EFECTIVO", shouldRestock = true) {
     const currentShift = await getCurrentShift();
     if (!currentShift) throw new Error("⛔ CAJA CERRADA: Requieres turno para devoluciones.");
+    const user = currentShift.user || "Admin";
 
-    const saleRef = doc(db, COLLECTION_NAME, saleId);
-    const saleSnap = await getDoc(saleRef);
-    if (!saleSnap.exists()) throw new Error("Venta no encontrada");
-    
-    const sale = saleSnap.data();
-    let itemIndex = -1;
-    if (itemId) itemIndex = sale.items.findIndex(i => i.id === itemId);
-    if (itemIndex === -1) itemIndex = sale.items.findIndex(i => !i.id); 
-
-    if (itemIndex === -1) throw new Error("No se pudo identificar el producto a devolver.");
-
-    const item = sale.items[itemIndex];
     let stockError = null;
-    
-    if (shouldRestock && item.inventoryProductId) {
-        try {
-            await adjustStock(item.inventoryProductId, qtyToReturn, `Devolución Venta #${saleId.slice(0,6)}`);
-        } catch (e) {
-            console.error("Error devolviendo stock:", e);
-            stockError = e.message;
-        }
-    }
 
-    const originalSubtotal = sale.subtotalGross || sale.items.reduce((sum, i) => sum + ((i.qty + (i.returnedQty || 0)) * i.unitPrice), 0);
-    const discountRatio = originalSubtotal > 0 ? (sale.discount / originalSubtotal) : 0;
+    try {
+        await runTransaction(db, async (transaction) => {
+            const saleRef = doc(db, COLLECTION_NAME, saleId);
+            const saleSnap = await transaction.get(saleRef);
+            if (!saleSnap.exists()) throw new Error("Venta no encontrada");
+            
+            const sale = saleSnap.data();
+            let itemIndex = -1;
+            if (itemId) itemIndex = sale.items.findIndex(i => i.id === itemId);
+            if (itemIndex === -1) itemIndex = sale.items.findIndex(i => !i.id); 
 
-    const grossRefund = item.unitPrice * qtyToReturn;
-    const discountRecapture = grossRefund * discountRatio; 
-    const netRefund = roundMoney(grossRefund - discountRecapture);
+            if (itemIndex === -1) throw new Error("No se pudo identificar el producto a devolver.");
 
-    let newPayments = [...(sale.payments||[])];
-    
-    if (netRefund > 0) {
-        newPayments.push({
-            id: crypto.randomUUID(),
-            amount: -netRefund, 
-            method: refundMethod,
-            paidAt: new Date().toISOString(),
-            shiftId: currentShift.id,
-            note: `Reembolso: ${item.description} (Aj. Desc)`
+            const item = sale.items[itemIndex];
+            
+            const originalSubtotal = sale.subtotalGross || sale.items.reduce((sum, i) => sum + ((i.qty + (i.returnedQty || 0)) * i.unitPrice), 0);
+            const discountRatio = originalSubtotal > 0 ? (sale.discount / originalSubtotal) : 0;
+
+            const grossRefund = item.unitPrice * qtyToReturn;
+            const discountRecapture = grossRefund * discountRatio; 
+            const netRefund = roundMoney(grossRefund - discountRecapture);
+
+            let newPayments = [...(sale.payments||[])];
+            
+            if (netRefund > 0) {
+                newPayments.push({
+                    id: crypto.randomUUID(),
+                    amount: -netRefund, 
+                    method: refundMethod,
+                    paidAt: new Date().toISOString(),
+                    shiftId: currentShift.id,
+                    note: `Reembolso: ${item.description} (Aj. Desc)`
+                });
+
+                if (refundMethod === PAYMENT_METHODS.POINTS) {
+                    const patRef = doc(db, COLLECTION_PATIENTS, sale.patientId);
+                    const patSnap = await transaction.get(patRef);
+                    if (patSnap.exists()) {
+                        transaction.update(patRef, { points: (patSnap.data().points || 0) + netRefund });
+                    }
+                }
+            }
+
+            const refundRatio = sale.total > 0 ? netRefund / sale.total : 0;
+            const pointsToRevoke = Math.floor((sale.pointsAwarded || 0) * refundRatio);
+            
+            if (pointsToRevoke > 0) {
+                const patRef = doc(db, COLLECTION_PATIENTS, sale.patientId);
+                const patSnap = await transaction.get(patRef);
+                if (patSnap.exists()) {
+                     transaction.update(patRef, { points: Math.max(0, (patSnap.data().points || 0) - pointsToRevoke) });
+                }
+            }
+
+            const updatedItems = [...sale.items];
+            updatedItems[itemIndex] = {
+                ...item,
+                returnedQty: (item.returnedQty || 0) + qtyToReturn,
+                qty: item.qty - qtyToReturn
+            };
+
+            const newSubtotal = roundMoney(updatedItems.reduce((sum, i) => sum + (i.qty * i.unitPrice), 0));
+            const newDiscount = roundMoney(Math.max(0, (sale.discount || 0) - discountRecapture));
+            const newTotal = roundMoney(Math.max(0, newSubtotal - newDiscount));
+            const newPaidAmount = roundMoney(newPayments.reduce((sum, p) => sum + (Number(p.amount)||0), 0));
+            const newBalance = roundMoney(Math.max(0, newTotal - newPaidAmount));
+
+            let newStatus = sale.status;
+            if (newBalance <= 0.01) newStatus = newTotal === 0 ? "REFUNDED" : "PAID";
+
+            transaction.update(saleRef, { 
+                items: updatedItems, 
+                subtotalGross: newSubtotal,
+                discount: newDiscount,
+                total: newTotal, 
+                payments: newPayments,
+                paidAmount: newPaidAmount,
+                balance: newBalance,
+                status: newStatus,
+                pointsAwarded: Math.max(0, (sale.pointsAwarded || 0) - pointsToRevoke), 
+                updatedAt: new Date().toISOString() 
+            });
+
+            if (netRefund > 0) {
+                recordLedgerEntry({
+                    saleId: saleId,
+                    amount: -Math.abs(netRefund), 
+                    type: LEDGER_TYPES.REFUND,
+                    method: refundMethod,
+                    shiftId: currentShift.id,
+                    user: user,
+                    reference: `Devolución: ${item.description.slice(0, 20)}...`,
+                }, transaction);
+            }
+
+            logAuditAction({
+                entityType: "SALE",
+                entityId: saleId,
+                action: AUDIT_ACTIONS.RETURN_ITEM,
+                user: user,
+                reason: `Devolución ${qtyToReturn}x ${item.description}`,
+                previousState: { total: sale.total, status: sale.status }
+            }, transaction);
         });
 
-        // 🟢 REFACTOR: Constante
-        if (refundMethod === PAYMENT_METHODS.POINTS) {
-            try { await adjustPatientPoints(sale.patientId, netRefund); } 
-            catch(e) { console.error("Error devolviendo puntos", e); }
+        if (shouldRestock && itemId) {
+            const sCheck = await getSaleById(saleId);
+            const freshItem = sCheck.items.find(i => i.id === itemId);
+            if (freshItem && freshItem.inventoryProductId) {
+                try {
+                     await adjustStock(freshItem.inventoryProductId, qtyToReturn, `Devolución Venta #${saleId.slice(0,6)}`);
+                } catch(e) {
+                    console.error("Error stock:", e);
+                    stockError = "Dinero devuelto, pero error en Stock: " + e.message;
+                }
+            }
         }
+        
+        const sCheck = await getSaleById(saleId);
+        const freshItem = sCheck.items.find(i => (itemId ? i.id === itemId : true));
+        if (freshItem && freshItem.requiresLab) {
+             try { await cancelWorkOrderBySaleItem(saleId, freshItem.id); } catch(e){ console.error(e); }
+        }
+
+    } catch (e) {
+        throw e;
     }
-
-    if (item.requiresLab) {
-        try { await cancelWorkOrderBySaleItem(saleId, item.id || itemId); } catch(e){ console.error(e); }
-    }
-
-    const refundRatio = sale.total > 0 ? netRefund / sale.total : 0;
-    const pointsToRevoke = Math.floor((sale.pointsAwarded || 0) * refundRatio);
-    if (pointsToRevoke > 0) {
-        try { await adjustPatientPoints(sale.patientId, -pointsToRevoke); } catch (e) { console.error(e); }
-    }
-
-    const updatedItems = [...sale.items];
-    updatedItems[itemIndex] = {
-        ...item,
-        returnedQty: (item.returnedQty || 0) + qtyToReturn,
-        qty: item.qty - qtyToReturn
-    };
-
-    const newSubtotal = roundMoney(updatedItems.reduce((sum, i) => sum + (i.qty * i.unitPrice), 0));
-    const newDiscount = roundMoney(Math.max(0, (sale.discount || 0) - discountRecapture));
-    const newTotal = roundMoney(Math.max(0, newSubtotal - newDiscount));
-    const newPaidAmount = roundMoney(newPayments.reduce((sum, p) => sum + (Number(p.amount)||0), 0));
-    const newBalance = roundMoney(Math.max(0, newTotal - newPaidAmount));
-
-    let newStatus = sale.status;
-    if (newBalance <= 0.01) newStatus = newTotal === 0 ? "REFUNDED" : "PAID";
-
-    await updateDoc(saleRef, { 
-        items: updatedItems, 
-        subtotalGross: newSubtotal,
-        discount: newDiscount,
-        total: newTotal, 
-        payments: newPayments,
-        paidAmount: newPaidAmount,
-        balance: newBalance,
-        status: newStatus,
-        pointsAwarded: Math.max(0, (sale.pointsAwarded || 0) - pointsToRevoke), 
-        updatedAt: new Date().toISOString() 
-    });
 
     return { stockError };
 }
 
+// 🟢 CANCELACIÓN TOTAL (SOFT DELETE REFACTORIZADO)
 export async function deleteSale(id) {
     if (!id) return;
+    
     const saleRef = doc(db, COLLECTION_NAME, id);
     const saleSnap = await getDoc(saleRef);
     if (!saleSnap.exists()) return; 
+    
     const sale = saleSnap.data();
-    const woQuery = query(collection(db, "work_orders"), where("saleId", "==", id));
+    if (sale.status === "CANCELLED") return;
+
+    const woQuery = query(collection(db, COLLECTION_WORK_ORDERS), where("saleId", "==", id));
     const woSnap = await getDocs(woQuery);
 
     await runTransaction(db, async (transaction) => {
-        const patientRef = doc(db, COLLECTION_PATIENTS, sale.patientId);
-        const patientSnap = await transaction.get(patientRef);
         const productReads = [];
         for (const item of sale.items) {
             if (item.inventoryProductId && item.qty > 0) {
@@ -583,6 +697,7 @@ export async function deleteSale(id) {
                     const currentStock = Number(prodData.stock) || 0;
                     const newStock = currentStock + item.qty;
                     transaction.update(productReads[index].ref, { stock: newStock });
+                    
                     const logRef = doc(collection(db, COLLECTION_LOGS));
                     transaction.set(logRef, {
                         productId: pSnap.id,
@@ -596,12 +711,96 @@ export async function deleteSale(id) {
             }
         });
 
+        const patientRef = doc(db, COLLECTION_PATIENTS, sale.patientId);
+        const patientSnap = await transaction.get(patientRef);
         if (sale.pointsAwarded > 0 && patientSnap.exists()) {
             const currentPoints = Number(patientSnap.data().points) || 0;
-            transaction.update(patientRef, { points: currentPoints - sale.pointsAwarded });
+            transaction.update(patientRef, { points: Math.max(0, currentPoints - sale.pointsAwarded) });
         }
 
-        woSnap.docs.forEach(woDoc => { transaction.delete(woDoc.ref); });
-        transaction.delete(saleRef);
+        woSnap.docs.forEach(woDoc => { 
+            transaction.update(woDoc.ref, { 
+                status: WO_STATUS.CANCELLED,
+                updatedAt: new Date().toISOString()
+            }); 
+        });
+
+        transaction.update(saleRef, {
+            status: "CANCELLED",
+            balance: 0, 
+            cancellationReason: "Anulación Administrativa",
+            updatedAt: new Date().toISOString()
+        });
+
+        logAuditAction({
+            entityType: "SALE",
+            entityId: id,
+            action: AUDIT_ACTIONS.VOID_SALE,
+            user: "Admin",
+            reason: "Cancelación completa de venta",
+            previousState: { status: sale.status, total: sale.total }
+        }, transaction);
     });
+}
+
+// 🟢 CORRECCIÓN MÉTODO DE PAGO (RECUPERADA Y BLINDADA)
+export async function updateSalePaymentMethod(saleId, paymentId, newMethod) {
+    const currentShift = await getCurrentShift();
+    if (!currentShift) throw new Error("⛔ CAJA CERRADA: Necesitas turno para corregir métodos de pago.");
+    const user = currentShift.user || "Admin";
+
+    await runTransaction(db, async (transaction) => {
+        const saleRef = doc(db, COLLECTION_NAME, saleId);
+        const saleSnap = await transaction.get(saleRef);
+        if (!saleSnap.exists()) throw new Error("Venta no encontrada");
+        
+        const saleData = saleSnap.data();
+        const payment = saleData.payments.find(p => p.id === paymentId);
+        if (!payment) throw new Error("Pago no encontrado");
+
+        const oldMethod = payment.method;
+        if (oldMethod === newMethod) return; // Sin cambios
+
+        // Actualizar array
+        const newPayments = saleData.payments.map(p => 
+            p.id === paymentId ? { ...p, method: newMethod } : p
+        );
+
+        transaction.update(saleRef, { 
+            payments: newPayments, 
+            updatedAt: new Date().toISOString() 
+        });
+
+        // Auditoría
+        logAuditAction({
+            entityType: "SALE",
+            entityId: saleId,
+            action: AUDIT_ACTIONS.UPDATE_SALE,
+            user: user,
+            reason: `Corrección método pago: ${oldMethod} -> ${newMethod}`,
+            previousState: { paymentId, oldMethod }
+        }, transaction);
+
+        // Ledger: Reclasificación contable (Salida del viejo, Entrada al nuevo)
+        recordLedgerEntry({
+            saleId: saleId,
+            amount: -Math.abs(Number(payment.amount)),
+            type: LEDGER_TYPES.ADJUSTMENT,
+            method: oldMethod,
+            shiftId: currentShift.id,
+            user: user,
+            reference: `Corrección (Salida): Cambio método pago`,
+        }, transaction);
+
+        recordLedgerEntry({
+            saleId: saleId,
+            amount: Math.abs(Number(payment.amount)),
+            type: LEDGER_TYPES.ADJUSTMENT,
+            method: newMethod,
+            shiftId: currentShift.id,
+            user: user,
+            reference: `Corrección (Entrada): Cambio método pago`,
+        }, transaction);
+    });
+    return true;
 }
