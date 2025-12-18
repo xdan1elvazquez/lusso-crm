@@ -1,6 +1,6 @@
 import { db } from "@/firebase/config";
 import { 
-  collection, addDoc, updateDoc, doc, query, where, orderBy, getDocs, arrayUnion 
+  collection, addDoc, updateDoc, doc, query, where, orderBy, onSnapshot, arrayUnion 
 } from "firebase/firestore";
 
 const COLLECTION = "internal_tickets";
@@ -19,7 +19,7 @@ export const TICKET_STATUS = {
     CLOSED: "Cerrado"
 };
 
-// Crear Ticket
+// Crear Ticket (Igual que antes)
 export async function createTicket(data) {
     const newTicket = {
         title: data.title,
@@ -27,15 +27,10 @@ export async function createTicket(data) {
         priority: data.priority || "MEDIUM",
         status: "OPEN",
         
-        // Origen
-        createdBy: data.createdBy, // { uid, name, email }
+        createdBy: data.createdBy, 
         fromBranchId: data.fromBranchId,
-        
-        // Destino
         targetBranchId: data.targetBranchId || "ALL",
-        
-        // Asignación
-        assignedTo: data.assignedTo || null, // { uid, name, email }
+        assignedTo: data.assignedTo || null, 
         
         comments: [],
         createdAt: new Date().toISOString(),
@@ -45,36 +40,57 @@ export async function createTicket(data) {
     return await addDoc(collection(db, COLLECTION), newTicket);
 }
 
-// Obtener Tickets (Visibilidad Abierta por Sucursal)
-export async function getTickets(branchId, userEmail) {
-    // 1. Tickets dirigidos a mi sucursal (o globales)
-    // Se eliminó la restricción de rol. Si trabajas en la sucursal, ves los tickets de la sucursal.
+// 🟢 SUSCRIPCIÓN EN TIEMPO REAL
+// En lugar de pedir los datos una vez, nos "suscribimos" a ellos.
+export function subscribeToTickets(branchId, userEmail, onUpdate) {
+    
+    // 1. Tickets para mi sucursal
     const qReceived = query(
         collection(db, COLLECTION),
         where("targetBranchId", "in", [branchId, "ALL"]),
         orderBy("createdAt", "desc")
     );
 
-    // 2. Tickets que YO envié a otras sucursales
+    // 2. Tickets que yo envié
     const qSent = query(
         collection(db, COLLECTION),
         where("createdBy.email", "==", userEmail),
         orderBy("createdAt", "desc")
     );
 
-    const [snapRec, snapSent] = await Promise.all([getDocs(qReceived), getDocs(qSent)]);
-    
-    const all = new Map();
-    
-    // Unificar listas
-    snapRec.docs.forEach(d => all.set(d.id, { id: d.id, ...d.data() }));
-    snapSent.docs.forEach(d => all.set(d.id, { id: d.id, ...d.data() }));
+    // Almacenamos los resultados en memoria para unirlos
+    let receivedDocs = [];
+    let sentDocs = [];
 
-    // Convertir a array y reordenar por fecha
-    return Array.from(all.values()).sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt));
+    // Función para mezclar y notificar
+    const mergeAndNotify = () => {
+        const all = new Map();
+        receivedDocs.forEach(d => all.set(d.id, d));
+        sentDocs.forEach(d => all.set(d.id, d));
+        
+        const sorted = Array.from(all.values()).sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt));
+        onUpdate(sorted);
+    };
+
+    // Escuchamos ambos canales
+    const unsubRec = onSnapshot(qReceived, (snap) => {
+        receivedDocs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        mergeAndNotify();
+    });
+
+    const unsubSent = onSnapshot(qSent, (snap) => {
+        sentDocs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        mergeAndNotify();
+    });
+
+    // Devolvemos una función para cancelar la suscripción cuando salgamos de la página
+    return () => {
+        unsubRec();
+        unsubSent();
+    };
 }
 
-// Agregar Comentario
+// Agregar Comentario (Igual)
 export async function addTicketComment(ticketId, user, text) {
     const ref = doc(db, COLLECTION, ticketId);
     const comment = {
@@ -89,7 +105,7 @@ export async function addTicketComment(ticketId, user, text) {
     });
 }
 
-// Cambiar Estado
+// Cambiar Estado (Igual)
 export async function updateTicketStatus(ticketId, status) {
     const ref = doc(db, COLLECTION, ticketId);
     await updateDoc(ref, { 
