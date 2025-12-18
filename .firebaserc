@@ -1,5 +1,9 @@
 {
   "projects": {
-    "default": "lusso-crm-demo"
-  }
+    "default": "lusso-crm-demo",
+    "staging": "lusso-crm-demo",
+    "prod": "visual-group-mexico"
+  },
+  "targets": {},
+  "etags": {}
 }

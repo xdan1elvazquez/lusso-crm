@@ -1,52 +1,9 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-
-    function isAuthenticated() {
-      return request.auth != null;
-    }
-    
-    // Helper para verificar si el usuario es Admin buscando en su doc de empleado.
-    // OJO: Esto tiene costo de lectura. Úsalo solo en colecciones críticas.
-    function isAdmin() {
-       return get(/databases/$(database)/documents/employees/$(request.auth.uid)).data.role == 'ADMIN';
-    }
-
-    // --- REGLAS P0: FINANZAS BLINDADAS ---
-
-    // 1. Auditoría: Solo crear, nadie borra.
-    match /audit_logs/{docId} {
-      allow read: if isAuthenticated() && isAdmin(); // Solo admin lee auditoría
-      allow create: if isAuthenticated();
-      allow update, delete: if false; 
-    }
-
-    // 2. Ledger Financiero: MÁS ESTRICTO AHORA
-    match /finance_ledger/{docId} {
-      // Solo Admin puede leer todo el ledger financiero. 
-      // Si tienes un rol 'CONTADOR', agrégalo aquí.
-      allow read: if isAuthenticated() && isAdmin(); 
-      allow create: if isAuthenticated() 
-                    && request.resource.data.amount is number
-                    && request.resource.data.saleId is string;
-      allow update, delete: if false; 
-    }
-
-    // 3. Empleados: Solo Admin puede gestionar usuarios
-    match /employees/{docId} {
-      allow read: if isAuthenticated(); // Todos leen para saber quién es quién
-      allow write: if isAuthenticated() && isAdmin(); // Solo Admin crea/edita permisos
-    }
-
-    // 4. Ventas: Abierto a operación, cerrado a borrado físico
-    match /sales/{docId} {
-      allow read, create, update: if isAuthenticated();
-      allow delete: if false;
-    }
-
-    // --- REGLAS GENERALES ---
+    // REGLA TEMPORAL: Permite todo a usuarios autenticados
     match /{document=**} {
-      allow read, write: if isAuthenticated();
+      allow read, write: if request.auth != null;
     }
   }
 }
