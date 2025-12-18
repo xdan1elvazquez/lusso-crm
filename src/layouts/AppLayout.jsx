@@ -27,9 +27,11 @@ const ALL_APPS = [
   { id: "expenses", to: "expenses", label: "Gastos", icon: "💸", category: "Finanzas", permission: PERMISSIONS.VIEW_EXPENSES },
   { id: "payroll", to: "payroll", label: "Nómina", icon: "👥", category: "Finanzas", permission: PERMISSIONS.VIEW_PAYROLL },
 
-  // Admin
+  // Admin & Soporte
   { id: "shifts", to: "shifts", label: "Cortes Caja", icon: "🔐", category: "Admin", permission: PERMISSIONS.VIEW_SHIFTS },
   { id: "team", to: "team", label: "Equipo", icon: "🧷", category: "Admin", permission: PERMISSIONS.VIEW_ADMIN_TEAM },
+  // 👈 NUEVA APP DE TICKETS
+  { id: "tickets", to: "tickets", label: "Mesa de Ayuda", icon: "🎫", category: "Admin", permission: PERMISSIONS.VIEW_TICKETS },
 ];
 
 const DEFAULT_PINS = ["dashboard", "patients", "sales", "work-orders"];
@@ -151,7 +153,7 @@ export default function AppLayout() {
                 )}
             </div>
             
-            {/* USER INFO CORREGIDO: gap-0.5 para separar, sin leading-tight */}
+            {/* USER INFO */}
             <div className="flex flex-col items-end gap-0.5 mr-3 hidden sm:block">
                 <span className="text-xs font-bold text-white">{userData?.name}</span>
                 <span className="text-[10px] text-slate-400">{currentBranch.name}</span>

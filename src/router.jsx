@@ -2,9 +2,10 @@
 import React from "react";
 import { createBrowserRouter, Navigate } from "react-router-dom";
 import AppLayout from "@/layouts/AppLayout.jsx";
-import ProtectedRoute from "@/components/ProtectedRoute.jsx"; // 👈 IMPORTAR
+import ProtectedRoute from "@/components/ProtectedRoute.jsx";
+import { PERMISSIONS } from "@/utils/rbacConfig"; // 👈 IMPORTAR
 
-// ... (imports de páginas igual que antes) ...
+// ... imports de páginas ...
 import DashboardPage from "@/pages/DashboardPage.jsx";
 import PatientsPage from "@/pages/PatientsPage.jsx";
 import PatientDetailPage from "@/pages/PatientDetailPage.jsx";
@@ -26,6 +27,7 @@ import PayrollPage from "@/pages/PayrollPage.jsx";
 import SalesHistoryPage from "@/pages/SalesHistoryPage.jsx";
 import SuppliersPage from "@/pages/SuppliersPage.jsx";
 import ShiftPage from "@/pages/ShiftPage.jsx";
+import TicketsPage from "@/pages/TicketsPage.jsx"; // 👈 IMPORTAR
 
 import ClientLayout from "@/layouts/ClientLayout";
 import ClientLoginPage from "@/pages/client/ClientLoginPage";
@@ -46,43 +48,80 @@ const router = createBrowserRouter([
 
   {
     path: "/",
-    element: <AppLayout />, // El Layout maneja la estructura visual
+    element: <AppLayout />,
     children: [
       { index: true, element: <Navigate to="/dashboard" replace /> },
       
-      // 🟢 ACCESO PÚBLICO (Cualquier empleado logueado)
-      { element: <ProtectedRoute />, children: [
-          { path: "unauthorized", element: <UnauthorizedPage /> },
+      // DASHBOARD: Requiere permiso básico
+      { element: <ProtectedRoute requiredPermission={PERMISSIONS.VIEW_DASHBOARD} />, children: [
+          { path: "unauthorized", element: <UnauthorizedPage /> }, // Excepción: todos pueden ver "No autorizado"
           { path: "dashboard", element: <DashboardPage /> },
       ]},
 
-      // 🔵 ÁREA CLÍNICA (Doctores y Ventas)
-      { element: <ProtectedRoute allowedRoles={["ADMIN", "DOCTOR", "SALES"]} />, children: [
+      // CLÍNICA
+      { element: <ProtectedRoute requiredPermission={PERMISSIONS.VIEW_PATIENTS} />, children: [
           { path: "patients", element: <PatientsPage /> },
           { path: "patients/:id", element: <PatientDetailPage /> },
-          { path: "work-orders", element: <WorkOrdersPage /> },
-          { path: "sales", element: <SalesPage /> },
-          { path: "sales-history", element: <SalesHistoryPage /> },
-          { path: "receivables", element: <ReceivablesPage /> },
       ]},
 
-      // 🟡 EXPEDIENTE MÉDICO PROFUNDO (Solo Doctores)
+      // CONSULTAS: Solo doctores (además de permiso de pacientes)
       { element: <ProtectedRoute allowedRoles={["ADMIN", "DOCTOR"]} />, children: [
           { path: "patients/:patientId/consultations/:consultationId", element: <ConsultationDetailPage /> },
       ]},
 
-      // 🔴 ÁREA ADMINISTRATIVA / GERENCIAL (Solo Admin)
-      { element: <ProtectedRoute allowedRoles={["ADMIN"]} />, children: [
-          { path: "finance", element: <FinancePage /> },
-          { path: "expenses", element: <ExpensesPage /> },
-          { path: "payables", element: <PayablesPage /> },
-          { path: "payroll", element: <PayrollPage /> },
-          { path: "statistics", element: <StatisticsPage /> },
-          { path: "shifts", element: <ShiftPage /> },
+      // VENTAS
+      { element: <ProtectedRoute requiredPermission={PERMISSIONS.VIEW_SALES} />, children: [
+          { path: "sales", element: <SalesPage /> },
+      ]},
+      { element: <ProtectedRoute requiredPermission={PERMISSIONS.VIEW_WORK_ORDERS} />, children: [
+          { path: "work-orders", element: <WorkOrdersPage /> },
+      ]},
+      { element: <ProtectedRoute requiredPermission={PERMISSIONS.VIEW_SALES_HISTORY} />, children: [
+          { path: "sales-history", element: <SalesHistoryPage /> },
+      ]},
+
+      // LOGÍSTICA
+      { element: <ProtectedRoute requiredPermission={PERMISSIONS.VIEW_INVENTORY} />, children: [
           { path: "inventory", element: <InventoryPage /> },
+      ]},
+      { element: <ProtectedRoute requiredPermission={PERMISSIONS.VIEW_LABS} />, children: [
           { path: "labs", element: <LabsPage /> },
+      ]},
+      { element: <ProtectedRoute requiredPermission={PERMISSIONS.VIEW_SUPPLIERS} />, children: [
           { path: "suppliers", element: <SuppliersPage /> },
+      ]},
+
+      // FINANZAS
+      { element: <ProtectedRoute requiredPermission={PERMISSIONS.VIEW_FINANCE} />, children: [
+          { path: "finance", element: <FinancePage /> },
+      ]},
+      { element: <ProtectedRoute requiredPermission={PERMISSIONS.VIEW_RECEIVABLES} />, children: [
+          { path: "receivables", element: <ReceivablesPage /> },
+      ]},
+      { element: <ProtectedRoute requiredPermission={PERMISSIONS.VIEW_PAYABLES} />, children: [
+          { path: "payables", element: <PayablesPage /> },
+      ]},
+      { element: <ProtectedRoute requiredPermission={PERMISSIONS.VIEW_EXPENSES} />, children: [
+          { path: "expenses", element: <ExpensesPage /> },
+      ]},
+      { element: <ProtectedRoute requiredPermission={PERMISSIONS.VIEW_PAYROLL} />, children: [
+          { path: "payroll", element: <PayrollPage /> },
+      ]},
+
+      // ADMIN
+      { element: <ProtectedRoute requiredPermission={PERMISSIONS.VIEW_STATISTICS} />, children: [
+          { path: "statistics", element: <StatisticsPage /> },
+      ]},
+      { element: <ProtectedRoute requiredPermission={PERMISSIONS.VIEW_SHIFTS} />, children: [
+          { path: "shifts", element: <ShiftPage /> },
+      ]},
+      { element: <ProtectedRoute requiredPermission={PERMISSIONS.VIEW_ADMIN_TEAM} />, children: [
           { path: "team", element: <TeamPage /> },
+      ]},
+
+      // 👈 NUEVA RUTA DE TICKETS
+      { element: <ProtectedRoute requiredPermission={PERMISSIONS.VIEW_TICKETS} />, children: [
+          { path: "tickets", element: <TicketsPage /> },
       ]},
 
       { path: "*", element: <NotFound /> },

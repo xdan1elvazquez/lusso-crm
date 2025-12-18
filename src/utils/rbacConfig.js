@@ -1,7 +1,6 @@
 // src/utils/rbacConfig.js
 
 // 1. DEFINICIÓN DE PERMISOS (FLAGS)
-// Usamos constantes para evitar errores de dedo
 export const PERMISSIONS = {
   // CLÍNICA
   VIEW_DASHBOARD: "view_dashboard",
@@ -19,19 +18,20 @@ export const PERMISSIONS = {
   VIEW_SUPPLIERS: "view_suppliers",
 
   // FINANZAS (CRÍTICO)
-  VIEW_FINANCE: "view_finance",     // Ver panel general
+  VIEW_FINANCE: "view_finance",     
   VIEW_RECEIVABLES: "view_receivables",
   VIEW_PAYABLES: "view_payables",
   VIEW_EXPENSES: "view_expenses",
   VIEW_PAYROLL: "view_payroll",
 
-  // ADMIN
+  // ADMIN & SOPORTE
   VIEW_ADMIN_TEAM: "view_admin_team",
   VIEW_SHIFTS: "view_shifts",
   MANAGE_SETTINGS: "manage_settings",
+  VIEW_TICKETS: "view_tickets", // 👈 NUEVO PERMISO
 };
 
-// 2. DICCIONARIO PARA UI (Nombre legible en TeamPage)
+// 2. DICCIONARIO PARA UI
 export const PERMISSION_LABELS = {
   [PERMISSIONS.VIEW_DASHBOARD]: "Ver Dashboard",
   [PERMISSIONS.VIEW_PATIENTS]: "Gestión de Pacientes",
@@ -50,17 +50,18 @@ export const PERMISSION_LABELS = {
   [PERMISSIONS.VIEW_ADMIN_TEAM]: "Gestión de Equipo",
   [PERMISSIONS.VIEW_SHIFTS]: "Cortes de Caja",
   [PERMISSIONS.MANAGE_SETTINGS]: "Configuraciones",
+  [PERMISSIONS.VIEW_TICKETS]: "Mesa de Ayuda (Tickets)", // 👈 ETIQUETA
 };
 
-// 3. DEFAULTS POR ROL (Retro-compatibilidad)
-// Si un usuario no tiene el campo 'permissions' en DB, se usará esto.
+// 3. DEFAULTS POR ROL
 export const ROLE_DEFAULTS = {
-  ADMIN: Object.values(PERMISSIONS), // Admin tiene TODO
+  ADMIN: Object.values(PERMISSIONS), 
   DOCTOR: [
     PERMISSIONS.VIEW_DASHBOARD, 
     PERMISSIONS.VIEW_PATIENTS, 
     PERMISSIONS.VIEW_WORK_ORDERS,
-    PERMISSIONS.VIEW_SALES_HISTORY // A veces consultan ventas pasadas
+    PERMISSIONS.VIEW_SALES_HISTORY,
+    PERMISSIONS.VIEW_TICKETS // 👈 Acceso
   ],
   SALES: [
     PERMISSIONS.VIEW_DASHBOARD,
@@ -69,15 +70,20 @@ export const ROLE_DEFAULTS = {
     PERMISSIONS.VIEW_WORK_ORDERS,
     PERMISSIONS.VIEW_SALES_HISTORY,
     PERMISSIONS.VIEW_RECEIVABLES,
-    PERMISSIONS.VIEW_INVENTORY
+    PERMISSIONS.VIEW_INVENTORY,
+    PERMISSIONS.VIEW_TICKETS // 👈 Acceso
   ],
   LAB: [
     PERMISSIONS.VIEW_WORK_ORDERS,
     PERMISSIONS.VIEW_LABS,
-    PERMISSIONS.VIEW_INVENTORY
+    PERMISSIONS.VIEW_INVENTORY,
+    PERMISSIONS.VIEW_TICKETS // 👈 Acceso
   ],
   COURIER: [
-    PERMISSIONS.VIEW_WORK_ORDERS
+    PERMISSIONS.VIEW_WORK_ORDERS,
+    PERMISSIONS.VIEW_TICKETS
   ],
-  OTHER: []
+  OTHER: [
+    PERMISSIONS.VIEW_TICKETS
+  ]
 };
