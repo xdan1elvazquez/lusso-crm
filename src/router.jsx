@@ -3,7 +3,7 @@ import React from "react";
 import { createBrowserRouter, Navigate } from "react-router-dom";
 import AppLayout from "@/layouts/AppLayout.jsx";
 import ProtectedRoute from "@/components/ProtectedRoute.jsx";
-import { PERMISSIONS } from "@/utils/rbacConfig"; // 👈 IMPORTAR
+import { PERMISSIONS } from "@/utils/rbacConfig"; 
 
 // ... imports de páginas ...
 import DashboardPage from "@/pages/DashboardPage.jsx";
@@ -27,7 +27,9 @@ import PayrollPage from "@/pages/PayrollPage.jsx";
 import SalesHistoryPage from "@/pages/SalesHistoryPage.jsx";
 import SuppliersPage from "@/pages/SuppliersPage.jsx";
 import ShiftPage from "@/pages/ShiftPage.jsx";
-import TicketsPage from "@/pages/TicketsPage.jsx"; // 👈 IMPORTAR
+import TicketsPage from "@/pages/TicketsPage.jsx";
+import GrowthPage from "@/pages/GrowthPage.jsx";
+import PurchasingPage from "@/pages/PurchasingPage.jsx"; // 👈 IMPORTAR
 
 import ClientLayout from "@/layouts/ClientLayout";
 import ClientLoginPage from "@/pages/client/ClientLoginPage";
@@ -54,7 +56,7 @@ const router = createBrowserRouter([
       
       // DASHBOARD: Requiere permiso básico
       { element: <ProtectedRoute requiredPermission={PERMISSIONS.VIEW_DASHBOARD} />, children: [
-          { path: "unauthorized", element: <UnauthorizedPage /> }, // Excepción: todos pueden ver "No autorizado"
+          { path: "unauthorized", element: <UnauthorizedPage /> }, 
           { path: "dashboard", element: <DashboardPage /> },
       ]},
 
@@ -64,7 +66,7 @@ const router = createBrowserRouter([
           { path: "patients/:id", element: <PatientDetailPage /> },
       ]},
 
-      // CONSULTAS: Solo doctores (además de permiso de pacientes)
+      // CONSULTAS
       { element: <ProtectedRoute allowedRoles={["ADMIN", "DOCTOR"]} />, children: [
           { path: "patients/:patientId/consultations/:consultationId", element: <ConsultationDetailPage /> },
       ]},
@@ -84,6 +86,12 @@ const router = createBrowserRouter([
       { element: <ProtectedRoute requiredPermission={PERMISSIONS.VIEW_INVENTORY} />, children: [
           { path: "inventory", element: <InventoryPage /> },
       ]},
+      
+      // 🛍️ RUTA DE COMPRAS INTELIGENTES (NUEVA)
+      { element: <ProtectedRoute requiredPermission={PERMISSIONS.VIEW_PURCHASING} />, children: [
+          { path: "purchasing", element: <PurchasingPage /> },
+      ]},
+
       { element: <ProtectedRoute requiredPermission={PERMISSIONS.VIEW_LABS} />, children: [
           { path: "labs", element: <LabsPage /> },
       ]},
@@ -119,9 +127,14 @@ const router = createBrowserRouter([
           { path: "team", element: <TeamPage /> },
       ]},
 
-      // 👈 NUEVA RUTA DE TICKETS
+      // TICKETS
       { element: <ProtectedRoute requiredPermission={PERMISSIONS.VIEW_TICKETS} />, children: [
           { path: "tickets", element: <TicketsPage /> },
+      ]},
+
+      // GROWTH CENTER
+      { element: <ProtectedRoute requiredPermission={PERMISSIONS.VIEW_GROWTH} />, children: [
+          { path: "growth", element: <GrowthPage /> },
       ]},
 
       { path: "*", element: <NotFound /> },

@@ -278,10 +278,26 @@ export async function createSale(payload, branchId = "lusso_main") {
         transaction.set(logRef, { ...log, reference: `Venta #${newSaleRef.id.slice(0,6)}`, date: now });
     });
 
+    // 🟢 LUSSO INTELLIGENCE: Actualización de Puntos y Fechas de Retorno
     const netPointsChange = loyaltyResult.pointsToAward - pointsUsed;
+    
+    // Calculamos fecha de recall (+1 año)
+    const recallDate = new Date();
+    recallDate.setFullYear(recallDate.getFullYear() + 1);
+
+    // Preparamos payload del paciente
+    const patientUpdatePayload = {
+        lastSaleDate: now,
+        nextRecallDate: recallDate.toISOString()
+    };
+
+    // Si hubo cambio de puntos, lo agregamos al mismo update
     if (netPointsChange !== 0) {
-        transaction.update(patientRef, { points: (Number(patientData.points) || 0) + netPointsChange });
+        patientUpdatePayload.points = (Number(patientData.points) || 0) + netPointsChange;
     }
+
+    // Ejecutamos update único
+    transaction.update(patientRef, patientUpdatePayload);
 
     if (loyaltyResult.referrerPoints > 0 && referrerRef) {
         transaction.update(referrerRef, { points: (Number(referrerData.points) || 0) + loyaltyResult.referrerPoints });

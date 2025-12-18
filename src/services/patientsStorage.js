@@ -9,47 +9,52 @@ import {
   query, 
   orderBy,
   where,
-  increment 
+  increment,
+  writeBatch
 } from "firebase/firestore";
 
 const COLLECTION_NAME = "patients";
 
-// 🟢 HELPER P-2: Normalización de Teléfono para WhatsApp (México)
-// Transforma (55) 1234-5678 -> +5215512345678
+// 🟢 HELPER: Normalización de Teléfono (Preservado)
 function cleanPhone(rawPhone) {
   if (!rawPhone) return "";
-  // 1. Quitamos todo lo que no sea número
   const digits = String(rawPhone).replace(/\D/g, "");
   
-  // 2. Lógica para México (10 dígitos)
-  if (digits.length === 10) {
-      // Agregamos prefijo internacional +52 y el 1 para celular
-      return `+521${digits}`; 
-  }
-  // 3. Si ya trae el 52 (12 dígitos) ej: 525512345678 -> +5215512345678
-  if (digits.length === 12 && digits.startsWith("52")) {
-      return `+${digits.slice(0,2)}1${digits.slice(2)}`; // Aseguramos el '1' intermedio
-  }
-  // 4. Si ya trae el 521 (13 dígitos)
-  if (digits.length === 13 && digits.startsWith("521")) {
-      return `+${digits}`;
-  }
+  if (digits.length === 10) return `+521${digits}`; 
+  if (digits.length === 12 && digits.startsWith("52")) return `+${digits.slice(0,2)}1${digits.slice(2)}`;
+  if (digits.length === 13 && digits.startsWith("521")) return `+${digits}`;
   
-  // Si no cumple formato estándar, devolvemos el original limpio de símbolos
   return digits || rawPhone;
 }
 
+// 🟢 NUEVO HELPER: Generador de Código de Referido
+// Ej: Juan Perez -> JUAPE482 (3 letras nombre + 2 apellido + 3 random)
+function generateReferralCode(firstName, lastName) {
+    const f = (firstName || "X").replace(/\s/g, "").toUpperCase().substring(0, 3);
+    const l = (lastName || "X").replace(/\s/g, "").toUpperCase().substring(0, 2);
+    const rand = Math.floor(100 + Math.random() * 900); // 3 dígitos
+    return `${f}${l}${rand}`;
+}
+
+// --- PUNTOS ---
 export async function setPatientPoints(id, newTotal) {
   const docRef = doc(db, COLLECTION_NAME, id);
   await updateDoc(docRef, { points: Number(newTotal) });
 }
 
+export async function adjustPatientPoints(id, amount) {
+  if (!id) return;
+  const docRef = doc(db, COLLECTION_NAME, id);
+  await updateDoc(docRef, {
+    points: increment(Number(amount))
+  });
+}
+
 // --- LECTURA ---
 export async function getPatients() {
-  // 🛡️ SOFT DELETE: Filtramos solo los que NO han sido borrados
   const q = query(
     collection(db, COLLECTION_NAME), 
-    where("deletedAt", "==", null), // 👈 Filtro clave
+    where("deletedAt", "==", null), 
     orderBy("createdAt", "desc")
   );
   const snapshot = await getDocs(q);
@@ -67,7 +72,7 @@ export async function getPatientsRecommendedBy(patientId) {
   if (!patientId) return [];
   const q = query(
     collection(db, COLLECTION_NAME), 
-    where("referredBy", "==", patientId),
+    where("referredBy", "==", patientId), // Buscará por ID del padre
     where("deletedAt", "==", null) 
   );
   const snapshot = await getDocs(q);
@@ -77,17 +82,18 @@ export async function getPatientsRecommendedBy(patientId) {
 // --- ESCRITURA ---
 export async function createPatient(data) {
   const now = new Date().toISOString();
-  
-  // 🟢 APLICAMOS LIMPIEZA P-2 AL CREAR
   const finalPhone = cleanPhone(data.phone);
+
+  // Generamos código único si no viene uno (para imports masivos)
+  const myReferralCode = data.referralCode || generateReferralCode(data.firstName, data.lastName);
 
   const newPatient = {
     firstName: data.firstName?.trim() || "", 
     lastName: data.lastName?.trim() || "",
     
-    // Contacto Normalizado
+    // Contacto
     phone: finalPhone, 
-    rawPhone: data.phone?.trim() || "", // Guardamos el original por si acaso
+    rawPhone: data.phone?.trim() || "", 
     homePhone: data.homePhone?.trim() || "",
     email: data.email?.trim() || "",
     
@@ -98,17 +104,26 @@ export async function createPatient(data) {
     maritalStatus: data.maritalStatus || "",
     religion: data.religion || "",
     reliability: data.reliability || "NO_VALORADA",
-
     occupation: data.occupation?.trim() || "",
     
-    // Marketing
+    // 🚀 CAMPOS PREMIUM (NUEVOS)
+    referralCode: myReferralCode, // Su código para compartir
+    marketingConsent: data.marketingConsent !== false, // Default true
+    nextRecallDate: null, // Se calculará con la primera venta
+    lastNpsScore: null,   // Se llenará con encuesta
+    
+    // Referidos (Quién lo trajo)
     referralSource: data.referralSource || "Otro", 
-    referredBy: data.referredBy || null, 
+    referredBy: data.referredBy || null, // ID del paciente que lo recomendó
     points: 0,
     
-    // Inicializamos deletedAt en null explícitamente para ayudar al índice
+    // Sistema
     deletedAt: null, 
+    createdAt: now,
+    updatedAt: now,
+    lastViewed: now,
 
+    // Fiscal y Dirección (Sin cambios)
     taxData: {
         rfc: data.taxData?.rfc || "",
         razonSocial: data.taxData?.razonSocial || "",
@@ -124,11 +139,7 @@ export async function createPatient(data) {
         city: data.address?.city || "",
         state: data.address?.state || "",
         zip: data.address?.zip || ""
-    },
-    
-    createdAt: now,
-    updatedAt: now,
-    lastViewed: now
+    }
   };
 
   const docRef = await addDoc(collection(db, COLLECTION_NAME), newPatient);
@@ -141,10 +152,9 @@ export async function updatePatient(id, data) {
   
   const updatePayload = { ...data, updatedAt: now };
   
-  // 🟢 APLICAMOS LIMPIEZA P-2 AL EDITAR
   if (updatePayload.phone) {
-      updatePayload.rawPhone = updatePayload.phone; // Backup del input original
-      updatePayload.phone = cleanPhone(updatePayload.phone); // Normalización
+      updatePayload.rawPhone = updatePayload.phone; 
+      updatePayload.phone = cleanPhone(updatePayload.phone); 
   }
 
   delete updatePayload.id; 
@@ -153,32 +163,20 @@ export async function updatePatient(id, data) {
   return { id, ...updatePayload };
 }
 
-export async function adjustPatientPoints(id, amount) {
-  if (!id) return;
-  const docRef = doc(db, COLLECTION_NAME, id);
-  await updateDoc(docRef, {
-    points: increment(Number(amount))
-  });
-}
-
 export async function touchPatientView(id) {
   if (!id) return;
   const docRef = doc(db, COLLECTION_NAME, id);
   await updateDoc(docRef, { lastViewed: new Date().toISOString() });
 }
 
-// 🛡️ SOFT DELETE IMPLEMENTADO
 export async function deletePatient(id) {
   const docRef = doc(db, COLLECTION_NAME, id);
-  await updateDoc(docRef, { 
-      deletedAt: new Date().toISOString() 
-  });
+  await updateDoc(docRef, { deletedAt: new Date().toISOString() });
 }
 
 export async function seedPatientsIfEmpty() {
   const patients = await getPatients();
   if (patients.length > 0) return;
-
   console.log("Sembrando paciente demo...");
   await createPatient({
       firstName: "Cristian", lastName: "Demo (Nube)", 

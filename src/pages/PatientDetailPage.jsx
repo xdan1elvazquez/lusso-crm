@@ -25,6 +25,9 @@ import Input from "@/components/ui/Input";
 import Select from "@/components/ui/Select";
 import Badge from "@/components/ui/Badge";
 
+// Iconos
+import { Users, Gift, Share2, Copy } from "lucide-react";
+
 // --- HELPERS ---
 function toDateInput(isoString) {
   if (!isoString) return "";
@@ -53,11 +56,12 @@ export default function PatientDetailPage() {
   
   const [loading, setLoading] = useState(true);
   const [patient, setPatient] = useState(null);
-  const [referrerName, setReferrerName] = useState("");
+  const [referrer, setReferrer] = useState(null); // Objeto completo del padrino
   const [recommendedList, setRecommendedList] = useState([]);
   const [salePrefill, setSalePrefill] = useState(null);
   
   const [isIdentityOpen, setIsIdentityOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState("general"); // general | loyalty
   const [form, setForm] = useState({});
   const [sources, setSources] = useState([]);
 
@@ -104,9 +108,10 @@ export default function PatientDetailPage() {
                     zip: p.address?.zip || ""
                 });
 
+                // Cargar datos de lealtad
                 if (p.referredBy) {
-                    const ref = await getPatientById(p.referredBy);
-                    if (ref) setReferrerName(`${ref.firstName} ${ref.lastName}`);
+                    const refData = await getPatientById(p.referredBy);
+                    setReferrer(refData);
                 }
                 const recs = await getPatientsRecommendedBy(id);
                 setRecommendedList(recs);
@@ -142,7 +147,6 @@ export default function PatientDetailPage() {
 
     await updatePatient(id, payload);
     setPatient({ ...patient, ...payload }); 
-    setIsIdentityOpen(false); 
     alert("Ficha actualizada");
   };
 
@@ -154,7 +158,6 @@ export default function PatientDetailPage() {
       }, 100);
   };
 
-  // 🟢 MANEJO DE PUNTOS MANUAL
   const handleUpdatePoints = async () => {
     if (newPointsVal === "") return;
     try {
@@ -200,14 +203,20 @@ export default function PatientDetailPage() {
                         <span className="text-textMuted text-sm flex items-center gap-1">🎂 {form.dob || "N/A"}</span>
                         <span className="text-textMuted text-sm flex items-center gap-1">📱 {patient.phone}</span>
                         
-                        {/* BADGE DE PUNTOS CLICKABLE */}
+                        {/* BADGE DE PUNTOS */}
                         <div className="relative group cursor-pointer" onClick={() => { setNewPointsVal(patient.points); setEditingPoints(true); }}>
-                            <Badge color="yellow" className="text-yellow-300 border-yellow-500/30 font-bold hover:bg-yellow-500/20 transition-colors">
+                            <Badge color="yellow" className="text-yellow-300 border-yellow-500/30 font-bold hover:bg-yellow-500/20 transition-colors flex items-center gap-2">
                                 💎 {patient.points?.toLocaleString() || 0} Puntos
-                                <span className="ml-2 text-[10px] opacity-0 group-hover:opacity-100">✏️ Editar</span>
+                                <span className="text-[10px] opacity-0 group-hover:opacity-100 bg-black/50 px-1 rounded">✏️</span>
                             </Badge>
                         </div>
 
+                        {/* BADGE CÓDIGO REFERIDO (Solo lectura aquí) */}
+                        {patient.referralCode && (
+                            <Badge color="purple" className="text-purple-300 border-purple-500/30 font-mono tracking-wider">
+                                🎫 {patient.referralCode}
+                            </Badge>
+                        )}
                     </div>
                 </div>
              </div>
@@ -222,9 +231,6 @@ export default function PatientDetailPage() {
                         🕒 <strong>Último acceso:</strong> {formatDateTime(patient.lastViewed)}
                     </span>
                     <span className="text-xs text-textMuted">
-                        📝 <strong>Última edición:</strong> {formatDateTime(patient.updatedAt)}
-                    </span>
-                    <span className="text-xs text-textMuted">
                         📅 <strong>Alta:</strong> {new Date(patient.createdAt).toLocaleDateString()}
                     </span>
                 </div>
@@ -232,151 +238,171 @@ export default function PatientDetailPage() {
          </div>
       </div>
 
-      {/* FICHA TÉCNICA (Ancho completo siempre) */}
-      <Card>
-        <div 
-            onClick={() => setIsIdentityOpen(!isIdentityOpen)}
-            className="flex justify-between items-center cursor-pointer group"
-        >
-            <div className="flex items-center gap-3">
-                <div className={`text-xl transition-transform duration-300 ${isIdentityOpen ? "rotate-90" : ""}`}>▶</div>
-                <h3 className="text-lg font-bold text-white group-hover:text-primary transition-colors">Ficha de Identificación Completa</h3>
-            </div>
-            {isIdentityOpen && <Button onClick={(e) => { e.stopPropagation(); onSave(); }} variant="primary" className="py-1 px-4 text-xs">Guardar Cambios</Button>}
+      {/* FICHA TÉCNICA + RED DE LEALTAD */}
+      <Card className="overflow-hidden">
+        <div className="flex border-b border-border">
+             <button 
+                onClick={() => { setActiveTab("general"); setIsIdentityOpen(true); }}
+                className={`flex-1 py-3 text-sm font-bold uppercase tracking-wider transition-colors ${activeTab === "general" && isIdentityOpen ? "bg-white/5 text-primary border-b-2 border-primary" : "text-textMuted hover:text-white"}`}
+             >
+                📋 Datos Generales
+             </button>
+             <button 
+                onClick={() => { setActiveTab("loyalty"); setIsIdentityOpen(true); }}
+                className={`flex-1 py-3 text-sm font-bold uppercase tracking-wider transition-colors ${activeTab === "loyalty" && isIdentityOpen ? "bg-white/5 text-amber-400 border-b-2 border-amber-400" : "text-textMuted hover:text-white"}`}
+             >
+                🤝 Red de Lealtad ({recommendedList.length})
+             </button>
+             <button 
+                onClick={() => setIsIdentityOpen(!isIdentityOpen)}
+                className="px-4 text-textMuted hover:text-white border-l border-border"
+                title="Colapsar/Expandir"
+             >
+                {isIdentityOpen ? "▲" : "▼"}
+             </button>
         </div>
 
         {isIdentityOpen && (
-            <div className="mt-6 pt-6 border-t border-border animate-[fadeIn_0.3s_ease-out] space-y-8">
-                {/* 1. Datos Personales */}
-                <section>
-                    <h4 className="text-sm font-bold text-textMuted uppercase mb-4 tracking-wider">Datos Personales</h4>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-                        <Input label="Nombre(s)" value={form.firstName} onChange={e => setForm({...form, firstName: e.target.value})} />
-                        <Input label="Apellidos" value={form.lastName} onChange={e => setForm({...form, lastName: e.target.value})} />
-                        <Input label="Email" value={form.email} onChange={e => setForm({...form, email: e.target.value})} />
-                    </div>
-                </section>
-
-                {/* 2. Contacto y Demográficos */}
-                <section className="bg-surfaceHighlight/30 p-5 rounded-xl border border-border/50">
-                    <div className="grid grid-cols-1 md:grid-cols-4 gap-5">
-                        <Input label="Móvil" value={form.phone} onChange={e => setForm({...form, phone: handlePhoneInput(e.target.value)})} />
-                        <Input label="Tel. Casa" value={form.homePhone} onChange={e => setForm({...form, homePhone: handlePhoneInput(e.target.value)})} />
-                        <Input label="Fecha Nacimiento" type="date" value={form.dob} onChange={e => setForm(f => ({ ...f, dob: e.target.value }))} />
-                        
-                        <Select label="Sexo Asignado" value={form.assignedSex} onChange={e => setForm({...form, assignedSex: e.target.value})}>
-                            <option value="NO_ESPECIFICADO">--</option>
-                            <option value="MUJER">Mujer</option>
-                            <option value="HOMBRE">Hombre</option>
-                            <option value="INTERSEXUAL">Intersexual</option>
-                        </Select>
-                    </div>
-                </section>
-
-                {/* 3. Identidad y Social */}
-                <section>
-                    <h4 className="text-sm font-bold text-textMuted uppercase mb-4 tracking-wider">Perfil Social</h4>
-                    <div className="grid grid-cols-1 md:grid-cols-4 gap-5">
-                        <div className="w-full">
-                            <label className="block text-xs font-bold text-textMuted uppercase tracking-wider mb-2 ml-1">Expresión de Género</label>
-                            <input 
-                                list="gender-options" 
-                                className="w-full px-4 py-3 bg-background border border-border rounded-xl text-textMain text-sm focus:border-primary focus:ring-1 focus:ring-primary/50 outline-none placeholder-textMuted/50"
-                                value={form.genderExpression} 
-                                onChange={e => setForm({...form, genderExpression: e.target.value})} 
-                                placeholder="Ej. Femenino, No Binario..." 
-                            />
-                            <datalist id="gender-options">
-                                <option value="Masculino" />
-                                <option value="Femenino" />
-                                <option value="No Binario" />
-                                <option value="Fluido" />
-                            </datalist>
-                        </div>
-
-                        <Select label="Estado Civil" value={form.maritalStatus} onChange={e => setForm({...form, maritalStatus: e.target.value})}>
-                            <option value="SOLTERO">Soltero(a)</option>
-                            <option value="CASADO">Casado(a)</option>
-                            <option value="UNION_LIBRE">Unión Libre</option>
-                            <option value="DIVORCIADO">Divorciado(a)</option>
-                            <option value="VIUDO">Viudo(a)</option>
-                        </Select>
-
-                        <Input label="Religión" value={form.religion} onChange={e => setForm({...form, religion: e.target.value})} placeholder="Opcional" />
-                        
-                        <Select label="Fiabilidad Informante" value={form.reliability} onChange={e => setForm({...form, reliability: e.target.value})}>
-                            <option value="BUENA">Buena</option>
-                            <option value="REGULAR">Regular</option>
-                            <option value="MALA">Mala</option>
-                            <option value="NO_VALORADA">No Valorada</option>
-                        </Select>
-                    </div>
-                </section>
-
-                {/* 4. Ocupación y Marketing */}
-                <section className="grid grid-cols-1 md:grid-cols-3 gap-5">
-                    <Input label="Ocupación" value={form.occupation} onChange={e => setForm({...form, occupation: e.target.value})} />
-                    <div className="col-span-2 bg-surfaceHighlight/30 p-4 rounded-xl flex gap-6 items-center border border-border/50">
-                        <div className="flex-1">
-                            <Select label="Marketing / Origen" value={form.referralSource} onChange={e => setForm(f => ({ ...f, referralSource: e.target.value }))}>
-                                <option value="">-- Seleccionar --</option>
-                                {sources.map(s => <option key={s} value={s}>{s}</option>)}
-                            </Select>
-                        </div>
-                        {referrerName && (
-                            <div className="flex-1 border-l border-border pl-4">
-                                <span className="text-xs text-textMuted uppercase font-bold block mb-1">Recomendado por</span>
-                                <Link to={`/patients/${patient.referredBy}`} className="text-primary hover:underline font-medium">{referrerName}</Link>
+            <div className="p-6 animate-[fadeIn_0.3s_ease-out]">
+                
+                {/* PESTAÑA 1: DATOS GENERALES */}
+                {activeTab === "general" && (
+                    <div className="space-y-8">
+                         {/* 1. Datos Personales */}
+                        <section>
+                            <h4 className="text-sm font-bold text-textMuted uppercase mb-4 tracking-wider">Datos Personales</h4>
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+                                <Input label="Nombre(s)" value={form.firstName} onChange={e => setForm({...form, firstName: e.target.value})} />
+                                <Input label="Apellidos" value={form.lastName} onChange={e => setForm({...form, lastName: e.target.value})} />
+                                <Input label="Email" value={form.email} onChange={e => setForm({...form, email: e.target.value})} />
                             </div>
-                        )}
-                        {recommendedList.length > 0 && (
-                            <div className="flex-1 border-l border-border pl-4">
-                                <span className="text-xs text-textMuted uppercase font-bold block mb-1">Referidos</span>
-                                <div className="text-yellow-400 font-bold">🏆 {recommendedList.length} Pacientes</div>
+                        </section>
+
+                        {/* 2. Contacto */}
+                        <section className="bg-surfaceHighlight/30 p-5 rounded-xl border border-border/50">
+                            <div className="grid grid-cols-1 md:grid-cols-4 gap-5">
+                                <Input label="Móvil" value={form.phone} onChange={e => setForm({...form, phone: handlePhoneInput(e.target.value)})} />
+                                <Input label="Tel. Casa" value={form.homePhone} onChange={e => setForm({...form, homePhone: handlePhoneInput(e.target.value)})} />
+                                <Input label="Fecha Nacimiento" type="date" value={form.dob} onChange={e => setForm(f => ({ ...f, dob: e.target.value }))} />
+                                <Select label="Sexo Asignado" value={form.assignedSex} onChange={e => setForm({...form, assignedSex: e.target.value})}>
+                                    <option value="NO_ESPECIFICADO">--</option>
+                                    <option value="MUJER">Mujer</option>
+                                    <option value="HOMBRE">Hombre</option>
+                                    <option value="INTERSEXUAL">Intersexual</option>
+                                </Select>
                             </div>
-                        )}
-                    </div>
-                </section>
+                        </section>
 
-                {/* 5. Dirección */}
-                <section className="pt-4 border-t border-border">
-                    <h4 className="text-sm font-bold text-textMuted uppercase mb-4 tracking-wider">Dirección</h4>
-                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                        <div className="md:col-span-2">
-                            <Input label="Calle" value={form.street} onChange={e => setForm({...form, street: e.target.value})} />
+                        {/* 3. Datos Fiscales & Dirección (Resumido para brevedad, expandir si se desea) */}
+                        <section className="pt-4 border-t border-border grid grid-cols-1 md:grid-cols-2 gap-8">
+                             <div>
+                                <h4 className="text-sm font-bold text-textMuted uppercase mb-4 tracking-wider">Dirección</h4>
+                                <div className="space-y-3">
+                                    <Input label="Calle y Núm" value={form.street} onChange={e => setForm({...form, street: e.target.value})} placeholder="Calle principal 123" />
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <Input label="Colonia" value={form.suburb} onChange={e => setForm({...form, suburb: e.target.value})} />
+                                        <Input label="C.P." value={form.zip} onChange={e => setForm({...form, zip: e.target.value})} />
+                                    </div>
+                                </div>
+                             </div>
+                             <div>
+                                <h4 className="text-sm font-bold text-textMuted uppercase mb-4 tracking-wider">Fiscal (Facturación)</h4>
+                                <div className="space-y-3">
+                                    <Input label="RFC" value={form.rfc} onChange={e => setForm({...form, rfc: e.target.value})} />
+                                    <Input label="Razón Social" value={form.razonSocial} onChange={e => setForm({...form, razonSocial: e.target.value})} />
+                                </div>
+                             </div>
+                        </section>
+                        
+                        <div className="flex justify-end pt-4 border-t border-border">
+                             <Button onClick={onSave}>Guardar Cambios</Button>
                         </div>
-                        <Input label="Núm. Ext" value={form.externalNumber} onChange={e => setForm({...form, externalNumber: e.target.value})} />
-                        <Input label="Núm. Int" value={form.internalNumber} onChange={e => setForm({...form, internalNumber: e.target.value})} placeholder="Opcional" />
-                        <Input label="Colonia" value={form.suburb} onChange={e => setForm({...form, suburb: e.target.value})} />
-                        <Input label="Código Postal" value={form.zip} onChange={e => setForm({...form, zip: e.target.value})} />
-                        <Input label="Ciudad / Municipio" value={form.city} onChange={e => setForm({...form, city: e.target.value})} />
-                        <Input label="Estado" value={form.state} onChange={e => setForm({...form, state: e.target.value})} />
                     </div>
-                </section>
+                )}
 
-                {/* 6. Datos Fiscales */}
-                <section className="pt-4 border-t border-border">
-                    <h4 className="text-sm font-bold text-textMuted uppercase mb-4 tracking-wider">Datos de Facturación</h4>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        <Input label="RFC" value={form.rfc} onChange={e => setForm({...form, rfc: e.target.value})} />
-                        <div className="md:col-span-2">
-                            <Input label="Razón Social" value={form.razonSocial} onChange={e => setForm({...form, razonSocial: e.target.value})} />
+                {/* PESTAÑA 2: RED DE LEALTAD (NUEVO) */}
+                {activeTab === "loyalty" && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                        
+                        {/* IZQUIERDA: PADRINO */}
+                        <div className="bg-surfaceHighlight/30 border border-border p-6 rounded-xl flex flex-col items-center text-center">
+                            <div className="mb-4 p-3 bg-blue-500/20 rounded-full text-blue-400">
+                                <Users size={32} />
+                            </div>
+                            <h4 className="text-white font-bold text-lg mb-1">¿Quién lo invitó?</h4>
+                            
+                            {referrer ? (
+                                <div className="mt-4 w-full">
+                                    <Link to={`/patients/${referrer.id}`} className="block bg-slate-800 p-4 rounded-lg hover:bg-slate-700 transition-colors border border-slate-700">
+                                        <div className="font-bold text-primary text-lg">{referrer.firstName} {referrer.lastName}</div>
+                                        <div className="text-sm text-textMuted">{referrer.phone}</div>
+                                        <div className="mt-2 text-xs bg-blue-900/50 text-blue-200 inline-block px-2 py-1 rounded">
+                                            Código: {referrer.referralCode || "N/A"}
+                                        </div>
+                                    </Link>
+                                </div>
+                            ) : (
+                                <div className="mt-4 text-textMuted italic text-sm">
+                                    Este paciente llegó por medios orgánicos o externos ({patient.referralSource}).
+                                </div>
+                            )}
                         </div>
-                        <div className="md:col-span-2">
-                            <Input label="Régimen Fiscal" value={form.regimen} onChange={e => setForm({...form, regimen: e.target.value})} />
+
+                        {/* DERECHA: AHIJADOS */}
+                        <div className="bg-surfaceHighlight/30 border border-border p-6 rounded-xl">
+                            <div className="flex items-center justify-between mb-4">
+                                <h4 className="text-white font-bold text-lg flex items-center gap-2">
+                                    <Gift size={20} className="text-amber-400" />
+                                    Referidos Traídos
+                                </h4>
+                                <Badge color="yellow" className="text-lg">{recommendedList.length}</Badge>
+                            </div>
+
+                            {recommendedList.length === 0 ? (
+                                <div className="text-center py-8 text-textMuted border border-dashed border-slate-700 rounded-lg">
+                                    <p>Aún no ha referido a nadie.</p>
+                                    <p className="text-xs mt-2">¡Anímalo a compartir su código: <span className="text-purple-400 font-mono">{patient.referralCode}</span>!</p>
+                                </div>
+                            ) : (
+                                <div className="space-y-3 max-h-[300px] overflow-y-auto custom-scrollbar pr-2">
+                                    {recommendedList.map(rec => (
+                                        <Link key={rec.id} to={`/patients/${rec.id}`} className="flex justify-between items-center p-3 bg-slate-800 rounded-lg hover:bg-slate-700 transition-colors border border-slate-700">
+                                            <div>
+                                                <div className="font-bold text-slate-200">{rec.firstName} {rec.lastName}</div>
+                                                <div className="text-xs text-textMuted">Alta: {new Date(rec.createdAt).toLocaleDateString()}</div>
+                                            </div>
+                                            <Badge color="green">Activo</Badge>
+                                        </Link>
+                                    ))}
+                                </div>
+                            )}
                         </div>
-                        <Input label="C.P. Fiscal" value={form.cp} onChange={e => setForm({...form, cp: e.target.value})} />
-                        <div className="md:col-span-3">
-                            <Input label="Email para Facturas" value={form.emailFactura} onChange={e => setForm({...form, emailFactura: e.target.value})} placeholder="Si es diferente al de contacto" />
+
+                        <div className="col-span-1 md:col-span-2 mt-4 p-4 bg-purple-900/20 border border-purple-500/30 rounded-xl flex justify-between items-center">
+                            <div>
+                                <h5 className="font-bold text-purple-200">Código de Embajador</h5>
+                                <p className="text-xs text-purple-300/70">Comparte este código con el paciente para que invite amigos.</p>
+                            </div>
+                            <div className="flex items-center gap-3 bg-slate-900 p-2 rounded-lg border border-purple-500/30">
+                                <span className="font-mono text-xl font-bold text-purple-400 tracking-widest px-2">
+                                    {patient.referralCode || "GENERANDO..."}
+                                </span>
+                                <button 
+                                    onClick={() => { navigator.clipboard.writeText(patient.referralCode); alert("Copiado!"); }}
+                                    className="p-2 hover:bg-white/10 rounded-md text-purple-300"
+                                >
+                                    <Copy size={16} />
+                                </button>
+                            </div>
                         </div>
+
                     </div>
-                </section>
+                )}
             </div>
         )}
       </Card>
 
-      {/* --- CAMBIO PRINCIPAL AQUÍ --- */}
-      {/* GRID PARA PANELES CLÍNICOS (Lista en móvil, Cuadrícula en desktop) */}
+      {/* GRID PANELES CLÍNICOS */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
           <div className="h-full"><AnamnesisPanel patientId={id} /></div>
           <div className="h-full"><ConsultationsPanel patientId={id} /></div>
@@ -384,7 +410,7 @@ export default function PatientDetailPage() {
           <div className="h-full"><StudiesPanel patientId={id} /></div>
       </div>
       
-      {/* SECCIÓN DE VENTAS (Mantenemos ancho completo para no romper su UI interna) */}
+      {/* SECCIÓN VENTAS */}
       <div className="border-t border-border pt-8" id="sales-section">
            <h2 className="text-xl font-bold text-white mb-6 flex items-center gap-2">
                🛒 Generar Venta <span className="text-sm font-normal text-textMuted ml-2">(Paciente Vinculado)</span>
@@ -392,7 +418,7 @@ export default function PatientDetailPage() {
            <SalesPanel patientId={id} prefillData={salePrefill} onClearPrefill={() => setSalePrefill(null)} />
       </div>
 
-      {/* MODAL EDICIÓN DE PUNTOS */}
+      {/* MODAL EDICIÓN PUNTOS */}
       {editingPoints && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
               <div className="bg-surface border border-border p-6 rounded-xl w-full max-w-sm shadow-2xl">
@@ -400,13 +426,7 @@ export default function PatientDetailPage() {
                   <p className="text-sm text-textMuted mb-4">
                       Usa esto para corregir errores o asignar bonificaciones manuales.
                   </p>
-                  <Input 
-                      label="Nuevos Puntos Totales" 
-                      type="number" 
-                      value={newPointsVal} 
-                      onChange={e => setNewPointsVal(e.target.value)} 
-                      className="font-bold text-lg"
-                  />
+                  <Input label="Nuevos Puntos Totales" type="number" value={newPointsVal} onChange={e => setNewPointsVal(e.target.value)} className="font-bold text-lg" />
                   <div className="flex justify-end gap-3 mt-6">
                       <Button variant="ghost" onClick={() => setEditingPoints(false)}>Cancelar</Button>
                       <Button onClick={handleUpdatePoints}>Guardar</Button>

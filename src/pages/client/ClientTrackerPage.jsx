@@ -13,14 +13,17 @@ import {
   CreditCard,
   LogOut,
   ChevronDown,
-  Eye
+  Eye,
+  Share2, // 👈 Nuevo
+  Copy,   // 👈 Nuevo
+  Users   // 👈 Nuevo
 } from 'lucide-react';
 
 // --- IMPORTACIONES DE FIREBASE Y SERVICIOS ---
 import { db } from "@/firebase/config"; 
 import { doc, onSnapshot } from "firebase/firestore";
 import { getClientOrders } from "@/services/clientService";
-import { getPatientById } from "@/services/patientsStorage"; 
+import { getPatientById, getPatientsRecommendedBy } from "@/services/patientsStorage"; // 👈 Importamos getPatientsRecommendedBy
 import { getBranchConfig } from "@/utils/branchesConfig";
 
 // --- CONFIGURACIÓN VISUAL (ESTADOS) ---
@@ -41,7 +44,7 @@ const getStepIndex = (status) => {
   return map[status] !== undefined ? map[status] : 0;
 };
 
-// --- FUNCIÓN GENERADORA DE PDF ---
+// --- FUNCIÓN GENERADORA DE PDF (INTACTA) ---
 const generateSalePDF = (sale, branchConfig, patient) => {
   try {
       const doc = new jsPDF();
@@ -434,6 +437,7 @@ export default function ClientTrackerPage() {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showQR, setShowQR] = useState(false);
+  const [referralsCount, setReferralsCount] = useState(0); // 👈 Estado Referidos
   
   const unsubscribersRef = useRef([]);
 
@@ -444,15 +448,17 @@ export default function ClientTrackerPage() {
     
     async function fetchData() {
         try {
-            const [freshPatient, freshOrders] = await Promise.all([
+            const [freshPatient, freshOrders, myReferrals] = await Promise.all([
                 getPatientById(sessionData.id),
-                getClientOrders(sessionData.id)
+                getClientOrders(sessionData.id),
+                getPatientsRecommendedBy(sessionData.id) // 👈 Buscamos referidos
             ]);
             
             if (freshPatient) setPatient(freshPatient);
             else setPatient(sessionData); 
 
             setOrders(freshOrders);
+            setReferralsCount(myReferrals.length); // 👈 Guardamos contador
 
             // ACTIVAR ESCUCHA EN TIEMPO REAL
             freshOrders.forEach(order => {
@@ -497,6 +503,13 @@ export default function ClientTrackerPage() {
     generateSalePDF(saleData, branchConfig, patient);
   };
 
+  // 🚀 LÓGICA COMPARTIR WHATSAPP
+  const handleShare = () => {
+    const msg = `¡Hola! Te recomiendo Lusso Optometría. Si vas de mi parte, te dan un descuento especial. Usa mi código: *${patient?.referralCode || "MI_CODIGO"}* 👓✨`;
+    const url = `https://wa.me/?text=${encodeURIComponent(msg)}`;
+    window.open(url, '_blank');
+  };
+
   if (loading) return (
       <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-white">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-cyan-400 mb-4"></div>
@@ -522,7 +535,7 @@ export default function ClientTrackerPage() {
                </button>
             </div>
 
-            <div className="bg-white/5 backdrop-blur-md border border-white/10 rounded-2xl p-5 relative overflow-hidden group hover:bg-white/10 transition-colors">
+            <div className="bg-white/5 backdrop-blur-md border border-white/10 rounded-2xl p-5 relative overflow-hidden group hover:bg-white/10 transition-colors mb-4">
                <div className="flex justify-between items-start relative z-10">
                   <div>
                     <div className="text-[10px] font-bold text-yellow-500 uppercase tracking-widest mb-1 flex items-center gap-1">
@@ -551,6 +564,39 @@ export default function ClientTrackerPage() {
                   </div>
                )}
             </div>
+
+            {/* 🔥 TARJETA INVITA Y GANA (NUEVO) */}
+            <div className="bg-gradient-to-br from-purple-900/50 to-indigo-900/50 backdrop-blur-md border border-purple-500/30 rounded-2xl p-5 relative overflow-hidden">
+                <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-white font-bold flex items-center gap-2 text-sm">
+                        <Users size={16} className="text-purple-400" /> Invita y Gana
+                    </h3>
+                    <div className="text-xs bg-purple-500/20 text-purple-200 px-2 py-1 rounded-full border border-purple-500/30">
+                        {referralsCount} Invitados
+                    </div>
+                </div>
+                
+                <div className="bg-black/30 rounded-lg p-3 flex justify-between items-center mb-3 border border-white/5">
+                    <div>
+                        <p className="text-[10px] text-slate-400 uppercase tracking-wider mb-1">Tu Código</p>
+                        <p className="text-xl font-mono font-bold text-purple-300 tracking-widest">{patient?.referralCode || "---"}</p>
+                    </div>
+                    <button 
+                        onClick={() => { navigator.clipboard.writeText(patient?.referralCode); alert("Copiado!"); }}
+                        className="p-2 bg-white/10 hover:bg-white/20 rounded-lg text-white transition-colors"
+                    >
+                        <Copy size={18} />
+                    </button>
+                </div>
+
+                <button 
+                    onClick={handleShare}
+                    className="w-full py-3 bg-purple-600 hover:bg-purple-500 text-white rounded-xl font-bold text-sm flex items-center justify-center gap-2 shadow-lg shadow-purple-900/50 transition-all"
+                >
+                    <Share2 size={16} /> Compartir en WhatsApp
+                </button>
+            </div>
+
           </div>
       </div>
 

@@ -1,24 +1,25 @@
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import React from "react";
+import { RouterProvider } from "react-router-dom";
+import router from "./router";
+import { AuthProvider } from "./context/AuthContext";
+import { UIProvider } from "./context/UIContext";
+import { NotificationsProvider } from "@/context/NotificationsContext"; // 👈 1. IMPORTAR
+import ErrorBoundary from "@/components/ErrorBoundary";
+import "./App.css";
 
-import AppLayout from "./layouts/AppLayout.jsx";
-import DashboardPage from "./pages/DashboardPage.jsx";
-import PatientsPage from "./pages/PatientsPage.jsx";
-import UnauthorizedPage from "./pages/UnauthorizedPage.jsx";
-import NotFound from "./pages/NotFound.jsx";
-
-export default function App() {
+function App() {
   return (
-    <BrowserRouter>
-      <Routes>
-        <Route element={<AppLayout />}>
-          <Route index element={<Navigate to="/dashboard" replace />} />
-          <Route path="/dashboard" element={<DashboardPage />} />
-          <Route path="/patients" element={<PatientsPage />} />
-        </Route>
-
-        <Route path="/unauthorized" element={<UnauthorizedPage />} />
-        <Route path="*" element={<NotFound />} />
-      </Routes>
-    </BrowserRouter>
+    <ErrorBoundary>
+      <AuthProvider>
+        <UIProvider>
+          {/* 👇 2. ESTE ES EL ENVOLTORIO CLAVE. SIN ESTO, FALLA. */}
+          <NotificationsProvider>
+             <RouterProvider router={router} />
+          </NotificationsProvider>
+        </UIProvider>
+      </AuthProvider>
+    </ErrorBoundary>
   );
 }
+
+export default App;

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { PERMISSIONS } from "@/utils/rbacConfig"; 
+import NotificationBell from "@/components/ui/NotificationBell"; // 👈 1. IMPORTAR
 
 // --- CONFIGURACIÓN MAESTRA DE NAVEGACIÓN ---
 const ALL_APPS = [
@@ -17,8 +18,12 @@ const ALL_APPS = [
 
   // Logística
   { id: "inventory", to: "inventory", label: "Inventario", icon: "📦", category: "Logística", permission: PERMISSIONS.VIEW_INVENTORY },
+  { id: "purchasing", to: "purchasing", label: "Compras Smart", icon: "🛍️", category: "Logística", permission: PERMISSIONS.VIEW_PURCHASING },
   { id: "labs", to: "labs", label: "Laboratorios", icon: "🧪", category: "Logística", permission: PERMISSIONS.VIEW_LABS },
   { id: "suppliers", to: "suppliers", label: "Proveedores", icon: "🏭", category: "Logística", permission: PERMISSIONS.VIEW_SUPPLIERS },
+
+  // Marketing
+  { id: "growth", to: "growth", label: "Growth Center", icon: "🚀", category: "Marketing", permission: PERMISSIONS.VIEW_GROWTH },
 
   // Finanzas
   { id: "finance", to: "finance", label: "Finanzas", icon: "💰", category: "Finanzas", permission: PERMISSIONS.VIEW_FINANCE },
@@ -30,7 +35,6 @@ const ALL_APPS = [
   // Admin & Soporte
   { id: "shifts", to: "shifts", label: "Cortes Caja", icon: "🔐", category: "Admin", permission: PERMISSIONS.VIEW_SHIFTS },
   { id: "team", to: "team", label: "Equipo", icon: "🧷", category: "Admin", permission: PERMISSIONS.VIEW_ADMIN_TEAM },
-  // 👈 NUEVA APP DE TICKETS
   { id: "tickets", to: "tickets", label: "Mesa de Ayuda", icon: "🎫", category: "Admin", permission: PERMISSIONS.VIEW_TICKETS },
 ];
 
@@ -66,7 +70,6 @@ export default function AppLayout() {
       });
   };
 
-  // --- FILTRO DE SEGURIDAD ---
   const authorizedApps = useMemo(() => {
       return ALL_APPS.filter(app => can(app.permission));
   }, [can]); 
@@ -96,7 +99,7 @@ export default function AppLayout() {
     <div className="flex flex-col h-screen w-full bg-slate-900 text-slate-100 overflow-hidden">
       <header className={`h-16 ${currentBranch.colors.primary} border-b border-white/10 flex items-center justify-between px-4 sm:px-6 flex-shrink-0 z-50 relative transition-colors duration-300`}>
         
-        {/* ZONA IZQUIERDA: Solo Navegación (Sin Logo) */}
+        {/* ZONA IZQUIERDA: Navegación Favoritos */}
         <div className="flex items-center gap-6 overflow-hidden">
             <nav className="hidden md:flex items-center gap-1 overflow-hidden">
                 {pinnedApps.map(app => (
@@ -108,8 +111,14 @@ export default function AppLayout() {
             </nav>
         </div>
 
-        {/* ZONA DERECHA: Apps, Usuario, Avatar */}
+        {/* ZONA DERECHA: Notificaciones, Apps, Usuario */}
         <div className="flex items-center gap-3">
+            
+            {/* 🔔 2. AQUÍ ESTÁ LA CAMPANITA INTELIGENTE */}
+            <NotificationBell />
+
+            <div className="w-px h-6 bg-white/20 mx-1"></div>
+
             <div className="relative">
                 <button onClick={() => setIsAppsMenuOpen(!isAppsMenuOpen)} className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-colors ${isAppsMenuOpen ? "bg-white/20 text-white" : "hover:bg-white/10 text-slate-400 hover:text-white"}`}>
                     <span className="text-xl grid place-items-center">
@@ -117,6 +126,7 @@ export default function AppLayout() {
                     </span>
                     <span className="text-sm font-bold hidden sm:inline">Apps</span>
                 </button>
+                {/* ... (Resto del menú de Apps igual que antes) ... */}
                 {isAppsMenuOpen && (
                     <>
                         <div className="fixed inset-0 z-40" onClick={() => setIsAppsMenuOpen(false)}></div>
