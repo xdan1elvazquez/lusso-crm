@@ -1,9 +1,18 @@
 import React, { createContext, useContext, useState, useEffect } from "react";
 import { db } from "@/firebase/config";
 import { collection, query, where, getDocs } from "firebase/firestore";
-import { getInventoryAnalysis } from "@/services/inventoryAnalysisService"; // Tu servicio nuevo
+// Asegúrate que la ruta del servicio sea correcta:
+import { getInventoryAnalysis } from "@/services/inventoryAnalysisService"; 
 
-const NotificationsContext = createContext();
+// 🛡️ DEFINICIÓN SEGURA: Valores por defecto para evitar "Crash" si falla el Provider
+const defaultContextValue = {
+  alerts: [],
+  unreadCount: 0,
+  loading: false,
+  refresh: () => console.warn("⚠️ NotificationsProvider no encontrado en el árbol.")
+};
+
+const NotificationsContext = createContext(defaultContextValue);
 
 export function useNotifications() {
   return useContext(NotificationsContext);
@@ -14,83 +23,67 @@ export function NotificationsProvider({ children }) {
   const [unreadCount, setUnreadCount] = useState(0);
   const [loading, setLoading] = useState(true);
 
-  // 🔄 FUNCIÓN MAESTRA: Revisa todo el sistema
+  // 🔄 FUNCIÓN MAESTRA
   const checkSystemHealth = async () => {
-    console.log("🔍 Watchdog: Revisando salud del sistema...");
+    console.log("🔍 Watchdog: Iniciando escaneo...");
     const newAlerts = [];
 
     try {
-      // 1. REVISAR INVENTARIO (CRÍTICO)
-      // Usamos tu servicio de inteligencia. Si hay items críticos, alerta roja.
-      const inventoryData = await getInventoryAnalysis(30); // Análisis de 30 días
-      if (inventoryData.criticalItems.length > 0) {
-        newAlerts.push({
-          id: "stock-critical",
-          type: "CRITICAL",
-          title: "Stock por Agotarse",
-          message: `Hay ${inventoryData.criticalItems.length} productos críticos que se venden rápido.`,
-          route: "/purchasing", // Te lleva al Centro de Compras
-          timestamp: new Date()
-        });
-      }
-      if (inventoryData.deadItems.length > 20) {
-        newAlerts.push({
-          id: "stock-dead",
-          type: "WARNING",
-          title: "Dinero Estancado",
-          message: `Detectamos ${inventoryData.deadItems.length} productos 'hueso'. Considera liquidar.`,
-          route: "/purchasing",
-          timestamp: new Date()
-        });
+      // 1. INVENTARIO (Intenta importar el servicio)
+      if (getInventoryAnalysis) {
+          const inventoryData = await getInventoryAnalysis(30); 
+          
+          if (inventoryData?.criticalItems?.length > 0) {
+            newAlerts.push({
+              id: "stock-critical",
+              type: "CRITICAL",
+              title: "Stock Crítico",
+              message: `Quedan pocos de ${inventoryData.criticalItems.length} productos top.`,
+              route: "/purchasing",
+              timestamp: new Date()
+            });
+          }
+          
+          if (inventoryData?.deadItems?.length > 20) {
+            newAlerts.push({
+              id: "stock-dead",
+              type: "WARNING",
+              title: "Exceso de Inventario",
+              message: `${inventoryData.deadItems.length} productos sin movimiento.`,
+              route: "/purchasing",
+              timestamp: new Date()
+            });
+          }
       }
 
-      // 2. REVISAR TRABAJOS RETRASADOS (WORK ORDERS)
-      // Buscamos órdenes activas que ya pasaron su fecha promesa
+      // 2. WORK ORDERS
       const todayStr = new Date().toISOString().slice(0, 10);
       const woQuery = query(
         collection(db, "work_orders"),
-        where("status", "in", ["PENDING", "SENT_TO_LAB", "IN_PROCESS"]) // Solo activas
+        where("status", "in", ["PENDING", "SENT_TO_LAB", "IN_PROCESS"])
       );
+      
       const woSnap = await getDocs(woQuery);
       let delayedCount = 0;
       
       woSnap.forEach(doc => {
         const wo = doc.data();
-        if (wo.promisedDate && wo.promisedDate < todayStr) {
-            delayedCount++;
-        }
+        if (wo.promisedDate && wo.promisedDate < todayStr) delayedCount++;
       });
 
       if (delayedCount > 0) {
         newAlerts.push({
           id: "wo-delayed",
           type: "URGENT",
-          title: "Trabajos Retrasados",
-          message: `Hay ${delayedCount} órdenes vencidas en laboratorio.`,
+          title: "Retrasos en Lab",
+          message: `${delayedCount} órdenes vencidas. Revisa proveedores.`,
           route: "/work-orders",
           timestamp: new Date()
         });
       }
 
-      // 3. OPORTUNIDADES DE MARKETING (GROWTH)
-      // Chequeo rápido de cumpleaños hoy
-      const month = new Date().getMonth(); // 0-11
-      // Nota: Para no saturar, hacemos esto ligero o lo omitimos si son muchos pacientes.
-      // Aquí solo ponemos un recordatorio fijo si estamos a inicio de mes
-      const day = new Date().getDate();
-      if (day === 1) {
-         newAlerts.push({
-            id: "growth-monthly",
-            type: "INFO",
-            title: "Planificación Mensual",
-            message: "Es día 1. Revisa los cumpleaños y recalls del mes.",
-            route: "/growth",
-            timestamp: new Date()
-         });
-      }
-
     } catch (error) {
-      console.error("Error en Watchdog:", error);
+      console.error("❌ Error en Watchdog:", error);
     }
 
     setAlerts(newAlerts);
@@ -98,10 +91,10 @@ export function NotificationsProvider({ children }) {
     setLoading(false);
   };
 
-  // Ejecutar al inicio y cada 10 minutos
   useEffect(() => {
+    console.log("✅ NotificationsProvider Montado");
     checkSystemHealth();
-    const interval = setInterval(checkSystemHealth, 600000); // 10 min
+    const interval = setInterval(checkSystemHealth, 600000); 
     return () => clearInterval(interval);
   }, []);
 

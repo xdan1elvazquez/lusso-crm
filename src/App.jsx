@@ -3,7 +3,7 @@ import { RouterProvider } from "react-router-dom";
 import router from "./router";
 import { AuthProvider } from "./context/AuthContext";
 import { UIProvider } from "./context/UIContext";
-import { NotificationsProvider } from "@/context/NotificationsContext"; // 👈 1. IMPORTAR
+import { NotificationsProvider } from "@/context/NotificationsContext"; // 👈 Debe coincidir la ruta
 import ErrorBoundary from "@/components/ErrorBoundary";
 import "./App.css";
 
@@ -12,7 +12,7 @@ function App() {
     <ErrorBoundary>
       <AuthProvider>
         <UIProvider>
-          {/* 👇 2. ESTE ES EL ENVOLTORIO CLAVE. SIN ESTO, FALLA. */}
+          {/* El Provider DEBE abrazar al RouterProvider */}
           <NotificationsProvider>
              <RouterProvider router={router} />
           </NotificationsProvider>
