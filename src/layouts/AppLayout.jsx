@@ -1,10 +1,9 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
-import { PERMISSIONS } from "@/utils/rbacConfig"; // 👈 IMPORTAR
+import { PERMISSIONS } from "@/utils/rbacConfig"; 
 
 // --- CONFIGURACIÓN MAESTRA DE NAVEGACIÓN ---
-// Agregamos la propiedad 'permission' a cada item
 const ALL_APPS = [
   // Clínica
   { id: "dashboard", to: "dashboard", label: "Dashboard", icon: "📊", category: "Clínica", permission: PERMISSIONS.VIEW_DASHBOARD },
@@ -37,7 +36,7 @@ const DEFAULT_PINS = ["dashboard", "patients", "sales", "work-orders"];
 
 export default function AppLayout() {
   const navigate = useNavigate();
-  const { logout, user, userData, currentBranch, can } = useAuth(); // 👈 Traemos 'can'
+  const { logout, user, userData, currentBranch, can } = useAuth();
 
   const [pinnedIds, setPinnedIds] = useState(() => {
       const saved = localStorage.getItem("lusso_pinned_apps");
@@ -66,20 +65,17 @@ export default function AppLayout() {
   };
 
   // --- FILTRO DE SEGURIDAD ---
-  // Solo mostramos las apps para las que el usuario tiene permiso (can(app.permission))
-  // OJO: Si app.permission es undefined, asumimos que es público o no restringido (opcional, aquí asumo todo restringido)
   const authorizedApps = useMemo(() => {
       return ALL_APPS.filter(app => can(app.permission));
-  }, [can]); // Se recalcula si cambian permisos
+  }, [can]); 
 
   const pinnedApps = useMemo(() => {
-      // Solo mostrar pins si además están autorizados
       return authorizedApps.filter(app => pinnedIds.includes(app.id));
   }, [pinnedIds, authorizedApps]);
 
   const appsByCategory = useMemo(() => {
       const groups = {};
-      authorizedApps.forEach(app => { // Usamos authorizedApps
+      authorizedApps.forEach(app => { 
           if (!groups[app.category]) groups[app.category] = [];
           groups[app.category].push(app);
       });
@@ -97,15 +93,9 @@ export default function AppLayout() {
   return (
     <div className="flex flex-col h-screen w-full bg-slate-900 text-slate-100 overflow-hidden">
       <header className={`h-16 ${currentBranch.colors.primary} border-b border-white/10 flex items-center justify-between px-4 sm:px-6 flex-shrink-0 z-50 relative transition-colors duration-300`}>
+        
+        {/* ZONA IZQUIERDA: Solo Navegación (Sin Logo) */}
         <div className="flex items-center gap-6 overflow-hidden">
-            <div className="flex items-center gap-2 select-none flex-shrink-0">
-               {currentBranch.logo ? (
-                 <img src={currentBranch.logo} alt="Logo" className="h-8 w-auto object-contain" />
-               ) : (
-                 <span className="text-xl font-bold tracking-tight text-white">{currentBranch.name}</span>
-               )}
-            </div>
-            <div className="h-6 w-px bg-white/20 hidden md:block"></div>
             <nav className="hidden md:flex items-center gap-1 overflow-hidden">
                 {pinnedApps.map(app => (
                     <NavLink key={app.id} to={app.to} className={navLinkClass}>
@@ -115,6 +105,8 @@ export default function AppLayout() {
                 ))}
             </nav>
         </div>
+
+        {/* ZONA DERECHA: Apps, Usuario, Avatar */}
         <div className="flex items-center gap-3">
             <div className="relative">
                 <button onClick={() => setIsAppsMenuOpen(!isAppsMenuOpen)} className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-colors ${isAppsMenuOpen ? "bg-white/20 text-white" : "hover:bg-white/10 text-slate-400 hover:text-white"}`}>
@@ -158,10 +150,14 @@ export default function AppLayout() {
                     </>
                 )}
             </div>
-            <div className="flex flex-col items-end leading-tight mr-2 hidden sm:block">
+            
+            {/* USER INFO CORREGIDO: gap-0.5 para separar, sin leading-tight */}
+            <div className="flex flex-col items-end gap-0.5 mr-3 hidden sm:block">
                 <span className="text-xs font-bold text-white">{userData?.name}</span>
                 <span className="text-[10px] text-slate-400">{currentBranch.name}</span>
             </div>
+            
+            {/* AVATAR */}
             <div className="h-8 w-8 rounded-full bg-gradient-to-br from-gray-700 to-gray-900 flex items-center justify-center text-xs font-bold text-white shadow-lg cursor-pointer border border-white/20" title={user?.email}>
                 {user?.email?.charAt(0).toUpperCase() || "U"}
             </div>

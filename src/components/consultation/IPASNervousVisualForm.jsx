@@ -98,7 +98,8 @@ export default function IPASNervousVisualForm({ data, onChange }) {
             onClick={() => setIsOpen(!isOpen)} 
             className="p-4 bg-surfaceHighlight/30 cursor-pointer flex justify-between items-center border-b border-border/50"
         >
-            <div className="font-bold text-blue-400 text-lg">🧠 IPAS: Nervioso y Visual</div>
+            {/* TÍTULO ACTUALIZADO AQUÍ */}
+            <div className="font-bold text-blue-400 text-lg">🧠 IPAS: Oftalmológico y neurológico</div>
             <span className="text-textMuted">{isOpen ? "▼" : "▶"}</span>
         </div>
 

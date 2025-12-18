@@ -5,7 +5,7 @@ import {
   updatePatient, 
   getPatientsRecommendedBy,
   touchPatientView,
-  setPatientPoints // 👈 Importante para edición manual
+  setPatientPoints 
 } from "@/services/patientsStorage";
 import { getReferralSources } from "@/services/settingsStorage";
 
@@ -232,7 +232,7 @@ export default function PatientDetailPage() {
          </div>
       </div>
 
-      {/* FICHA TÉCNICA */}
+      {/* FICHA TÉCNICA (Ancho completo siempre) */}
       <Card>
         <div 
             onClick={() => setIsIdentityOpen(!isIdentityOpen)}
@@ -375,18 +375,21 @@ export default function PatientDetailPage() {
         )}
       </Card>
 
-      <div className="space-y-10">
-        <AnamnesisPanel patientId={id} />
-        <ConsultationsPanel patientId={id} />
-        <EyeExamsPanel patientId={id} onSell={handleSellFromExam} />
-        <StudiesPanel patientId={id} />
-        
-        <div className="border-t border-border pt-8" id="sales-section">
+      {/* --- CAMBIO PRINCIPAL AQUÍ --- */}
+      {/* GRID PARA PANELES CLÍNICOS (Lista en móvil, Cuadrícula en desktop) */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+          <div className="h-full"><AnamnesisPanel patientId={id} /></div>
+          <div className="h-full"><ConsultationsPanel patientId={id} /></div>
+          <div className="h-full"><EyeExamsPanel patientId={id} onSell={handleSellFromExam} /></div>
+          <div className="h-full"><StudiesPanel patientId={id} /></div>
+      </div>
+      
+      {/* SECCIÓN DE VENTAS (Mantenemos ancho completo para no romper su UI interna) */}
+      <div className="border-t border-border pt-8" id="sales-section">
            <h2 className="text-xl font-bold text-white mb-6 flex items-center gap-2">
                🛒 Generar Venta <span className="text-sm font-normal text-textMuted ml-2">(Paciente Vinculado)</span>
            </h2>
            <SalesPanel patientId={id} prefillData={salePrefill} onClearPrefill={() => setSalePrefill(null)} />
-        </div>
       </div>
 
       {/* MODAL EDICIÓN DE PUNTOS */}

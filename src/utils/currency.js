@@ -15,3 +15,14 @@ export const formatMoneyInput = (amount) => {
   if (isNaN(num)) return "";
   return num.toFixed(2);
 };
+
+/**
+ * Formatea un número para mostrar en UI con formato de moneda (MXN).
+ * Agrega símbolo $ y comas. Ej: $1,234.56
+ */
+export const formatMoney = (amount) => {
+  return new Intl.NumberFormat('es-MX', {
+    style: 'currency',
+    currency: 'MXN'
+  }).format(amount || 0);
+};

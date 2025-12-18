@@ -19,16 +19,16 @@ import OpticalSelector from "@/components/sales/OpticalSelector";
 import CartList from "@/components/sales/CartList";
 import PaymentForm from "@/components/sales/PaymentForm";
 import SaleDetailModal from "./SaleDetailModal";
+import PatientSalesHistory from "@/components/sales/PatientSalesHistory"; // 👈 NUEVO IMPORT
 
-// --- CAMBIO IMPORTANTE: Usamos el Helper de Popup en lugar del Componente ---
-// Asegúrate de que este archivo exista en src/utils/TicketHelper.js
 import { imprimirTicket } from "@/utils/TicketHelper"; 
 
 // UI Components
 import Card from "@/components/ui/Card";
 import Input from "@/components/ui/Input"; 
 import Badge from "@/components/ui/Badge";
-import { Printer } from 'lucide-react'; // Icono para el botón de imprimir
+// Printer ya no se usa aquí arriba, se movió al componente hijo, pero lo dejo por si acaso o se puede borrar.
+import { Printer } from 'lucide-react'; 
 
 export default function SalesPanel({ patientId, prefillData, onClearPrefill, branchId }) {
   const navigate = useNavigate();
@@ -49,8 +49,6 @@ export default function SalesPanel({ patientId, prefillData, onClearPrefill, bra
   const [showOpticalSpecs, setShowOpticalSpecs] = useState(false);
   const [itemDetails, setItemDetails] = useState({ material: "", design: "", treatment: "", frameModel: "", frameStatus: "NUEVO", requiresBisel: true });
   const [currentRx, setCurrentRx] = useState(normalizeRxValue());
-
-  // NOTA: Ya no necesitamos el estado 'ticketToPrint' porque la impresión es directa via JS
 
   const loadData = async () => {
       const [p, s, x, c, l, t, e] = await Promise.all([
@@ -130,131 +128,103 @@ export default function SalesPanel({ patientId, prefillData, onClearPrefill, bra
       });
   };
 
-  const handleDeleteSale = async (e, id) => {
-      e.stopPropagation();
-      if(await confirm({title:"Eliminar", message:"¿Borrar venta permanentemente?"})) {
-          await deleteSale(id); loadData(); notify.success("Eliminada");
-      }
-  };
-
-  // --- NUEVO HANDLER DE IMPRESIÓN ---
   const handlePrintClick = (e, sale) => {
-      e.stopPropagation(); // Evitar abrir el modal de detalle
+      e.stopPropagation(); 
       if (!sale) return;
-      
-      // Llamamos al helper que abre la ventana limpia
       imprimirTicket(sale); 
   };
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-      
-      {/* Ya no necesitamos el TicketTemplate oculto porque usamos Popup */}
-
+    <div className="space-y-8">
+        
       {viewSale && <SaleDetailModal sale={viewSale} patient={{firstName:"", lastName:""}} onClose={()=>setViewSale(null)} onUpdate={loadData} />}
 
-      {/* COLUMNA IZQUIERDA (8/12) - CONFIGURACIÓN */}
-      <div className="lg:col-span-8 space-y-6">
-          
-          <Card className="border-t-4 border-t-primary">
-              <h3 className="text-sm font-bold text-textMuted uppercase tracking-wider mb-4">Configuración de Venta</h3>
-              
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-                  <Input label="No. Caja / Folio Físico" value={pos.logistics.boxNumber} onChange={e=>pos.setLogistics({...pos.logistics, boxNumber:e.target.value})} className="border-yellow-500/30 focus:border-yellow-500" />
-                  
-                  <div>
-                      <label className="block text-xs font-bold text-textMuted uppercase tracking-wider mb-2 ml-1">Vendedor</label>
-                      <select value={pos.logistics.soldBy} onChange={e=>pos.setLogistics({...pos.logistics, soldBy:e.target.value})} className="w-full px-4 py-3 bg-background border border-border rounded-xl text-textMain text-sm focus:border-primary outline-none appearance-none">
-                          <option value="">-- Seleccionar --</option>
-                          {employees.map(e => <option key={e.id} value={e.name}>{e.name}</option>)}
-                      </select>
-                  </div>
-              </div>
+      {/* SECCIÓN POS (VENTA NUEVA) - GRID DIVIDIDO */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        
+        {/* COLUMNA IZQUIERDA (8/12) - CONFIGURACIÓN Y CATÁLOGOS */}
+        <div className="lg:col-span-8 space-y-6">
+            <Card className="border-t-4 border-t-primary">
+                <h3 className="text-sm font-bold text-textMuted uppercase tracking-wider mb-4">Configuración de Venta</h3>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                    <Input label="No. Caja / Folio Físico" value={pos.logistics.boxNumber} onChange={e=>pos.setLogistics({...pos.logistics, boxNumber:e.target.value})} className="border-yellow-500/30 focus:border-yellow-500" />
+                    
+                    <div>
+                        <label className="block text-xs font-bold text-textMuted uppercase tracking-wider mb-2 ml-1">Vendedor</label>
+                        <select value={pos.logistics.soldBy} onChange={e=>pos.setLogistics({...pos.logistics, soldBy:e.target.value})} className="w-full px-4 py-3 bg-background border border-border rounded-xl text-textMain text-sm focus:border-primary outline-none appearance-none">
+                            <option value="">-- Seleccionar --</option>
+                            {employees.map(e => <option key={e.id} value={e.name}>{e.name}</option>)}
+                        </select>
+                    </div>
+                </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 bg-surfaceHighlight rounded-xl border border-dashed border-border">
-                  <div className="relative">
-                      <select onChange={handleImportExam} className="w-full pl-10 pr-4 py-2 bg-surface border border-border rounded-lg text-sm text-textMain focus:ring-1 focus:ring-primary outline-none cursor-pointer">
-                          <option value="">Importar Graduación (Examen)</option>
-                          {exams.map(e => <option key={e.id} value={e.id}>{new Date(e.examDate).toLocaleDateString()} (Rx)</option>)}
-                      </select>
-                      <span className="absolute left-3 top-2.5 text-base">👓</span>
-                  </div>
-                  
-                  <div className="relative">
-                      <select onChange={handleImportConsultation} className="w-full pl-10 pr-4 py-2 bg-surface border border-border rounded-lg text-sm text-textMain focus:ring-1 focus:ring-primary outline-none cursor-pointer">
-                          <option value="">Importar Receta (Consulta)</option>
-                          {consultations.map(c => <option key={c.id} value={c.id}>{new Date(c.visitDate).toLocaleDateString()} - {c.diagnosis}</option>)}
-                      </select>
-                      <span className="absolute left-3 top-2.5 text-base">💊</span>
-                  </div>
-              </div>
-          </Card>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 bg-surfaceHighlight rounded-xl border border-dashed border-border">
+                    <div className="relative">
+                        <select onChange={handleImportExam} className="w-full pl-10 pr-4 py-2 bg-surface border border-border rounded-lg text-sm text-textMain focus:ring-1 focus:ring-primary outline-none cursor-pointer">
+                            <option value="">Importar Graduación (Examen)</option>
+                            {exams.map(e => <option key={e.id} value={e.id}>{new Date(e.examDate).toLocaleDateString()} (Rx)</option>)}
+                        </select>
+                        <span className="absolute left-3 top-2.5 text-base">👓</span>
+                    </div>
+                    
+                    <div className="relative">
+                        <select onChange={handleImportConsultation} className="w-full pl-10 pr-4 py-2 bg-surface border border-border rounded-lg text-sm text-textMain focus:ring-1 focus:ring-primary outline-none cursor-pointer">
+                            <option value="">Importar Receta (Consulta)</option>
+                            {consultations.map(c => <option key={c.id} value={c.id}>{new Date(c.visitDate).toLocaleDateString()} - {c.diagnosis}</option>)}
+                        </select>
+                        <span className="absolute left-3 top-2.5 text-base">💊</span>
+                    </div>
+                </div>
+            </Card>
 
-          <div className="space-y-6">
-              <OpticalSelector 
-                  show={showOpticalSpecs} onToggle={()=>setShowOpticalSpecs(true)}
-                  currentRx={currentRx} catalog={labsCatalog}
-                  itemDetails={itemDetails} setItemDetails={setItemDetails}
-                  onAddSmart={handleAddSmartLens}
-                  onAddManual={(l) => pos.addToCart({kind:"LENSES", description:l.name, qty:1, unitPrice:0, requiresLab:true, rxSnapshot:currentRx})}
-              />
-              
-              <ProductSearch products={products} onAdd={pos.addToCart} />
-          </div>
+            <div className="space-y-6">
+                <OpticalSelector 
+                    show={showOpticalSpecs} onToggle={()=>setShowOpticalSpecs(true)}
+                    currentRx={currentRx} catalog={labsCatalog}
+                    itemDetails={itemDetails} setItemDetails={setItemDetails}
+                    onAddSmart={handleAddSmartLens}
+                    onAddManual={(l) => pos.addToCart({kind:"LENSES", description:l.name, qty:1, unitPrice:0, requiresLab:true, rxSnapshot:currentRx})}
+                />
+                
+                <ProductSearch products={products} onAdd={pos.addToCart} />
+            </div>
+        </div>
+
+        {/* COLUMNA DERECHA (4/12) - CARRITO SOLAMENTE */}
+        <div className="lg:col-span-4 flex flex-col gap-6">
+            <Card className="flex-1 flex flex-col border-t-4 border-t-emerald-500" noPadding>
+                <div className="p-5 border-b border-border bg-surfaceHighlight/50">
+                    <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                        🛒 Carrito <span className="text-xs bg-surface border border-border px-2 py-0.5 rounded-full text-textMuted">{pos.cart.length} items</span>
+                    </h3>
+                </div>
+                <div className="p-5 flex-1 flex flex-col">
+                    <div className="flex-1 min-h-[200px]">
+                        <CartList cart={pos.cart} onRemove={pos.removeFromCart} onUpdate={pos.updateCartItem} />
+                    </div>
+                    <PaymentForm 
+                        subtotal={pos.totals.subtotal} total={pos.totals.total}
+                        payment={pos.payment} setPayment={pos.setPayment}
+                        terminals={terminals} onCheckout={pos.handleCheckout}
+                        isProcessing={pos.isProcessing} cartLength={pos.cart.length}
+                    />
+                </div>
+            </Card>
+            
+            {/* SE ELIMINÓ EL CARD DE LISTA ENORME DE VENTAS AQUÍ */}
+        </div>
       </div>
 
-      {/* COLUMNA DERECHA (4/12) - CARRITO Y COBRO */}
-      <div className="lg:col-span-4 flex flex-col gap-6">
-          <Card className="flex-1 flex flex-col border-t-4 border-t-emerald-500" noPadding>
-              <div className="p-5 border-b border-border bg-surfaceHighlight/50">
-                  <h3 className="text-lg font-bold text-white flex items-center gap-2">
-                      🛒 Carrito <span className="text-xs bg-surface border border-border px-2 py-0.5 rounded-full text-textMuted">{pos.cart.length} items</span>
-                  </h3>
-              </div>
-              <div className="p-5 flex-1 flex flex-col">
-                  <div className="flex-1 min-h-[200px]">
-                      <CartList cart={pos.cart} onRemove={pos.removeFromCart} onUpdate={pos.updateCartItem} />
-                  </div>
-                  <PaymentForm 
-                      subtotal={pos.totals.subtotal} total={pos.totals.total}
-                      payment={pos.payment} setPayment={pos.setPayment}
-                      terminals={terminals} onCheckout={pos.handleCheckout}
-                      isProcessing={pos.isProcessing} cartLength={pos.cart.length}
-                  />
-              </div>
-          </Card>
-
-          <Card className="max-h-80 overflow-y-auto custom-scrollbar" noPadding>
-              <div className="p-4 bg-surfaceHighlight/30 sticky top-0 backdrop-blur-sm border-b border-border">
-                  <h4 className="text-xs font-bold text-textMuted uppercase">Últimas Ventas</h4>
-              </div>
-              <div className="divide-y divide-border">
-                  {salesHistory.slice(0,5).map(s => (
-                      <div key={s.id} className="p-4 hover:bg-surfaceHighlight transition-colors group relative">
-                          <div onClick={()=>setViewSale(s)} className="cursor-pointer">
-                              <div className="flex justify-between items-center mb-1">
-                                  <div className="font-bold text-white group-hover:text-primary transition-colors">{s.description || "Venta de Mostrador"}</div>
-                                  <div className="font-bold text-emerald-400">${s.total?.toLocaleString()}</div>
-                              </div>
-                              <div className="flex justify-between items-center text-xs text-textMuted">
-                                  <div>{new Date(s.createdAt).toLocaleDateString()}</div>
-                                  <Badge color={s.saleType==="LAB"?"blue":"gray"}>{s.saleType==="LAB"?"TALLER":"SIMPLE"}</Badge>
-                              </div>
-                          </div>
-
-                          {/* BOTÓN IMPRIMIR ACTUALIZADO */}
-                          <button 
-                            onClick={(e) => handlePrintClick(e, s)}
-                            className="absolute right-2 top-2 p-2 bg-slate-700 hover:bg-blue-600 text-white rounded-lg opacity-0 group-hover:opacity-100 transition-all shadow-lg z-10 flex items-center justify-center"
-                            title="Imprimir Ticket Térmico"
-                          >
-                            <Printer size={16} />
-                          </button>
-                      </div>
-                  ))}
-              </div>
-          </Card>
+      {/* SECCIÓN HISTORIAL (MODULO COMPLETO ABAJO) */}
+      <div className="pt-6 border-t border-border">
+          <PatientSalesHistory 
+            sales={salesHistory} 
+            onViewSale={setViewSale} 
+            onPrint={handlePrintClick} 
+          />
       </div>
+
     </div>
   );
 }
