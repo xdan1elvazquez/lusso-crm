@@ -1,6 +1,6 @@
 import { db } from "@/firebase/config";
 import { 
-  collection, getDocs, addDoc, updateDoc, doc, query, orderBy, where 
+  collection, getDocs, setDoc, updateDoc, doc, getDoc, query, orderBy, where 
 } from "firebase/firestore";
 
 const COLLECTION_NAME = "employees";
@@ -24,6 +24,18 @@ export async function getEmployees() {
   return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 }
 
+// ✅ Función vital para que las reglas de seguridad te dejen entrar
+export async function getEmployeeById(uid) {
+  if (!uid) return null;
+  const docRef = doc(db, COLLECTION_NAME, uid);
+  const docSnap = await getDoc(docRef);
+  
+  if (docSnap.exists()) {
+    return { id: docSnap.id, ...docSnap.data() };
+  }
+  return null;
+}
+
 export async function getEmployeeByEmail(email) {
   if (!email) return null;
   const q = query(
@@ -37,7 +49,8 @@ export async function getEmployeeByEmail(email) {
   return { id: doc.id, ...doc.data() };
 }
 
-export async function createEmployee(data) {
+// ✅ CORREGIDO: Recibe UID externo (para asegurar el link) y guarda TODOS tus datos
+export async function createEmployee(uid, data) {
   const newEmp = {
     name: data.name,
     email: data.email?.trim().toLowerCase() || "",
@@ -45,14 +58,19 @@ export async function createEmployee(data) {
     branchId: data.branchId || "lusso_main",
     commissionPercent: Number(data.commissionPercent) || 0,
     baseSalary: Number(data.baseSalary) || 0,
-    // Guardar permisos si vienen, o null para que use defaults
     permissions: data.permissions || null, 
-    isActive: true, // Corregido nombre campo consistente
+    isActive: true,
     deletedAt: null,
-    createdAt: new Date().toISOString()
+    createdAt: new Date().toISOString(),
+    
+    // 👇 RESTAURADO: Tu campo original
+    hasAuthAccount: true 
   };
-  const docRef = await addDoc(collection(db, COLLECTION_NAME), newEmp);
-  return { id: docRef.id, ...newEmp };
+  
+  // Usamos setDoc para forzar que el ID de Firestore sea igual al UID del Auth
+  await setDoc(doc(db, COLLECTION_NAME, uid), newEmp);
+  
+  return { id: uid, ...newEmp };
 }
 
 export async function updateEmployee(id, patch) {
