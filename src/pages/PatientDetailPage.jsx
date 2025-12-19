@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
+import { useAuth } from "@/context/AuthContext"; 
 import { 
   getPatientById, 
   updatePatient, 
@@ -8,6 +9,7 @@ import {
   setPatientPoints 
 } from "@/services/patientsStorage";
 import { getReferralSources } from "@/services/settingsStorage";
+import { generateInformedConsentPDF } from "@/utils/pdfGenerator"; 
 
 // Paneles Clínicos
 import ConsultationsPanel from "@/components/ConsultationsPanel";
@@ -26,7 +28,7 @@ import Select from "@/components/ui/Select";
 import Badge from "@/components/ui/Badge";
 
 // Iconos
-import { Users, Gift, Share2, Copy } from "lucide-react";
+import { Users, Gift, Copy, FileText, Clock, Calendar, Activity } from "lucide-react"; 
 
 // --- HELPERS ---
 function toDateInput(isoString) {
@@ -37,7 +39,7 @@ function toDateInput(isoString) {
 
 function formatDateTime(isoString) {
   if (!isoString) return "N/D";
-  return new Date(isoString).toLocaleString("es-MX", { day: '2-digit', month: 'short', year: 'numeric' });
+  return new Date(isoString).toLocaleString("es-MX", { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute:'2-digit' });
 }
 
 function getPatientAge(dateString) {
@@ -51,21 +53,34 @@ function getPatientAge(dateString) {
   return age;
 }
 
+// Helper para "Hace X tiempo"
+function getRelativeTime(dateString) {
+  if (!dateString) return "";
+  const diff = Date.now() - new Date(dateString).getTime();
+  const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+  
+  if (days < 1) return "Hoy";
+  if (days === 1) return "Ayer";
+  if (days < 30) return `Hace ${days} días`;
+  if (days < 365) return `Hace ${Math.floor(days/30)} meses`;
+  return `Hace ${Math.floor(days/365)} años`;
+}
+
 export default function PatientDetailPage() {
   const { id } = useParams();
+  const { currentBranch } = useAuth(); 
   
   const [loading, setLoading] = useState(true);
   const [patient, setPatient] = useState(null);
-  const [referrer, setReferrer] = useState(null); // Objeto completo del padrino
+  const [referrer, setReferrer] = useState(null); 
   const [recommendedList, setRecommendedList] = useState([]);
   const [salePrefill, setSalePrefill] = useState(null);
   
   const [isIdentityOpen, setIsIdentityOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState("general"); // general | loyalty
+  const [activeTab, setActiveTab] = useState("general"); 
   const [form, setForm] = useState({});
   const [sources, setSources] = useState([]);
 
-  // Estado para Edición de Puntos
   const [editingPoints, setEditingPoints] = useState(false);
   const [newPointsVal, setNewPointsVal] = useState("");
 
@@ -85,14 +100,20 @@ export default function PatientDetailPage() {
             if (p) {
                 touchPatientView(id);
                 setForm({ 
-                    firstName: p.firstName, lastName: p.lastName, email: p.email,
-                    phone: p.phone, homePhone: p.homePhone || "", 
-                    dob: p.dob || "", assignedSex: p.assignedSex || p.sex || "NO_ESPECIFICADO",
+                    firstName: p.firstName, 
+                    lastName: p.lastName, 
+                    curp: p.curp || "", 
+                    email: p.email,
+                    phone: p.phone, 
+                    homePhone: p.homePhone || "", 
+                    dob: p.dob || "", 
+                    assignedSex: p.assignedSex || p.sex || "NO_ESPECIFICADO",
                     genderExpression: p.genderExpression || "", 
                     maritalStatus: p.maritalStatus || "SOLTERO",
                     religion: p.religion || "", 
                     reliability: p.reliability || "BUENA",
-                    occupation: p.occupation || "", referralSource: p.referralSource || "",
+                    occupation: p.occupation || "", 
+                    referralSource: p.referralSource || "",
                     createdAt: toDateInput(p.createdAt),
                     rfc: p.taxData?.rfc || "", 
                     razonSocial: p.taxData?.razonSocial || "",
@@ -108,7 +129,6 @@ export default function PatientDetailPage() {
                     zip: p.address?.zip || ""
                 });
 
-                // Cargar datos de lealtad
                 if (p.referredBy) {
                     const refData = await getPatientById(p.referredBy);
                     setReferrer(refData);
@@ -150,6 +170,11 @@ export default function PatientDetailPage() {
     alert("Ficha actualizada");
   };
 
+  const handlePrintConsent = () => {
+    const patientDataForPdf = { ...patient, ...form, id: patient.id };
+    generateInformedConsentPDF(patientDataForPdf, currentBranch);
+  };
+
   const handleSellFromExam = (exam) => { 
       setSalePrefill({ type: 'EXAM', data: exam }); 
       setTimeout(() => {
@@ -177,23 +202,27 @@ export default function PatientDetailPage() {
     <div className="page-container space-y-8">
       
       {/* HEADER DE NAVEGACIÓN */}
-      <div className="flex items-center gap-2 text-sm text-textMuted mb-2">
-        <Link to="/patients" className="hover:text-white transition-colors">Pacientes</Link>
-        <span>/</span>
-        <span className="text-white">Detalle</span>
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-2 text-sm text-textMuted">
+            <Link to="/patients" className="hover:text-white transition-colors">Pacientes</Link>
+            <span>/</span>
+            <span className="text-white">Detalle</span>
+        </div>
       </div>
 
-      {/* HERO CARD */}
+      {/* HERO CARD (HEADER) */}
       <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-blue-900/40 to-slate-900 border border-blue-500/20 shadow-glow p-6 md:p-8">
          <div className="absolute top-0 right-0 w-64 h-64 bg-blue-500/10 rounded-full blur-3xl -mr-16 -mt-16 pointer-events-none"></div>
 
-         <div className="relative z-10 flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+         <div className="relative z-10 grid grid-cols-1 lg:grid-cols-[auto_1fr_auto] gap-8 items-center">
+             
+             {/* 1. FOTO Y NOMBRE */}
              <div className="flex items-center gap-6">
-                <div className="w-20 h-20 rounded-full bg-blue-600 flex items-center justify-center text-3xl font-bold text-white shadow-lg shadow-blue-900/50 uppercase">
+                <div className="w-20 h-20 rounded-full bg-blue-600 flex items-center justify-center text-3xl font-bold text-white shadow-lg shadow-blue-900/50 uppercase shrink-0">
                     {patient.firstName.charAt(0)}
                 </div>
                 <div>
-                    <h1 className="text-3xl md:text-4xl font-bold text-white tracking-tight">{patient.firstName} {patient.lastName}</h1>
+                    <h1 className="text-3xl md:text-4xl font-bold text-white tracking-tight leading-tight">{patient.firstName} <br/> {patient.lastName}</h1>
                     <div className="flex flex-wrap gap-3 mt-3 items-center">
                         {calculatedAge !== null && (
                             <Badge color="blue" className="text-sm px-3 py-1 bg-blue-500/20 border-blue-500/30 text-blue-200">
@@ -201,44 +230,59 @@ export default function PatientDetailPage() {
                             </Badge>
                         )}
                         <span className="text-textMuted text-sm flex items-center gap-1">🎂 {form.dob || "N/A"}</span>
-                        <span className="text-textMuted text-sm flex items-center gap-1">📱 {patient.phone}</span>
                         
-                        {/* BADGE DE PUNTOS */}
+                        {/* Puntos */}
                         <div className="relative group cursor-pointer" onClick={() => { setNewPointsVal(patient.points); setEditingPoints(true); }}>
                             <Badge color="yellow" className="text-yellow-300 border-yellow-500/30 font-bold hover:bg-yellow-500/20 transition-colors flex items-center gap-2">
                                 💎 {patient.points?.toLocaleString() || 0} Puntos
                                 <span className="text-[10px] opacity-0 group-hover:opacity-100 bg-black/50 px-1 rounded">✏️</span>
                             </Badge>
                         </div>
-
-                        {/* BADGE CÓDIGO REFERIDO (Solo lectura aquí) */}
-                        {patient.referralCode && (
-                            <Badge color="purple" className="text-purple-300 border-purple-500/30 font-mono tracking-wider">
-                                🎫 {patient.referralCode}
-                            </Badge>
-                        )}
                     </div>
                 </div>
              </div>
              
-             <div className="flex flex-col items-end gap-2">
-                <div className="text-right">
-                    <div className="text-xs text-textMuted uppercase tracking-wider mb-1">Origen</div>
-                    <Badge color="gray">{patient.referralSource || "Desconocido"}</Badge>
+             {/* 2. DATOS DE AUDITORÍA Y ORIGEN (RESTAURADO) */}
+             <div className="flex flex-col gap-2 border-l border-white/10 pl-6 lg:ml-auto text-sm">
+                <div className="flex items-center gap-2 text-textMuted" title="Último Acceso al Expediente">
+                    <Clock size={14} className="text-blue-400" /> 
+                    <span>Acceso: <span className="text-white font-mono">{formatDateTime(patient.lastViewed)}</span></span>
                 </div>
-                <div className="flex flex-col items-end gap-1 mt-3">
-                    <span className="text-xs text-textMuted">
-                        🕒 <strong>Último acceso:</strong> {formatDateTime(patient.lastViewed)}
-                    </span>
-                    <span className="text-xs text-textMuted">
-                        📅 <strong>Alta:</strong> {new Date(patient.createdAt).toLocaleDateString()}
-                    </span>
+                <div className="flex items-center gap-2 text-textMuted" title="Fecha de Creación">
+                    <Calendar size={14} className="text-emerald-400" /> 
+                    <span>Alta: <span className="text-white">{new Date(patient.createdAt).toLocaleDateString()}</span> <span className="text-xs opacity-60">({getRelativeTime(patient.createdAt)})</span></span>
+                </div>
+                <div className="flex items-center gap-2 text-textMuted" title="Última Actualización de Datos">
+                    <Activity size={14} className="text-amber-400" /> 
+                    <span>Actualizado: <span className="text-white">{formatDateTime(patient.updatedAt)}</span></span>
+                </div>
+                <div className="mt-1">
+                     <Badge color="gray" className="text-xs">{patient.referralSource || "Origen: Desconocido"}</Badge>
                 </div>
              </div>
+
+             {/* 3. BOTÓN DE CONSENTIMIENTO */}
+             <div className="flex flex-col gap-2">
+                <Button 
+                    onClick={handlePrintConsent} 
+                    className="bg-white/10 hover:bg-white/20 border border-white/20 text-white flex items-center gap-2 h-12 px-6"
+                >
+                    <FileText size={18} />
+                    <span>Consentimiento NOM-024</span>
+                </Button>
+                {patient.referralCode && (
+                     <div className="text-center">
+                        <Badge color="purple" className="text-purple-300 border-purple-500/30 font-mono tracking-wider text-xs">
+                             🎫 {patient.referralCode}
+                        </Badge>
+                     </div>
+                )}
+             </div>
+
          </div>
       </div>
 
-      {/* FICHA TÉCNICA + RED DE LEALTAD */}
+      {/* RESTO DE LA PÁGINA (Sin Cambios) */}
       <Card className="overflow-hidden">
         <div className="flex border-b border-border">
              <button 
@@ -264,21 +308,17 @@ export default function PatientDetailPage() {
 
         {isIdentityOpen && (
             <div className="p-6 animate-[fadeIn_0.3s_ease-out]">
-                
-                {/* PESTAÑA 1: DATOS GENERALES */}
                 {activeTab === "general" && (
                     <div className="space-y-8">
-                         {/* 1. Datos Personales */}
                         <section>
                             <h4 className="text-sm font-bold text-textMuted uppercase mb-4 tracking-wider">Datos Personales</h4>
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
                                 <Input label="Nombre(s)" value={form.firstName} onChange={e => setForm({...form, firstName: e.target.value})} />
                                 <Input label="Apellidos" value={form.lastName} onChange={e => setForm({...form, lastName: e.target.value})} />
+                                <Input label="CURP" value={form.curp} onChange={e => setForm({...form, curp: e.target.value.toUpperCase()})} maxLength={18} placeholder="CLAVE ÚNICA..." />
                                 <Input label="Email" value={form.email} onChange={e => setForm({...form, email: e.target.value})} />
                             </div>
                         </section>
-
-                        {/* 2. Contacto */}
                         <section className="bg-surfaceHighlight/30 p-5 rounded-xl border border-border/50">
                             <div className="grid grid-cols-1 md:grid-cols-4 gap-5">
                                 <Input label="Móvil" value={form.phone} onChange={e => setForm({...form, phone: handlePhoneInput(e.target.value)})} />
@@ -292,8 +332,6 @@ export default function PatientDetailPage() {
                                 </Select>
                             </div>
                         </section>
-
-                        {/* 3. Datos Fiscales & Dirección (Resumido para brevedad, expandir si se desea) */}
                         <section className="pt-4 border-t border-border grid grid-cols-1 md:grid-cols-2 gap-8">
                              <div>
                                 <h4 className="text-sm font-bold text-textMuted uppercase mb-4 tracking-wider">Dirección</h4>
@@ -313,51 +351,31 @@ export default function PatientDetailPage() {
                                 </div>
                              </div>
                         </section>
-                        
                         <div className="flex justify-end pt-4 border-t border-border">
                              <Button onClick={onSave}>Guardar Cambios</Button>
                         </div>
                     </div>
                 )}
-
-                {/* PESTAÑA 2: RED DE LEALTAD (NUEVO) */}
                 {activeTab === "loyalty" && (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                        
-                        {/* IZQUIERDA: PADRINO */}
                         <div className="bg-surfaceHighlight/30 border border-border p-6 rounded-xl flex flex-col items-center text-center">
-                            <div className="mb-4 p-3 bg-blue-500/20 rounded-full text-blue-400">
-                                <Users size={32} />
-                            </div>
+                            <div className="mb-4 p-3 bg-blue-500/20 rounded-full text-blue-400"><Users size={32} /></div>
                             <h4 className="text-white font-bold text-lg mb-1">¿Quién lo invitó?</h4>
-                            
                             {referrer ? (
                                 <div className="mt-4 w-full">
                                     <Link to={`/patients/${referrer.id}`} className="block bg-slate-800 p-4 rounded-lg hover:bg-slate-700 transition-colors border border-slate-700">
                                         <div className="font-bold text-primary text-lg">{referrer.firstName} {referrer.lastName}</div>
                                         <div className="text-sm text-textMuted">{referrer.phone}</div>
-                                        <div className="mt-2 text-xs bg-blue-900/50 text-blue-200 inline-block px-2 py-1 rounded">
-                                            Código: {referrer.referralCode || "N/A"}
-                                        </div>
+                                        <div className="mt-2 text-xs bg-blue-900/50 text-blue-200 inline-block px-2 py-1 rounded">Código: {referrer.referralCode || "N/A"}</div>
                                     </Link>
                                 </div>
-                            ) : (
-                                <div className="mt-4 text-textMuted italic text-sm">
-                                    Este paciente llegó por medios orgánicos o externos ({patient.referralSource}).
-                                </div>
-                            )}
+                            ) : (<div className="mt-4 text-textMuted italic text-sm">Este paciente llegó por medios orgánicos o externos ({patient.referralSource}).</div>)}
                         </div>
-
-                        {/* DERECHA: AHIJADOS */}
                         <div className="bg-surfaceHighlight/30 border border-border p-6 rounded-xl">
                             <div className="flex items-center justify-between mb-4">
-                                <h4 className="text-white font-bold text-lg flex items-center gap-2">
-                                    <Gift size={20} className="text-amber-400" />
-                                    Referidos Traídos
-                                </h4>
+                                <h4 className="text-white font-bold text-lg flex items-center gap-2"><Gift size={20} className="text-amber-400" /> Referidos Traídos</h4>
                                 <Badge color="yellow" className="text-lg">{recommendedList.length}</Badge>
                             </div>
-
                             {recommendedList.length === 0 ? (
                                 <div className="text-center py-8 text-textMuted border border-dashed border-slate-700 rounded-lg">
                                     <p>Aún no ha referido a nadie.</p>
@@ -377,32 +395,22 @@ export default function PatientDetailPage() {
                                 </div>
                             )}
                         </div>
-
                         <div className="col-span-1 md:col-span-2 mt-4 p-4 bg-purple-900/20 border border-purple-500/30 rounded-xl flex justify-between items-center">
                             <div>
                                 <h5 className="font-bold text-purple-200">Código de Embajador</h5>
                                 <p className="text-xs text-purple-300/70">Comparte este código con el paciente para que invite amigos.</p>
                             </div>
                             <div className="flex items-center gap-3 bg-slate-900 p-2 rounded-lg border border-purple-500/30">
-                                <span className="font-mono text-xl font-bold text-purple-400 tracking-widest px-2">
-                                    {patient.referralCode || "GENERANDO..."}
-                                </span>
-                                <button 
-                                    onClick={() => { navigator.clipboard.writeText(patient.referralCode); alert("Copiado!"); }}
-                                    className="p-2 hover:bg-white/10 rounded-md text-purple-300"
-                                >
-                                    <Copy size={16} />
-                                </button>
+                                <span className="font-mono text-xl font-bold text-purple-400 tracking-widest px-2">{patient.referralCode || "GENERANDO..."}</span>
+                                <button onClick={() => { navigator.clipboard.writeText(patient.referralCode); alert("Copiado!"); }} className="p-2 hover:bg-white/10 rounded-md text-purple-300"><Copy size={16} /></button>
                             </div>
                         </div>
-
                     </div>
                 )}
             </div>
         )}
       </Card>
 
-      {/* GRID PANELES CLÍNICOS */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
           <div className="h-full"><AnamnesisPanel patientId={id} /></div>
           <div className="h-full"><ConsultationsPanel patientId={id} /></div>
@@ -410,22 +418,16 @@ export default function PatientDetailPage() {
           <div className="h-full"><StudiesPanel patientId={id} /></div>
       </div>
       
-      {/* SECCIÓN VENTAS */}
       <div className="border-t border-border pt-8" id="sales-section">
-           <h2 className="text-xl font-bold text-white mb-6 flex items-center gap-2">
-               🛒 Generar Venta <span className="text-sm font-normal text-textMuted ml-2">(Paciente Vinculado)</span>
-           </h2>
+           <h2 className="text-xl font-bold text-white mb-6 flex items-center gap-2">🛒 Generar Venta <span className="text-sm font-normal text-textMuted ml-2">(Paciente Vinculado)</span></h2>
            <SalesPanel patientId={id} prefillData={salePrefill} onClearPrefill={() => setSalePrefill(null)} />
       </div>
 
-      {/* MODAL EDICIÓN PUNTOS */}
       {editingPoints && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
               <div className="bg-surface border border-border p-6 rounded-xl w-full max-w-sm shadow-2xl">
                   <h3 className="text-lg font-bold text-white mb-4">Ajuste Manual de Puntos</h3>
-                  <p className="text-sm text-textMuted mb-4">
-                      Usa esto para corregir errores o asignar bonificaciones manuales.
-                  </p>
+                  <p className="text-sm text-textMuted mb-4">Usa esto para corregir errores o asignar bonificaciones manuales.</p>
                   <Input label="Nuevos Puntos Totales" type="number" value={newPointsVal} onChange={e => setNewPointsVal(e.target.value)} className="font-bold text-lg" />
                   <div className="flex justify-end gap-3 mt-6">
                       <Button variant="ghost" onClick={() => setEditingPoints(false)}>Cancelar</Button>

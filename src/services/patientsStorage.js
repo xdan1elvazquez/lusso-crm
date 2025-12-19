@@ -91,6 +91,7 @@ export async function createPatient(data) {
     firstName: data.firstName?.trim() || "", 
     lastName: data.lastName?.trim() || "",
     
+    curp: data.curp?.trim().toUpperCase() || "", // <--- NUEVO CAMPO CURP
     // Contacto
     phone: finalPhone, 
     rawPhone: data.phone?.trim() || "", 

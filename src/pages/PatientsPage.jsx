@@ -1,30 +1,32 @@
 import { useMemo, useState, useEffect } from "react";
 import { Link } from "react-router-dom";
-import { useAuth } from "@/context/AuthContext"; // 👈 Importamos Auth
+import { useAuth } from "@/context/AuthContext"; 
 import { usePatients } from "@/hooks/usePatients"; 
 import { validatePatient } from "@/utils/validators";
-import { getReferralSources, updateReferralSources } from "@/services/settingsStorage"; // 👈 Importamos update
+import { getReferralSources, updateReferralSources } from "@/services/settingsStorage"; 
 import { handlePhoneInput } from "@/utils/inputHandlers";
 import LoadingState from "@/components/LoadingState";
 
-// UI Components Nuevos
+// UI Components
 import Card from "@/components/ui/Card";
 import Input from "@/components/ui/Input";
 import Button from "@/components/ui/Button";
 import Select from "@/components/ui/Select"; 
-import ModalWrapper from "@/components/ui/ModalWrapper"; // 👈 Importamos Modal
+import ModalWrapper from "@/components/ui/ModalWrapper"; 
 
 export default function PatientsPage() {
-  const { role } = useAuth(); // 👈 Obtenemos el rol
+  const { role } = useAuth(); 
   const { patients, create, remove, loading: loadingPatients, refresh } = usePatients();
   
   const [q, setQ] = useState("");
   const [sources, setSources] = useState([]);
   const [loadingConfig, setLoadingConfig] = useState(true);
   
+  // ✅ CORRECCIÓN 1: Cambiamos 'sex' por 'assignedSex' para que coincida con la BD
+  // ✅ CORRECCIÓN 2: Agregamos 'curp'
   const [form, setForm] = useState({ 
-    firstName: "", lastName: "", phone: "", email: "", 
-    dob: "", sex: "NO_ESPECIFICADO", occupation: "",
+    firstName: "", lastName: "", curp: "", phone: "", email: "", 
+    dob: "", assignedSex: "NO_ESPECIFICADO", occupation: "",
     referralSource: "", referredBy: "" 
   });
   
@@ -32,7 +34,6 @@ export default function PatientsPage() {
   const [selectedReferrer, setSelectedReferrer] = useState(null);
   const [errors, setErrors] = useState({});
 
-  // --- ESTADOS PARA MODAL DE EDICIÓN DE ORÍGENES ---
   const [isSourceModalOpen, setIsSourceModalOpen] = useState(false);
   const [editingSources, setEditingSources] = useState([]);
   const [newSourceInput, setNewSourceInput] = useState("");
@@ -83,7 +84,12 @@ export default function PatientsPage() {
     });
 
     if (success) {
-        setForm({ firstName: "", lastName: "", phone: "", email: "", dob: "", sex: "NO_ESPECIFICADO", occupation: "", referralSource: "", referredBy: "" });
+        // ✅ Reseteamos el formulario correctamente
+        setForm({ 
+            firstName: "", lastName: "", curp: "", phone: "", email: "", 
+            dob: "", assignedSex: "NO_ESPECIFICADO", occupation: "", 
+            referralSource: "", referredBy: "" 
+        });
         setReferrerQuery(""); 
         setSelectedReferrer(null);
         alert("Paciente registrado correctamente.");
@@ -96,7 +102,7 @@ export default function PatientsPage() {
 
   // --- LÓGICA DEL MODAL DE EDICIÓN ---
   const openSourceEditor = () => {
-    setEditingSources([...sources]); // Copia para editar sin afectar live
+    setEditingSources([...sources]); 
     setNewSourceInput("");
     setIsSourceModalOpen(true);
   };
@@ -122,12 +128,10 @@ export default function PatientsPage() {
 
   const handleSaveSources = async () => {
     try {
-        // Doble validación de seguridad
         let finalSources = [...editingSources];
         if (!finalSources.includes("Recomendación")) {
             finalSources = ["Recomendación", ...finalSources];
         }
-
         await updateReferralSources(finalSources);
         setSources(finalSources);
         setIsSourceModalOpen(false);
@@ -163,7 +167,7 @@ export default function PatientsPage() {
 
       <div className="grid grid-cols-1 xl:grid-cols-[1fr_400px] gap-6 items-start">
           
-          {/* LISTA DE PACIENTES (GRID CARDS) */}
+          {/* LISTA DE PACIENTES */}
           <div className="space-y-4">
             {filtered.length === 0 ? (
                 <div className="text-center py-20 bg-surface rounded-2xl border border-border text-textMuted">
@@ -202,7 +206,7 @@ export default function PatientsPage() {
             )}
           </div>
 
-          {/* FORMULARIO DE REGISTRO (Sidebar Derecho) */}
+          {/* FORMULARIO DE REGISTRO */}
           <Card className="sticky top-6 border-l-4 border-l-primary shadow-glow">
             <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
                 <span>➕</span> Nuevo Paciente
@@ -213,6 +217,15 @@ export default function PatientsPage() {
                     <Input label="Nombre(s)" value={form.firstName} onChange={(e) => setForm(f => ({ ...f, firstName: e.target.value }))} error={errors.firstName} />
                     <Input label="Apellidos" value={form.lastName} onChange={(e) => setForm(f => ({ ...f, lastName: e.target.value }))} error={errors.lastName} />
                 </div>
+
+                {/* ✅ INPUT CURP */}
+                <Input 
+                    label="CURP" 
+                    value={form.curp} 
+                    onChange={(e) => setForm(f => ({ ...f, curp: e.target.value.toUpperCase() }))} 
+                    placeholder="CLAVE ÚNICA..."
+                    maxLength={18}
+                />
 
                 <div className="grid grid-cols-2 gap-3">
                     <Input 
@@ -231,7 +244,9 @@ export default function PatientsPage() {
 
                 <div className="grid grid-cols-2 gap-3">
                     <Input label="Fecha Nac." type="date" value={form.dob} onChange={(e) => setForm(f => ({ ...f, dob: e.target.value }))} />
-                    <Select label="Sexo" value={form.sex} onChange={(e) => setForm(f => ({ ...f, sex: e.target.value }))}>
+                    
+                    {/* ✅ INPUT SEXO CORREGIDO (Usa assignedSex) */}
+                    <Select label="Sexo" value={form.assignedSex} onChange={(e) => setForm(f => ({ ...f, assignedSex: e.target.value }))}>
                         <option value="NO_ESPECIFICADO">Prefiero no decir</option>
                         <option value="MUJER">Mujer</option>
                         <option value="HOMBRE">Hombre</option>
@@ -240,7 +255,7 @@ export default function PatientsPage() {
 
                 <Input label="Ocupación" placeholder="Ej. Estudiante" value={form.occupation} onChange={(e) => setForm(f => ({ ...f, occupation: e.target.value }))} />
 
-                {/* SECCIÓN MARKETING */}
+                {/* MARKETING */}
                 <div className="p-3 bg-surfaceHighlight rounded-xl border border-border/50 space-y-3 relative group/marketing">
                     <div className="relative">
                         <Select label="¿Cómo se enteró?" value={form.referralSource} onChange={(e) => setForm(f => ({ ...f, referralSource: e.target.value }))}>
@@ -248,7 +263,6 @@ export default function PatientsPage() {
                             {Array.isArray(sources) && sources.map(s => <option key={s} value={s}>{s}</option>)}
                         </Select>
                         
-                        {/* Botón Editar solo para ADMIN */}
                         {role === "ADMIN" && (
                             <button 
                                 type="button"
@@ -292,15 +306,12 @@ export default function PatientsPage() {
           </Card>
       </div>
 
-      {/* MODAL PARA EDITAR ORÍGENES */}
       {isSourceModalOpen && (
         <ModalWrapper title="Editar Orígenes de Clientes" onClose={() => setIsSourceModalOpen(false)} width="400px">
             <div className="space-y-4">
                 <p className="text-sm text-textMuted">
                     Agrega o elimina opciones de la lista. "Recomendación" es obligatorio.
                 </p>
-
-                {/* Input Agregar */}
                 <div className="flex gap-2">
                     <Input 
                         placeholder="Nuevo origen..." 
@@ -309,8 +320,6 @@ export default function PatientsPage() {
                     />
                     <Button onClick={handleAddSource} variant="secondary">Agregar</Button>
                 </div>
-
-                {/* Lista */}
                 <div className="max-h-60 overflow-y-auto space-y-2 border border-border rounded-lg p-2 bg-background">
                     {editingSources.map((source, idx) => (
                         <div key={idx} className="flex justify-between items-center p-2 bg-surfaceHighlight rounded border border-transparent hover:border-border transition-colors">
@@ -328,7 +337,6 @@ export default function PatientsPage() {
                         </div>
                     ))}
                 </div>
-
                 <div className="pt-4 flex justify-end gap-2 border-t border-border">
                     <Button variant="ghost" onClick={() => setIsSourceModalOpen(false)}>Cancelar</Button>
                     <Button variant="primary" onClick={handleSaveSources}>Guardar Cambios</Button>
@@ -336,7 +344,6 @@ export default function PatientsPage() {
             </div>
         </ModalWrapper>
       )}
-
     </div>
   );
 }
