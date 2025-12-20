@@ -9,7 +9,6 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    // Busca el documento usando el UID exacto del usuario logueado
     function getUserData() {
       return get(/databases/$(database)/documents/employees/$(request.auth.uid)).data;
     }
@@ -32,15 +31,15 @@ service cloud.firestore {
 
     // --- REGLAS POR COLECCIÓN ---
 
-    // 1. EMPLEADOS: Cada quien lee lo suyo. Admin lee/escribe todo.
+    // 1. EMPLEADOS
     match /employees/{userId} {
       allow read: if isAuthenticated() && request.auth.uid == userId;
       allow read, write: if isAdmin();
     }
 
-    // 2. SUCURSALES: Lectura pública para login, escritura Admin
+    // 2. SUCURSALES
     match /branches/{branchId} {
-      allow read: if true; 
+      allow read: if true;
       allow write: if isAdmin();
     }
 
@@ -50,10 +49,9 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
-    // 4. CONSULTAS (NOM-024)
+    // 4. CONSULTAS
     match /consultations/{consultationId} {
       allow read, create: if isDoctor();
-      // Bloqueo de edición si está finalizada
       allow update: if isDoctor() && resource.data.status != 'finished';
       allow delete: if false; 
     }
@@ -61,7 +59,7 @@ service cloud.firestore {
     // 5. VENTAS Y PAGOS
     match /sales/{saleId} {
       allow read, create: if isAuthenticated();
-      allow update: if isAdmin() || isSales(); // Para abonos
+      allow update: if isAdmin() || isSales(); 
       allow delete: if isAdmin();
     }
     
@@ -71,17 +69,17 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
-    // 6. ÓRDENES DE TRABAJO (Esto faltaba y causaba el error en Dashboard)
+    // 6. ÓRDENES DE TRABAJO
     match /work_orders/{orderId} {
-      allow read, create, update: if isAuthenticated(); // Operativo para todos
+      allow read, create, update: if isAuthenticated();
       allow delete: if isAdmin();
     }
 
-    // 7. INVENTARIO Y PRODUCTOS (Necesario para ventas)
+    // 7. INVENTARIO Y PRODUCTOS
     match /products/{productId} {
       allow read: if isAuthenticated();
-      allow write: if isAdmin(); // Solo admin ajusta catálogo base, stock se mueve por Cloud Functions o lógica segura
-      allow update: if isAuthenticated(); // Permitir descontar stock al vender (si se hace desde cliente)
+      allow write: if isAdmin();
+      allow update: if isAuthenticated(); 
     }
     
     match /inventory_logs/{logId} {
@@ -90,13 +88,13 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
-    // 8. GASTOS (Expenses)
+    // 8. GASTOS
     match /expenses/{expenseId} {
       allow read, create: if isAuthenticated();
       allow update, delete: if isAdmin();
     }
 
-    // 9. AUDITORÍA (Caja negra)
+    // 9. AUDITORÍA
     match /audit_logs/{logId} {
       allow create: if isAuthenticated();
       allow read: if isAdmin();
@@ -107,6 +105,32 @@ service cloud.firestore {
     match /settings/{docId} {
       allow read: if isAuthenticated();
       allow write: if isAdmin();
+    }
+
+    // 11. LABORATORIOS
+    match /labs/{labId} {
+      allow read: if isAuthenticated(); 
+      allow write: if isAdmin();        
+    }
+
+    // 12. EXÁMENES DE LA VISTA
+    match /eye_exams/{examId} {
+      allow read, create, update: if isAuthenticated() && (isDoctor() || isSales() || isAdmin());
+      allow delete: if isAdmin();
+    }
+
+    // 13. CONTADORES DE FOLIOS
+    match /counters/{counterId} {
+      allow read: if isAuthenticated();
+      allow update: if isAuthenticated(); 
+      allow create: if isAdmin();         
+    }
+
+    // 👇 14. LIBRO FINANCIERO (ESTA ES LA QUE FALTABA) 👇
+    match /finance_ledger/{entryId} {
+      allow read: if isAuthenticated(); 
+      allow create: if isAuthenticated(); // Necesario para registrar la venta
+      allow update, delete: if isAdmin(); // Solo admin puede alterar la contabilidad
     }
 
     // Resto por defecto cerrado
