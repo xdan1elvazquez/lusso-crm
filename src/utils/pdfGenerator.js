@@ -2,7 +2,7 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 
 // ==========================================
-// 1. GENERADOR DE TICKET DE VENTA
+// 1. GENERADOR DE TICKET DE VENTA (SERIALIZADO)
 // ==========================================
 export const generateSalePDF = (sale, branchConfig, patient) => {
   const doc = new jsPDF();
@@ -28,7 +28,7 @@ export const generateSalePDF = (sale, branchConfig, patient) => {
   doc.setTextColor(...primaryColor); 
   doc.text(branchName, 14, 20);
   
-  // Dirección debajo del nombre (Opcional en ticket, pero útil)
+  // Dirección debajo del nombre
   if (fullAddress) {
       doc.setFontSize(8);
       doc.setTextColor(100);
@@ -37,7 +37,10 @@ export const generateSalePDF = (sale, branchConfig, patient) => {
   
   doc.setFontSize(10);
   doc.setTextColor(100);
-  doc.text(`Folio Venta: ${sale.id.slice(0, 8).toUpperCase()}`, 14, 33);
+  
+  // 🟢 FOLIO SERIALIZADO: Si existe 'folio', lo usa. Si no, usa el ID viejo (legacy support).
+  const folioDisplay = sale.folio || sale.id.slice(0, 8).toUpperCase();
+  doc.text(`Folio Venta: ${folioDisplay}`, 14, 33);
   doc.text(`Fecha: ${new Date(sale.createdAt).toLocaleDateString()}`, 14, 38);
 
   // --- DATOS CLIENTE ---
@@ -92,7 +95,7 @@ export const generateSalePDF = (sale, branchConfig, patient) => {
   doc.setTextColor(150);
   doc.text("Este documento es un comprobante simplificado.", 14, 280);
   
-  doc.save(`Ticket_${branchName.split(" ")[0]}_${sale.id.slice(0,6)}.pdf`);
+  doc.save(`Ticket_${branchName.split(" ")[0]}_${folioDisplay}.pdf`);
 };
 
 // ==================================================
@@ -108,27 +111,22 @@ export const generateInformedConsentPDF = (patient, branchConfig) => {
   // 1. OBTENER DATOS REALES (BD - fiscalData)
   const fiscal = branchConfig?.fiscalData || {};
 
-  // Nombre: Prioridad Fiscal > Nombre Comercial > "CLÍNICA VISUAL"
+  // Nombre
   const branchNameRaw = fiscal.taxName || branchConfig?.name || "CLÍNICA VISUAL";
   const branchName = branchNameRaw.toUpperCase();
   
-  // Dirección: Construcción robusta desde fiscalData
-  // Formato: "Calle 123, Col. Centro, C.P. 00000, Ciudad"
-  let branchAddress = branchConfig?.address || "Ciudad de México"; // Fallback estático
-  
+  // Dirección
+  let branchAddress = branchConfig?.address || "Ciudad de México";
   if (fiscal.address) {
-      // Construimos la dirección bonita con lo que tengamos disponible
       const parts = [
           fiscal.address,
           fiscal.city,
           fiscal.cp ? `C.P. ${fiscal.cp}` : null
-      ].filter(Boolean); // Elimina nulos/vacíos
-      
+      ].filter(Boolean);
       branchAddress = parts.join(", ");
   }
 
-  // Ciudad corta para el "Lugar y Fecha" (Ej: "CDMX" o "Puebla")
-  // Tomamos el campo city directo o la primera parte de la dirección
+  // Ciudad corta
   const cityShort = fiscal.city || branchAddress.split(",")[0] || "Ciudad de México";
 
   // FECHA Y HORA ACTUAL
@@ -136,14 +134,10 @@ export const generateInformedConsentPDF = (patient, branchConfig) => {
   const dateStr = now.toLocaleDateString("es-MX", { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
   const timeStr = now.toLocaleTimeString("es-MX", { hour: '2-digit', minute: '2-digit' });
 
-  // --- 1. ENCABEZADO (SUPERIOR) ---
+  // --- 1. ENCABEZADO ---
   doc.setFontSize(10);
   doc.setTextColor(100);
-  
-  // Nombre de la Sucursal/Razón Social
   doc.text(branchName, margin, margin); 
-  
-  // Dirección debajo del nombre (pequeña)
   doc.setFontSize(8);
   doc.text(branchAddress, margin, margin + 5);
 
@@ -155,6 +149,7 @@ export const generateInformedConsentPDF = (patient, branchConfig) => {
   doc.setFont("helvetica", "bold");
   doc.text("CARTA DE CONSENTIMIENTO INFORMADO", pageWidth / 2, margin + 20, { align: "center" });
   doc.setFontSize(12);
+  doc.text("PARA ATENCIÓN OPTOMÉTRICA GENERAL", pageWidth / 2, margin + 27, { align: "center" });
 
   // --- 2. DATOS DEL PACIENTE ---
   const startY = margin + 40;
@@ -193,7 +188,6 @@ export const generateInformedConsentPDF = (patient, branchConfig) => {
   const textLines = [
       "YO, EL PACIENTE (o responsable legal, en caso de menores de edad):",
       "",
-      // Texto adaptado para usar el nombre real de la sucursal
       `1. AUTORIZACIÓN DE EXPLORACIÓN: Autorizo al personal clínico de ${branchName}, así como a su equipo técnico, auxiliar y en formación bajo supervisión, para realizar el interrogatorio clínico (historia clínica), exámenes de agudeza visual, refracción, tonometría y exploración física del ojo necesarias para mi diagnóstico. Entiendo que la atención es brindada por el equipo profesional de esta institución.`,
       "",
       "2. NATURALEZA NO INVASIVA: Entiendo que estos procedimientos son de carácter CLÍNICO Y DIAGNÓSTICO, no quirúrgicos. Su objetivo es evaluar mi salud visual y determinar la corrección óptica o tratamiento necesario.",
@@ -216,31 +210,24 @@ export const generateInformedConsentPDF = (patient, branchConfig) => {
       }
   });
 
-  // --- 4. FIRMAS (CENTRADO, SOLO PACIENTE, SIN CÉDULA PROFESIONAL) ---
+  // --- 4. FIRMAS ---
   const signatureY = pageHeight - 50;
   const centerX = pageWidth / 2;
   const lineLength = 80;
   
-  // Línea Central
   doc.line(centerX - (lineLength/2), signatureY, centerX + (lineLength/2), signatureY); 
-  
-  // Texto "FIRMA DEL PACIENTE"
   doc.setFont("helvetica", "bold");
   doc.setFontSize(11);
   doc.text("FIRMA DE CONFORMIDAD DEL PACIENTE", centerX, signatureY + 5, { align: "center" });
-  
-  // CURP DEBAJO
   doc.setFont("helvetica", "normal");
   doc.setFontSize(9);
   doc.text(patient.curp || "CURP: __________________", centerX, signatureY + 12, { align: "center" });
 
-  // --- PIE DE PÁGINA (INFERIOR) ---
-  // Razón Social + Dirección Fiscal Real
+  // PIE DE PÁGINA
   doc.setFontSize(7);
   doc.setTextColor(150);
   doc.text(`${branchName} - ${branchAddress}`, centerX, pageHeight - 10, { align: "center" });
 
-  // --- ACCIÓN: ABRIR DIÁLOGO DE IMPRESIÓN ---
   doc.autoPrint();
   const blob = doc.output("bloburl");
   window.open(blob, "_blank");

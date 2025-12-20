@@ -1,6 +1,6 @@
 import { db } from "@/firebase/config";
 import { 
-  collection, doc, runTransaction, getDocs, getDoc, updateDoc, query, where, orderBy 
+  collection, doc, runTransaction, getDocs, getDoc, updateDoc, query, where, orderBy, addDoc 
 } from "firebase/firestore";
 import { getLoyaltySettings, getTerminals } from "./settingsStorage"; 
 import { getCurrentShift } from "./shiftsStorage"; 
@@ -18,6 +18,7 @@ import {
 // --- NUEVOS IMPORTS ---
 import { logAuditAction } from "./auditStorage";
 import { recordLedgerEntry } from "./ledgerStorage";
+import { getNextSequence } from "./sequenceStorage"; // 👈 IMPORTANTE: SISTEMA DE FOLIOS
 import { 
   PAYMENT_METHODS, 
   EXPENSE_CATEGORIES, 
@@ -171,19 +172,25 @@ export async function getProfitabilityReport(startDate, endDate, branchId = "lus
     return { global, byCategory }; 
 }
 
-// --- CREACIÓN (ATÓMICA CON AUDITORÍA) ---
+// --- CREACIÓN (ATÓMICA CON AUDITORÍA Y FOLIOS SERIADOS) ---
 export async function createSale(payload, branchId = "lusso_main") {
   if (!payload?.patientId) throw new Error("patientId requerido");
   
   const currentShift = await getCurrentShift(branchId);
   if (!currentShift) throw new Error("⛔ CAJA CERRADA: No hay un turno abierto en esta sucursal.");
   
+  // 🟢 1. GENERAR FOLIO ATÓMICO (ANTES DE LA TRANSACCIÓN PRINCIPAL PARA EVITAR COLISIONES)
+  // Nota: Idealmente esto iría dentro de la transacción, pero para simplificar la integración
+  // y evitar bloqueos masivos, lo pedimos antes. Firebase Counters manejan su propia concurrencia.
+  const folioNumber = await getNextSequence("sales"); 
+  const formattedFolio = `NV-${String(folioNumber).padStart(6, '0')}`; // Ej: NV-000001
+
   const loyalty = await getLoyaltySettings(); 
   const terminals = await getTerminals(); 
   const user = payload.soldBy || "Unknown";
   
   const saleResult = await runTransaction(db, async (transaction) => {
-    // 1. LECTURAS
+    // 2. LECTURAS
     const patientRef = doc(db, COLLECTION_PATIENTS, payload.patientId);
     const patientSnap = await transaction.get(patientRef);
     if (!patientSnap.exists()) throw new Error("Paciente no encontrado");
@@ -211,7 +218,7 @@ export async function createSale(payload, branchId = "lusso_main") {
         }
     }
 
-    // 2. LÓGICA DE NEGOCIO
+    // 3. LÓGICA DE NEGOCIO
     const now = new Date().toISOString();
     const paymentsWithShift = (payload.payments || []).map(p => ({ ...p, shiftId: currentShift.id }));
     const totalSale = roundMoney(payload.total || 0);
@@ -238,6 +245,11 @@ export async function createSale(payload, branchId = "lusso_main") {
         patientName: `${patientData.firstName} ${patientData.lastName}`.trim(),
         boxNumber: payload.boxNumber || "",
         soldBy: user,
+        
+        // 🟢 CAMPOS DE FOLIO
+        folio: formattedFolio,
+        folioNumber: folioNumber,
+
         kind: sanitizedItems[0]?.kind || "OTHER",
         saleType: hasLabItems ? "LAB" : "SIMPLE",
         description: payload.description || (hasLabItems ? "Venta Óptica" : "Venta Mostrador"),
@@ -275,28 +287,24 @@ export async function createSale(payload, branchId = "lusso_main") {
 
     inventoryOps.logs.forEach(log => {
         const logRef = doc(collection(db, COLLECTION_LOGS));
-        transaction.set(logRef, { ...log, reference: `Venta #${newSaleRef.id.slice(0,6)}`, date: now });
+        transaction.set(logRef, { ...log, reference: `Venta ${formattedFolio}`, date: now });
     });
 
     // 🟢 LUSSO INTELLIGENCE: Actualización de Puntos y Fechas de Retorno
     const netPointsChange = loyaltyResult.pointsToAward - pointsUsed;
     
-    // Calculamos fecha de recall (+1 año)
     const recallDate = new Date();
     recallDate.setFullYear(recallDate.getFullYear() + 1);
 
-    // Preparamos payload del paciente
     const patientUpdatePayload = {
         lastSaleDate: now,
         nextRecallDate: recallDate.toISOString()
     };
 
-    // Si hubo cambio de puntos, lo agregamos al mismo update
     if (netPointsChange !== 0) {
         patientUpdatePayload.points = (Number(patientData.points) || 0) + netPointsChange;
     }
 
-    // Ejecutamos update único
     transaction.update(patientRef, patientUpdatePayload);
 
     if (loyaltyResult.referrerPoints > 0 && referrerRef) {
@@ -309,7 +317,7 @@ export async function createSale(payload, branchId = "lusso_main") {
         entityId: newSaleRef.id,
         action: AUDIT_ACTIONS.CREATE_SALE,
         user: user,
-        reason: "Nueva venta registrada",
+        reason: `Nueva venta registrada ${formattedFolio}`,
         previousState: null
     }, transaction);
 
@@ -322,7 +330,7 @@ export async function createSale(payload, branchId = "lusso_main") {
                 method: payment.method,
                 shiftId: currentShift.id,
                 user: user,
-                reference: `Pago Inicial Venta #${newSaleRef.id.slice(0,6)}`,
+                reference: `Pago Inicial Venta ${formattedFolio}`,
                 terminal: payment.terminal || null
             }, transaction);
         }
@@ -350,6 +358,9 @@ export async function addPaymentToSale(saleId, payment) {
       if (!saleSnap.exists()) throw new Error("Venta no encontrada");
       
       const saleData = saleSnap.data();
+      // Usamos el folio si existe, si no el ID corto
+      const folioDisplay = saleData.folio || saleId.slice(0,6);
+
       if (saleData.status === "CANCELLED") throw new Error("⛔ VENTA CANCELADA: No recibe abonos.");
 
       if (saleData.branchId && branchId && saleData.branchId !== branchId) {
@@ -453,7 +464,7 @@ export async function addPaymentToSale(saleId, payment) {
           method: method,
           shiftId: shift.id,
           user: user,
-          reference: `Abono Venta #${saleId.slice(0,6)}`,
+          reference: `Abono Venta ${folioDisplay}`,
           terminal: payment.terminal || null
       }, transaction);
   });
@@ -557,6 +568,8 @@ export async function processReturn(saleId, itemId, qtyToReturn, refundMethod = 
             if (!saleSnap.exists()) throw new Error("Venta no encontrada");
             
             const sale = saleSnap.data();
+            const folioDisplay = sale.folio || saleId.slice(0,6);
+
             let itemIndex = -1;
             if (itemId) itemIndex = sale.items.findIndex(i => i.id === itemId);
             if (itemIndex === -1) itemIndex = sale.items.findIndex(i => !i.id); 
@@ -681,7 +694,7 @@ export async function processReturn(saleId, itemId, qtyToReturn, refundMethod = 
     return { stockError };
 }
 
-// 🟢 CANCELACIÓN TOTAL (SOFT DELETE REFACTORIZADO)
+// 🟢 CANCELACIÓN TOTAL
 export async function deleteSale(id) {
     if (!id) return;
     
@@ -759,7 +772,7 @@ export async function deleteSale(id) {
     });
 }
 
-// 🟢 CORRECCIÓN MÉTODO DE PAGO (RECUPERADA Y BLINDADA)
+// 🟢 CORRECCIÓN MÉTODO DE PAGO
 export async function updateSalePaymentMethod(saleId, paymentId, newMethod) {
     const currentShift = await getCurrentShift();
     if (!currentShift) throw new Error("⛔ CAJA CERRADA: Necesitas turno para corregir métodos de pago.");
@@ -777,7 +790,6 @@ export async function updateSalePaymentMethod(saleId, paymentId, newMethod) {
         const oldMethod = payment.method;
         if (oldMethod === newMethod) return; // Sin cambios
 
-        // Actualizar array
         const newPayments = saleData.payments.map(p => 
             p.id === paymentId ? { ...p, method: newMethod } : p
         );
@@ -787,7 +799,6 @@ export async function updateSalePaymentMethod(saleId, paymentId, newMethod) {
             updatedAt: new Date().toISOString() 
         });
 
-        // Auditoría
         logAuditAction({
             entityType: "SALE",
             entityId: saleId,
@@ -797,7 +808,6 @@ export async function updateSalePaymentMethod(saleId, paymentId, newMethod) {
             previousState: { paymentId, oldMethod }
         }, transaction);
 
-        // Ledger: Reclasificación contable (Salida del viejo, Entrada al nuevo)
         recordLedgerEntry({
             saleId: saleId,
             amount: -Math.abs(Number(payment.amount)),

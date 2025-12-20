@@ -3,6 +3,7 @@ import {
   collection, addDoc, getDocs, doc, updateDoc, deleteDoc, query, where, orderBy, getDoc 
 } from "firebase/firestore";
 import { logAuditAction } from "./auditStorage";
+import { getNextSequence } from "./sequenceStorage"; // 👈 IMPORTANTE: Para Folios Seriados
 import { getPhysicalExamDefaults } from "@/utils/physicalExamConfig";
 import { getRegionalExamDefaults } from "@/utils/physicalExamRegionsConfig";
 import { getNeuroDefaults } from "@/utils/physicalExamNeuroConfig"; 
@@ -21,6 +22,9 @@ function normalizeConsultation(docSnapshot) {
   
   return {
     id,
+    // 🟢 FOLIO: Si existe úsalo, si no (viejas) usa ID corto
+    folio: base.folio || id.slice(0, 8).toUpperCase(),
+    
     patientId: base.patientId,
     visitDate: base.visitDate || base.createdAt,
     type: base.type || "OPHTHALMO",
@@ -39,10 +43,10 @@ function normalizeConsultation(docSnapshot) {
         neuro: base.physicalExam?.neuro || getNeuroDefaults()
     },
 
-    // 🟢 NUEVO: Exploración Oftalmológica Robusta
+    // 🟢 Exploración Oftalmológica Robusta
     ophthalmologyExam: base.ophthalmologyExam || getOphthalmoDefaults(),
 
-    // 🟢 NUEVO: Adjuntos
+    // 🟢 Adjuntos
     attachments: Array.isArray(base.attachments) ? base.attachments : [],
 
     // Legacy (para no romper reportes antiguos)
@@ -63,7 +67,7 @@ function normalizeConsultation(docSnapshot) {
     prognosis: base.prognosis || "",
     notes: base.notes || "",
     
-    // 🟢 NUEVO: Objeto SOAP con fallback seguro para consultas viejas
+    // 🟢 Objeto SOAP
     soap: base.soap || { s: "", o: "", a: "", p: "" },
 
     rx: base.rx || {}, 
@@ -93,7 +97,15 @@ export async function getConsultationById(id) {
 }
 
 export async function createConsultation(payload) {
+  // 🟢 1. OBTENER SIGUIENTE FOLIO SERIADO
+  const folioNumber = await getNextSequence("consultations");
+  const formattedFolio = `EXP-${String(folioNumber).padStart(6, '0')}`; // Ej: EXP-000001
+
   const consultationData = {
+    // Campos de Identidad
+    folio: formattedFolio,
+    folioNumber: folioNumber,
+    
     patientId: payload.patientId,
     visitDate: payload.visitDate || new Date().toISOString(),
     type: payload.type || "OPHTHALMO",
@@ -112,7 +124,6 @@ export async function createConsultation(payload) {
         neuro: getNeuroDefaults()
     },
     
-    // 🟢 Inicialización de nuevos campos
     ophthalmologyExam: getOphthalmoDefaults(),
     attachments: [],
 
@@ -128,7 +139,6 @@ export async function createConsultation(payload) {
     prognosis: payload.prognosis || "",
     notes: payload.notes || "",
     
-    // 🟢 NUEVO: Inicializar SOAP
     soap: payload.soap || { s: "", o: "", a: "", p: "" },
 
     rx: payload.rx || {},
@@ -137,7 +147,17 @@ export async function createConsultation(payload) {
   };
 
   const docRef = await addDoc(collection(db, COLLECTION_NAME), consultationData);
-  await logAuditAction({ entityType: "CONSULTATION", entityId: docRef.id, action: "CREATE", version: 1, previousState: null, reason: "Consulta inicial", user: "Sistema" });
+  
+  await logAuditAction({ 
+      entityType: "CONSULTATION", 
+      entityId: docRef.id, 
+      action: "CREATE", 
+      version: 1, 
+      previousState: null, 
+      reason: `Nueva Consulta ${formattedFolio}`, 
+      user: "Sistema" 
+  });
+  
   return { id: docRef.id, ...consultationData };
 }
 
@@ -147,13 +167,28 @@ export async function updateConsultation(id, payload, reason = "", user = "Usuar
   if (!docSnap.exists()) throw new Error("Consulta no encontrada");
   const current = docSnap.data();
   
+  // Regla de 24 horas (Si no está desbloqueada por Admin)
   if (!current.forceUnlock) {
       const createdTime = new Date(current.createdAt).getTime();
       const now = Date.now();
       if ((now - createdTime) / (1000 * 60 * 60) > 24) throw new Error("⛔ CONSULTA CERRADA: Han pasado más de 24 horas.");
   }
+  
+  // Regla de Estatus (NOM-024)
+  if (current.status === 'finished' && !current.forceUnlock) {
+      throw new Error("⛔ EXPEDIENTE FIRMADO: No se permiten ediciones.");
+  }
 
-  await logAuditAction({ entityType: "CONSULTATION", entityId: id, action: "UPDATE", version: current.version || 1, previousState: current, reason: reason, user: user });
+  await logAuditAction({ 
+      entityType: "CONSULTATION", 
+      entityId: id, 
+      action: "UPDATE", 
+      version: current.version || 1, 
+      previousState: current, 
+      reason: reason, 
+      user: user 
+  });
+  
   const nextVersion = (current.version || 1) + 1;
   await updateDoc(docRef, { ...payload, version: nextVersion, updatedAt: new Date().toISOString() });
 }
@@ -162,17 +197,41 @@ export async function addConsultationAddendum(id, text, user = "Usuario") {
     const docRef = doc(db, COLLECTION_NAME, id);
     const docSnap = await getDoc(docRef);
     if (!docSnap.exists()) throw new Error("Consulta no encontrada");
+    
     const currentAddendums = docSnap.data().addendums || [];
-    await updateDoc(docRef, { addendums: [...currentAddendums, { id: crypto.randomUUID(), text, createdAt: new Date().toISOString(), createdBy: user }] });
+    
+    await updateDoc(docRef, { 
+        addendums: [...currentAddendums, { 
+            id: crypto.randomUUID(), 
+            text, 
+            createdAt: new Date().toISOString(), 
+            createdBy: user 
+        }] 
+    });
 }
 
 export async function unlockConsultation(id, reason, user = "Gerente") {
     const docRef = doc(db, COLLECTION_NAME, id);
-    await logAuditAction({ entityType: "CONSULTATION", entityId: id, action: "UNLOCK", version: 0, previousState: { locked: true }, reason: reason, user: user });
+    await logAuditAction({ 
+        entityType: "CONSULTATION", 
+        entityId: id, 
+        action: "UNLOCK", 
+        version: 0, 
+        previousState: { locked: true }, 
+        reason: reason, 
+        user: user 
+    });
     await updateDoc(docRef, { forceUnlock: true });
 }
 
 export async function deleteConsultation(id) {
   const docRef = doc(db, COLLECTION_NAME, id);
   await updateDoc(docRef, { status: "VOIDED" });
+}
+
+// 👇 (Opcional) Si decides implementar el botón de finalizar después, esta es la función:
+export async function finishConsultation(id, user = "Médico") {
+  const docRef = doc(db, COLLECTION_NAME, id);
+  await logAuditAction({ entityType: "CONSULTATION", entityId: id, action: "FINISH", version: 0, previousState: { status: "ACTIVE" }, reason: "Firma Digital", user: user });
+  await updateDoc(docRef, { status: "finished", finishedAt: new Date().toISOString(), finishedBy: user });
 }
