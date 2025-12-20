@@ -159,10 +159,32 @@ export default function LabsPage() {
 
   useEffect(() => { refreshData(); }, [showConfig, showTreatmentsConfig]); 
 
+  // 🟢 CORRECCIÓN: Lógica unificada de guardado
   const handleSaveLab = async () => {
-    if (editingLens) saveLensToCatalog();
-    if (form.id) await updateLab(form.id, form); else await createLab(form);
-    setIsEditing(false); setEditingLens(null); setForm({ id: null, name: "", services: [], lensCatalog: [] });
+    // Creamos una copia fresca del formulario para manipularla antes de enviar
+    const finalForm = { ...form };
+
+    // Si hay una mica en edición que no se ha "guardado" en la lista, la guardamos ahora mismo
+    if (editingLens && editingLens.name) {
+        let newCatalog = [...(finalForm.lensCatalog || [])]; 
+        const index = newCatalog.findIndex(l => l.id === editingLens.id); 
+        if (index >= 0) newCatalog[index] = editingLens; 
+        else newCatalog.push(editingLens); 
+        
+        // Actualizamos la copia final (Esto evita el problema de asincronía)
+        finalForm.lensCatalog = newCatalog;
+    }
+
+    if (finalForm.id) {
+        await updateLab(finalForm.id, finalForm);
+    } else {
+        await createLab(finalForm);
+    }
+
+    // Limpieza
+    setIsEditing(false); 
+    setEditingLens(null); 
+    setForm({ id: null, name: "", services: [], lensCatalog: [] });
     refreshData();
   };
 
@@ -315,7 +337,7 @@ export default function LabsPage() {
                               <h4 className="font-bold text-amber-400">Configurando Mica</h4>
                               <div className="flex gap-2">
                                 <Button variant="ghost" onClick={() => setEditingLens(null)}>Atrás</Button>
-                                <Button onClick={saveLensToCatalog} variant="primary">Guardar Mica</Button>
+                                <Button onClick={saveLensToCatalog} variant="secondary">Confirmar Mica</Button>
                               </div>
                           </div>
                           

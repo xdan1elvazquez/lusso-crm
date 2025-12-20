@@ -83,7 +83,7 @@ service cloud.firestore {
     }
     
     match /inventory_logs/{logId} {
-      allow read: if isAdmin();
+      allow read: if isAuthenticated(); 
       allow create: if isAuthenticated();
       allow update, delete: if false;
     }
@@ -126,11 +126,47 @@ service cloud.firestore {
       allow create: if isAdmin();         
     }
 
-    // 👇 14. LIBRO FINANCIERO (ESTA ES LA QUE FALTABA) 👇
+    // 14. LIBRO FINANCIERO
     match /finance_ledger/{entryId} {
       allow read: if isAuthenticated(); 
-      allow create: if isAuthenticated(); // Necesario para registrar la venta
-      allow update, delete: if isAdmin(); // Solo admin puede alterar la contabilidad
+      allow create: if isAuthenticated(); 
+      allow update, delete: if isAdmin();
+    }
+
+    // 15. MESA DE AYUDA (TICKETS)
+    match /internal_tickets/{ticketId} {
+      allow read, create, update: if isAuthenticated();
+      allow delete: if isAdmin();
+    }
+
+    // 16. PROVEEDORES
+    match /suppliers/{supplierId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    // 17. DEUDAS A PROVEEDORES
+    match /supplier_debts/{debtId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    // 18. CORTES DE CAJA
+    match /cash_counts/{countId} {
+      allow read, create: if isAuthenticated();
+      allow update, delete: if isAdmin();
+    }
+
+    // 19. NÓMINA
+    match /payroll/{recordId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    // 👇 20. ESTADÍSTICAS (ESTO ARREGLA INVENTARIO) 👇
+    match /stats/{statId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated(); // Necesario para recalcular stock al vender
     }
 
     // Resto por defecto cerrado

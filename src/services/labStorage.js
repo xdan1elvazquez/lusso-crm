@@ -12,41 +12,35 @@ import {
 
 const COLLECTION_NAME = "labs";
 
-// --- 1. LECTURA BLINDADA (Con Fallback de Seguridad) ---
+// --- 1. LECTURA BLINDADA ---
 export async function getLabs() {
   try {
-    // INTENTO 1: Pedir ordenado desde la Nube (La forma ideal)
     try {
         const q = query(collection(db, COLLECTION_NAME), orderBy("name", "asc"));
         const snapshot = await getDocs(q);
-        return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        // 🟢 CORRECCIÓN: Ponemos "...doc.data()" PRIMERO y "id: doc.id" AL FINAL.
+        // Esto asegura que el ID real de Firebase sobrescriba cualquier basura (null) que venga en la data.
+        return snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
     } catch (indexError) {
-        // ⚠️ SI FALLA (Porque falta el índice en Firebase):
-        // No rompemos la app. Capturamos el error y usamos el Plan B.
-        console.warn("⚠️ Aviso: Falló la consulta ordenada (falta índice). Usando modo compatibilidad...", indexError);
-        
-        // INTENTO 2: Pedir todo SIN ordenar (Esto SIEMPRE funciona)
+        console.warn("⚠️ Falló consulta ordenada, usando compatibilidad...");
         const snapshot = await getDocs(collection(db, COLLECTION_NAME));
-        
-        // Recuperamos los datos
-        const list = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        
-        // Y los ordenamos aquí mismo en la computadora (Javascript)
-        // Así el usuario los ve ordenados aunque Firebase no lo haya hecho.
+        const list = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
         return list.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
     }
   } catch (error) {
-    // Si falla hasta el Plan B (ej. sin internet), devolvemos vacío para no trabar la pantalla
     console.error("❌ Error crítico obteniendo laboratorios:", error);
     return []; 
   }
 }
 
-// --- 2. CREACIÓN (Guardar en la Nube) ---
+// --- 2. CREACIÓN SEGURA ---
 export async function createLab(labData) {
   try {
     const cleanData = JSON.parse(JSON.stringify(labData));
     
+    // 🟢 CORRECCIÓN: Eliminamos explícitamente el ID antes de guardar para no ensuciar el documento
+    delete cleanData.id;
+
     const docRef = await addDoc(collection(db, COLLECTION_NAME), {
       ...cleanData,
       createdAt: new Date().toISOString(),
@@ -60,14 +54,18 @@ export async function createLab(labData) {
   }
 }
 
-// --- 3. ACTUALIZACIÓN (Editar en la Nube) ---
+// --- 3. ACTUALIZACIÓN ---
 export async function updateLab(id, updatedData) {
   if (!id) throw new Error("ID de laboratorio requerido");
   
   try {
     const labRef = doc(db, COLLECTION_NAME, id);
+    // Limpiamos también aquí por seguridad
+    const cleanData = JSON.parse(JSON.stringify(updatedData));
+    delete cleanData.id;
+
     await updateDoc(labRef, {
-      ...updatedData,
+      ...cleanData,
       updatedAt: new Date().toISOString()
     });
     return true;
@@ -77,7 +75,7 @@ export async function updateLab(id, updatedData) {
   }
 }
 
-// --- 4. ELIMINACIÓN (Borrar de la Nube) ---
+// --- 4. ELIMINACIÓN ---
 export async function deleteLab(id) {
   if (!id) throw new Error("ID requerido");
   
