@@ -275,3 +275,84 @@ export const enviarTicketWhatsapp = async (venta, paciente, branchConfig) => {
         alert("Error al enviar el ticket. Revisa la consola.");
     }
 };
+
+// ============================================================
+// 3. GENERADOR DE TICKET DE COTIZACIÓN (NUEVO - PARA QZ TRAY)
+// ============================================================
+export const formatQuoteTicket = (quote, branchName = "LUSSO OPTOMETRIA") => {
+    const date = new Date().toLocaleDateString('es-MX');
+    const time = new Date().toLocaleTimeString('es-MX', {hour: '2-digit', minute:'2-digit'});
+
+    let ticket = [
+        // --- ENCABEZADO ---
+        CENTER,
+        BOLD_ON, DBL_HEIGHT, branchName, '\n', NORMAL, BOLD_OFF,
+        'COTIZACION DE SERVICIO\n',
+        '--------------------------------\n',
+        LEFT,
+        `Fecha: ${date}  Hora: ${time}\n`,
+        `Cliente: ${quote.clientName}\n`,
+        '--------------------------------\n',
+        
+        // --- DETALLE ---
+        BOLD_ON, 'CONCEPTO                 PRECIO\n', BOLD_OFF,
+    ];
+
+    // Armazón
+    if (quote.frame) {
+        ticket.push(`Armazon: ${quote.frame.brand}\n`);
+        ticket.push(`${quote.frame.model.substring(0, 20)}`);
+        
+        // Alineación derecha manual para precio
+        const priceStr = `$${Number(quote.frame.price).toFixed(2)}`;
+        const padding = 32 - (quote.frame.model.substring(0, 20).length + priceStr.length);
+        const spaces = padding > 0 ? ' '.repeat(padding) : ' ';
+        
+        ticket.push(`${spaces}${priceStr}\n`);
+    }
+
+    // Lentes
+    if (quote.lens && quote.lens.price > 0) {
+        const lensDesc = `${quote.lens.design.substring(0,10)}/${quote.lens.material.substring(0,10)}`;
+        ticket.push(`Micas: ${lensDesc}\n`);
+        
+        const priceStr = `$${Number(quote.lens.price).toFixed(2)}`;
+        // Alineamos a la derecha simple
+        ticket.push(RIGHT_ALIGN(priceStr));
+    }
+
+    // Total
+    ticket.push(
+        '--------------------------------\n',
+        CENTER,
+        BOLD_ON, DBL_HEIGHT, `TOTAL: $${Number(quote.total).toFixed(2)}\n`, NORMAL, BOLD_OFF,
+        '--------------------------------\n',
+    );
+
+    // --- LEYENDA LEGAL IMPORTANTE ---
+    ticket.push(
+        LEFT,
+        'NOTA IMPORTANTE:\n',
+        '- Precios sujetos a cambio sin\n',
+        '  previo aviso.\n',
+        '- Costo final puede variar segun\n',
+        '  graduacion y existencias.\n',
+        '- Esta cotizacion tiene vigencia\n',
+        '  de 5 dias habiles.\n',
+        '\n',
+        CENTER,
+        BOLD_ON, '*** NO ES UN COMPROBANTE ***\n',
+        '*** DE PAGO ***\n', BOLD_OFF,
+        '\n\n\n',
+        CUT
+    );
+
+    return ticket;
+};
+
+// Helper simple para alinear a derecha
+const RIGHT_ALIGN = (text) => {
+    const width = 32; // Ancho estándar papel
+    const spaces = Math.max(0, width - text.length);
+    return ' '.repeat(spaces) + text + '\n';
+};

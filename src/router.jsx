@@ -1,4 +1,3 @@
-// src/router.jsx
 import React from "react";
 import { createBrowserRouter, Navigate } from "react-router-dom";
 import AppLayout from "@/layouts/AppLayout.jsx";
@@ -29,11 +28,13 @@ import SuppliersPage from "@/pages/SuppliersPage.jsx";
 import ShiftPage from "@/pages/ShiftPage.jsx";
 import TicketsPage from "@/pages/TicketsPage.jsx";
 import GrowthPage from "@/pages/GrowthPage.jsx";
-import PurchasingPage from "@/pages/PurchasingPage.jsx"; // 👈 IMPORTAR
+import PurchasingPage from "@/pages/PurchasingPage.jsx"; 
 
 import ClientLayout from "@/layouts/ClientLayout";
 import ClientLoginPage from "@/pages/client/ClientLoginPage";
 import ClientTrackerPage from "@/pages/client/ClientTrackerPage";
+
+import QuickQuotePage from "@/pages/QuickQuotePage"; // 👈 Importado correctamente
 
 const router = createBrowserRouter([
   { path: "/login", element: <LoginPage /> },
@@ -71,9 +72,10 @@ const router = createBrowserRouter([
           { path: "patients/:patientId/consultations/:consultationId", element: <ConsultationDetailPage /> },
       ]},
 
-      // VENTAS
+      // VENTAS (Aquí agregamos el Cotizador)
       { element: <ProtectedRoute requiredPermission={PERMISSIONS.VIEW_SALES} />, children: [
           { path: "sales", element: <SalesPage /> },
+          { path: "quotes", element: <QuickQuotePage /> }, // 👈 NUEVA RUTA
       ]},
       { element: <ProtectedRoute requiredPermission={PERMISSIONS.VIEW_WORK_ORDERS} />, children: [
           { path: "work-orders", element: <WorkOrdersPage /> },
@@ -87,7 +89,7 @@ const router = createBrowserRouter([
           { path: "inventory", element: <InventoryPage /> },
       ]},
       
-      // 🛍️ RUTA DE COMPRAS INTELIGENTES (NUEVA)
+      // 🛍️ RUTA DE COMPRAS INTELIGENTES
       { element: <ProtectedRoute requiredPermission={PERMISSIONS.VIEW_PURCHASING} />, children: [
           { path: "purchasing", element: <PurchasingPage /> },
       ]},

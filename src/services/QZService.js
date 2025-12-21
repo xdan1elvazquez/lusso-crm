@@ -305,3 +305,19 @@ export const printWorkOrderQZ = async (workOrderData, branchConfig) => {
         throw err;
     }
 };
+
+// =========================================================
+// 4. IMPRESIÓN DE TICKET RAW (NUEVO: Para Cotizaciones)
+// =========================================================
+export const printRawTicketQZ = async (data) => {
+    try {
+        await connectQZ();
+        const myPrinter = await findThermalPrinter();
+        const config = qz.configs.create(myPrinter);
+        await qz.print(config, data);
+        return true;
+    } catch (err) {
+        console.error("Error Raw Ticket:", err);
+        throw err;
+    }
+};

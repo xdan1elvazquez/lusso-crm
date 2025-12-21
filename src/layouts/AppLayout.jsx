@@ -15,6 +15,7 @@ const ALL_APPS = [
   { id: "sales", to: "sales", label: "Punto de Venta", icon: "🛒", category: "Ventas", permission: PERMISSIONS.VIEW_SALES },
   { id: "work-orders", to: "work-orders", label: "Trabajos", icon: "👓", category: "Ventas", permission: PERMISSIONS.VIEW_WORK_ORDERS },
   { id: "sales-history", to: "sales-history", label: "Historial", icon: "📑", category: "Ventas", permission: PERMISSIONS.VIEW_SALES_HISTORY },
+  { id: "quotes", to: "quotes", label: "Cotizador", icon: "🏷️", category: "Ventas", permission: PERMISSIONS.VIEW_SALES },
 
   // Logística
   { id: "inventory", to: "inventory", label: "Inventario", icon: "📦", category: "Logística", permission: PERMISSIONS.VIEW_INVENTORY },

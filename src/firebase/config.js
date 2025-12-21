@@ -1,10 +1,16 @@
 import { initializeApp } from "firebase/app";
-import { getFirestore } from "firebase/firestore";
+// 👇 ÚNICO CAMBIO: Agregamos imports para la caché
+import { 
+  getFirestore, 
+  initializeFirestore, 
+  persistentLocalCache, 
+  persistentMultipleTabManager 
+} from "firebase/firestore";
 import { getAuth } from "firebase/auth";
 import { getStorage } from "firebase/storage";
 import { getAnalytics } from "firebase/analytics";
 
-// Vite lee automáticamente .env.production o .env.development
+// 🟢 TUS LLAVES SIGUEN IGUAL (NO TOCAR)
 export const firebaseConfig = {
   apiKey: import.meta.env.VITE_API_KEY,
   authDomain: import.meta.env.VITE_AUTH_DOMAIN,
@@ -17,7 +23,14 @@ export const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 
-export const db = getFirestore(app);
+// 👇 ÚNICO CAMBIO: Inicializamos DB con caché en disco (ahorro de lecturas)
+export const db = initializeFirestore(app, {
+  localCache: persistentLocalCache({
+    tabManager: persistentMultipleTabManager()
+  })
+});
+
+// 🟢 TODO ESTO SIGUE IGUAL
 export const auth = getAuth(app);
 export const storage = getStorage(app);
 export const analytics = firebaseConfig.measurementId ? getAnalytics(app) : null;
