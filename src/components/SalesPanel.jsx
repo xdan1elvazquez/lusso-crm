@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
+import { useAuth } from "@/context/AuthContext"; // 👈 1. IMPORTAR USEAUTH
 import { usePOS } from "@/hooks/usePOS"; 
 import { getAllProducts } from "@/services/inventoryStorage"; 
 import { getExamsByPatient } from "@/services/eyeExamStorage"; 
@@ -19,7 +20,7 @@ import OpticalSelector from "@/components/sales/OpticalSelector";
 import CartList from "@/components/sales/CartList";
 import PaymentForm from "@/components/sales/PaymentForm";
 import SaleDetailModal from "./SaleDetailModal";
-import PatientSalesHistory from "@/components/sales/PatientSalesHistory"; // 👈 NUEVO IMPORT
+import PatientSalesHistory from "@/components/sales/PatientSalesHistory"; 
 
 import { imprimirTicket } from "@/utils/TicketHelper"; 
 
@@ -27,13 +28,13 @@ import { imprimirTicket } from "@/utils/TicketHelper";
 import Card from "@/components/ui/Card";
 import Input from "@/components/ui/Input"; 
 import Badge from "@/components/ui/Badge";
-// Printer ya no se usa aquí arriba, se movió al componente hijo, pero lo dejo por si acaso o se puede borrar.
 import { Printer } from 'lucide-react'; 
 
 export default function SalesPanel({ patientId, prefillData, onClearPrefill, branchId }) {
   const navigate = useNavigate();
   const notify = useNotify();
   const confirm = useConfirm();
+  const { currentBranch } = useAuth(); // 👈 2. OBTENER SUCURSAL ACTUAL
 
   // Carga de catálogos
   const [products, setProducts] = useState([]);
@@ -128,10 +129,11 @@ export default function SalesPanel({ patientId, prefillData, onClearPrefill, bra
       });
   };
 
+  // 👇 3. CORRECCIÓN: Pasar currentBranch a la función de impresión
   const handlePrintClick = (e, sale) => {
       e.stopPropagation(); 
       if (!sale) return;
-      imprimirTicket(sale); 
+      imprimirTicket(sale, currentBranch); 
   };
 
   return (
@@ -211,12 +213,10 @@ export default function SalesPanel({ patientId, prefillData, onClearPrefill, bra
                     />
                 </div>
             </Card>
-            
-            {/* SE ELIMINÓ EL CARD DE LISTA ENORME DE VENTAS AQUÍ */}
         </div>
       </div>
 
-      {/* SECCIÓN HISTORIAL (MODULO COMPLETO ABAJO) */}
+      {/* SECCIÓN HISTORIAL */}
       <div className="pt-6 border-t border-border">
           <PatientSalesHistory 
             sales={salesHistory} 

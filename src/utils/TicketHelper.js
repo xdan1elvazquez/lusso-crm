@@ -1,8 +1,19 @@
 import { printTicketQZ, printOpticalTicketQZ } from '../services/QZService'; 
 
-// 🟢 IMPORTS PARA WHATSAPP (Sin Firebase Storage)
+// 🟢 IMPORTS PARA WHATSAPP
 import { jsPDF } from "jspdf";
 import { sendTicketPdf } from "@/services/whatsappService";
+
+// 👇 CORRECCIÓN: Definimos las constantes aquí para que existan en todo el archivo
+const ESC = '\x1B';
+const GS = '\x1D';
+const CENTER = ESC + 'a' + '\x01';
+const LEFT = ESC + 'a' + '\x00';
+const BOLD_ON = ESC + 'E' + '\x01';
+const BOLD_OFF = ESC + 'E' + '\x00';
+const CUT = GS + 'V' + '\x41' + '\x03'; 
+const DBL_HEIGHT = GS + '!' + '\x10'; 
+const NORMAL = GS + '!' + '\x00';
 
 export const imprimirTicket = async (venta, branchConfig) => {
   if (!venta) return;
@@ -164,8 +175,7 @@ export const imprimirTicket = async (venta, branchConfig) => {
 };
 
 /**
- * 🟢 FUNCIÓN ACTUALIZADA (Plan B): Envía PDF en Base64 directo a N8N
- * Sin subir a Firebase Storage para evitar errores CORS.
+ * Función para WhatsApp (Plan B)
  */
 export const enviarTicketWhatsapp = async (venta, paciente, branchConfig) => {
     // Validaciones
@@ -180,7 +190,6 @@ export const enviarTicketWhatsapp = async (venta, paciente, branchConfig) => {
     }
 
     try {
-        // 1. GENERAR PDF (Igual que antes)
         const doc = new jsPDF({
             unit: 'mm',
             format: [80, 250] // Formato largo tipo ticket
@@ -260,11 +269,10 @@ export const enviarTicketWhatsapp = async (venta, paciente, branchConfig) => {
         doc.setFont("helvetica", "bold");
         doc.text(`TOTAL: $${Number(venta.total).toFixed(2)}`, 75, y, { align: "right" });
         
-        // 2. CONVERTIR A BASE64 (Aquí está el cambio clave)
-        // Generamos el string completo codificado
+        // 2. CONVERTIR A BASE64
         const base64String = doc.output('datauristring');
 
-        // 3. ENVIAR A N8N DIRECTO (Sin subir a nube)
+        // 3. ENVIAR A N8N DIRECTO
         console.log("Enviando Ticket Base64 a n8n...");
         await sendTicketPdf(venta, paciente, base64String);
 
@@ -303,7 +311,6 @@ export const formatQuoteTicket = (quote, branchName = "LUSSO OPTOMETRIA") => {
         ticket.push(`Armazon: ${quote.frame.brand}\n`);
         ticket.push(`${quote.frame.model.substring(0, 20)}`);
         
-        // Alineación derecha manual para precio
         const priceStr = `$${Number(quote.frame.price).toFixed(2)}`;
         const padding = 32 - (quote.frame.model.substring(0, 20).length + priceStr.length);
         const spaces = padding > 0 ? ' '.repeat(padding) : ' ';
@@ -317,7 +324,6 @@ export const formatQuoteTicket = (quote, branchName = "LUSSO OPTOMETRIA") => {
         ticket.push(`Micas: ${lensDesc}\n`);
         
         const priceStr = `$${Number(quote.lens.price).toFixed(2)}`;
-        // Alineamos a la derecha simple
         ticket.push(RIGHT_ALIGN(priceStr));
     }
 
