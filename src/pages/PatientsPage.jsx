@@ -3,7 +3,9 @@ import { Link } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext"; 
 import { usePatients } from "@/hooks/usePatients"; 
 import { validatePatient } from "@/utils/validators";
-import { getReferralSources, updateReferralSources } from "@/services/settingsStorage"; 
+import { getReferralSources, updateReferralSources } from "@/services/settingsStorage";
+// 👇 IMPORTAMOS LOS NUEVOS SERVICIOS
+import { requestDeletePatient, rejectDeleteRequest, confirmDeletePatient } from "@/services/patientsStorage"; 
 import { handlePhoneInput } from "@/utils/inputHandlers";
 import LoadingState from "@/components/LoadingState";
 
@@ -13,42 +15,51 @@ import Input from "@/components/ui/Input";
 import Button from "@/components/ui/Button";
 import Select from "@/components/ui/Select"; 
 import ModalWrapper from "@/components/ui/ModalWrapper"; 
+import Badge from "@/components/ui/Badge";
+import { UserPlus, Search, Edit2, Trash2, AlertTriangle, CheckCircle, XCircle } from "lucide-react";
+
+// Helper para calcular edad
+function getPatientAge(dateString) {
+  if (!dateString) return null;
+  const target = dateString.includes("T") ? new Date(dateString) : new Date(dateString + "T12:00:00");
+  const now = new Date();
+  if (isNaN(target.getTime())) return null;
+  let age = now.getFullYear() - target.getFullYear();
+  const m = now.getMonth() - target.getMonth();
+  if (m < 0 || (m === 0 && now.getDate() < target.getDate())) age--;
+  return age;
+}
 
 export default function PatientsPage() {
-  const { role } = useAuth(); 
-  const { patients, create, remove, loading: loadingPatients, refresh } = usePatients();
+  const { role, user } = useAuth(); // Necesitamos 'user' para saber quién solicita
+  const { patients, create, loading: loadingPatients, refresh } = usePatients();
   
   const [q, setQ] = useState("");
   const [sources, setSources] = useState([]);
   const [loadingConfig, setLoadingConfig] = useState(true);
   
-  // ✅ CORRECCIÓN 1: Cambiamos 'sex' por 'assignedSex' para que coincida con la BD
-  // ✅ CORRECCIÓN 2: Agregamos 'curp'
+  // Estados Modales
   const [form, setForm] = useState({ 
     firstName: "", lastName: "", curp: "", phone: "", email: "", 
     dob: "", assignedSex: "NO_ESPECIFICADO", occupation: "",
     referralSource: "", referredBy: "" 
   });
   
-  const [referrerQuery, setReferrerQuery] = useState("");
-  const [selectedReferrer, setSelectedReferrer] = useState(null);
   const [errors, setErrors] = useState({});
-
   const [isSourceModalOpen, setIsSourceModalOpen] = useState(false);
   const [editingSources, setEditingSources] = useState([]);
   const [newSourceInput, setNewSourceInput] = useState("");
+
+  // 🔴 ESTADO PARA MODAL DE SOLICITUD DE ELIMINACIÓN
+  const [deleteRequestModal, setDeleteRequestModal] = useState({ open: false, patientId: null, patientName: "" });
+  const [deleteReason, setDeleteReason] = useState("");
 
   useEffect(() => {
     async function loadConfig() {
         try {
             const srcs = await getReferralSources();
             setSources(Array.isArray(srcs) ? srcs : []);
-        } catch (e) {
-            console.error(e);
-            setSources([]);
-        } finally {
-            setLoadingConfig(false);
-        }
+        } catch (e) { console.error(e); setSources([]); } finally { setLoadingConfig(false); }
     }
     loadConfig();
   }, []);
@@ -58,18 +69,14 @@ export default function PatientsPage() {
   const filtered = useMemo(() => {
     const s = q.trim().toLowerCase();
     if (!s) return safePatients;
+    const cleanS = s.replace(/\s/g, '');
     return safePatients.filter((p) => {
         const fullName = `${p.firstName} ${p.lastName}`.toLowerCase();
         const phone = p.phone || "";
-        return fullName.includes(s) || phone.includes(s);
+        const cleanPhone = phone.replace(/\s/g, '');
+        return fullName.includes(s) || phone.includes(s) || cleanPhone.includes(cleanS);
     });
   }, [safePatients, q]);
-
-  const filteredReferrers = useMemo(() => {
-    if (!referrerQuery) return [];
-    const s = referrerQuery.toLowerCase();
-    return safePatients.filter(p => `${p.firstName} ${p.lastName}`.toLowerCase().includes(s)).slice(0, 5);
-  }, [safePatients, referrerQuery]);
 
   const onSubmit = async (e) => {
     e.preventDefault();
@@ -77,270 +84,224 @@ export default function PatientsPage() {
     if (!validation.isValid) { setErrors(validation.errors); return; }
     setErrors({});
     
-    const success = await create({ 
-        ...form, 
-        referralSource: form.referralSource || "Pasaba por aquí", 
-        referredBy: selectedReferrer?.id || null 
-    });
-
+    const cleanPhone = form.phone.replace(/\s/g, ''); 
+    const payload = { ...form, phone: cleanPhone, referralSource: form.referralSource || "Pasaba por aquí" };
+    const success = await create(payload);
     if (success) {
-        // ✅ Reseteamos el formulario correctamente
-        setForm({ 
-            firstName: "", lastName: "", curp: "", phone: "", email: "", 
-            dob: "", assignedSex: "NO_ESPECIFICADO", occupation: "", 
-            referralSource: "", referredBy: "" 
-        });
-        setReferrerQuery(""); 
-        setSelectedReferrer(null);
-        alert("Paciente registrado correctamente.");
+        setForm({ firstName: "", lastName: "", curp: "", phone: "", email: "", dob: "", assignedSex: "NO_ESPECIFICADO", occupation: "", referralSource: "", referredBy: "" });
+        alert("✅ Paciente registrado correctamente.");
     }
   };
-  
-  const handleDelete = async (id) => {
-      await remove(id);
+
+  // --- NUEVA LÓGICA DE ELIMINACIÓN ---
+
+  // 1. Abrir modal para solicitar (Usuarios no Admin)
+  const handleRequestDelete = (patient) => {
+      setDeleteRequestModal({ open: true, patientId: patient.id, patientName: `${patient.firstName} ${patient.lastName}` });
+      setDeleteReason("");
   };
 
-  // --- LÓGICA DEL MODAL DE EDICIÓN ---
-  const openSourceEditor = () => {
-    setEditingSources([...sources]); 
-    setNewSourceInput("");
-    setIsSourceModalOpen(true);
+  // 2. Enviar la solicitud
+  const submitDeleteRequest = async () => {
+      if (!deleteReason.trim()) return alert("Debes escribir una razón.");
+      try {
+          await requestDeletePatient(deleteRequestModal.patientId, deleteReason, user.name || "Usuario");
+          alert("Solicitud enviada al administrador.");
+          setDeleteRequestModal({ open: false, patientId: null, patientName: "" });
+          refresh(); // Recargar lista para ver el cambio de estado
+      } catch (error) { alert("Error al solicitar: " + error.message); }
   };
 
-  const handleAddSource = () => {
-    const val = newSourceInput.trim();
-    if (!val) return;
-    if (editingSources.some(s => s.toLowerCase() === val.toLowerCase())) {
-        alert("Este origen ya existe.");
-        return;
-    }
-    setEditingSources([...editingSources, val]);
-    setNewSourceInput("");
+  // 3. Admin: Aprobar Borrado
+  const handleAdminApprove = async (id) => {
+      if(!confirm("¿CONFIRMAR ELIMINACIÓN DEFINTIVA? El expediente desaparecerá de las vistas activas.")) return;
+      try {
+          await confirmDeletePatient(id);
+          refresh();
+      } catch (error) { alert(error.message); }
   };
 
-  const handleRemoveSource = (sourceToRemove) => {
-    if (sourceToRemove === "Recomendación") {
-        alert("No puedes eliminar 'Recomendación' ya que es necesario para el sistema de lealtad.");
-        return;
-    }
-    setEditingSources(editingSources.filter(s => s !== sourceToRemove));
+  // 4. Admin: Rechazar Borrado
+  const handleAdminReject = async (id) => {
+      try {
+          await rejectDeleteRequest(id);
+          refresh();
+      } catch (error) { alert(error.message); }
   };
 
-  const handleSaveSources = async () => {
-    try {
-        let finalSources = [...editingSources];
-        if (!finalSources.includes("Recomendación")) {
-            finalSources = ["Recomendación", ...finalSources];
-        }
-        await updateReferralSources(finalSources);
-        setSources(finalSources);
-        setIsSourceModalOpen(false);
-    } catch (error) {
-        console.error("Error guardando orígenes:", error);
-        alert("Error al guardar configuración.");
-    }
-  };
+
+  // --- LÓGICA DEL MODAL DE FUENTES (MKT) ---
+  const openSourceEditor = () => { setEditingSources([...sources]); setNewSourceInput(""); setIsSourceModalOpen(true); };
+  const handleAddSource = () => { const val = newSourceInput.trim(); if (!val || editingSources.some(s => s.toLowerCase() === val.toLowerCase())) return; setEditingSources([...editingSources, val]); setNewSourceInput(""); };
+  const handleRemoveSource = (s) => { if (s === "Recomendación") return alert("No se puede eliminar."); setEditingSources(editingSources.filter(item => item !== s)); };
+  const handleSaveSources = async () => { try { let final = [...editingSources]; if (!final.includes("Recomendación")) final = ["Recomendación", ...final]; await updateReferralSources(final); setSources(final); setIsSourceModalOpen(false); } catch (e) { alert("Error"); } };
 
   if (loadingPatients || loadingConfig) return <LoadingState />;
 
   return (
     <div className="page-container space-y-6">
       
-      {/* HEADER */}
-      <div className="flex flex-col md:flex-row justify-between items-end gap-4">
-        <div>
-            <h1 className="text-3xl font-bold text-white tracking-tight">Pacientes</h1>
-            <p className="text-textMuted text-sm">Directorio clínico ({safePatients.length} total)</p>
-        </div>
-        <div className="flex gap-2 w-full md:w-auto">
-             <Button variant="ghost" onClick={refresh} title="Recargar">🔄</Button>
-             <div className="flex-1 md:w-80">
-                <Input
-                    placeholder="🔍 Buscar por nombre o teléfono..."
-                    value={q}
-                    onChange={(e) => setQ(e.target.value)}
-                    className="bg-surface"
-                />
-             </div>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 xl:grid-cols-[1fr_400px] gap-6 items-start">
-          
-          {/* LISTA DE PACIENTES */}
-          <div className="space-y-4">
-            {filtered.length === 0 ? (
-                <div className="text-center py-20 bg-surface rounded-2xl border border-border text-textMuted">
-                    <span className="text-4xl block mb-2">👥</span>
-                    No se encontraron pacientes.
-                </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {filtered.map((p) => (
-                      <Card key={p.id} noPadding className="group hover:border-primary/40 transition-all cursor-default relative">
-                          <div className="p-4 flex justify-between items-start">
-                              <div className="flex gap-4 overflow-hidden">
-                                  <div className="w-12 h-12 rounded-full bg-surfaceHighlight flex items-center justify-center text-lg font-bold text-textMuted group-hover:text-white group-hover:bg-primary transition-colors flex-shrink-0">
-                                      {p.firstName.charAt(0)}
-                                  </div>
-                                  <div className="min-w-0">
-                                      <Link to={`/patients/${p.id}`} className="font-bold text-lg text-white hover:text-primary transition-colors block leading-tight truncate">
-                                          {p.firstName} {p.lastName}
-                                      </Link>
-                                      <div className="text-sm text-textMuted mt-1 flex items-center gap-2 font-mono">
-                                          {p.phone || "Sin teléfono"}
-                                      </div>
-                                  </div>
-                              </div>
-                              <button 
-                                onClick={() => handleDelete(p.id)} 
-                                className="text-textMuted hover:text-red-400 p-2 -mr-2 -mt-2 opacity-50 hover:opacity-100 transition-opacity"
-                                title="Eliminar"
-                              >
-                                  ✕
-                              </button>
-                          </div>
-                      </Card>
-                  ))}
+      {/* 1. SECCIÓN SUPERIOR: FORMULARIO */}
+      <Card className="border-t-4 border-t-primary shadow-lg bg-gradient-to-r from-surface to-surfaceHighlight/30">
+          <div className="flex items-center gap-2 mb-4 border-b border-white/5 pb-2">
+              <div className="p-2 bg-primary/20 rounded-full text-primary"><UserPlus size={20} /></div>
+              <h2 className="font-bold text-white text-lg">Nuevo Ingreso</h2>
+          </div>
+          <form onSubmit={onSubmit}>
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-end">
+                  <div className="lg:col-span-3"><Input label="Nombre(s)" value={form.firstName} onChange={e => setForm({...form, firstName: e.target.value})} error={errors.firstName} className="bg-background" /></div>
+                  <div className="lg:col-span-3"><Input label="Apellidos" value={form.lastName} onChange={e => setForm({...form, lastName: e.target.value})} error={errors.lastName} className="bg-background" /></div>
+                  <div className="lg:col-span-3"><Input label="Móvil (WhatsApp)" placeholder="55 1234 5678" value={form.phone} onChange={e => setForm({...form, phone: handlePhoneInput(e.target.value)})} maxLength={13} error={errors.phone} className="bg-background font-mono tracking-wide text-center border-blue-500/50" /></div>
+                  <div className="lg:col-span-3"><Button type="submit" variant="primary" className="w-full h-[42px] shadow-lg shadow-blue-500/20 font-bold tracking-wide">REGISTRAR PACIENTE</Button></div>
+                  
+                  <div className="lg:col-span-2"><Input label="CURP" value={form.curp} onChange={e => setForm({...form, curp: e.target.value.toUpperCase()})} maxLength={18} className="bg-background text-xs" placeholder="Opcional" /></div>
+                  <div className="lg:col-span-2"><Input label="Fecha Nac." type="date" value={form.dob} onChange={e => setForm({...form, dob: e.target.value})} className="bg-background text-xs" /></div>
+                  <div className="lg:col-span-2"><Select label="Sexo" value={form.assignedSex} onChange={e => setForm({...form, assignedSex: e.target.value})} className="bg-background text-xs"><option value="NO_ESPECIFICADO">--</option><option value="MUJER">Mujer</option><option value="HOMBRE">Hombre</option></Select></div>
+                  <div className="lg:col-span-2"><Input label="Ocupación" value={form.occupation} onChange={e => setForm({...form, occupation: e.target.value})} className="bg-background text-xs" placeholder="Ej. Estudiante" /></div>
+                  <div className="lg:col-span-2"><Input label="Email" value={form.email} onChange={e => setForm({...form, email: e.target.value})} className="bg-background text-xs" placeholder="correo@..." /></div>
+                  <div className="lg:col-span-2 relative"><Select label="¿Cómo se enteró?" value={form.referralSource} onChange={e => setForm({...form, referralSource: e.target.value})} className="bg-background text-xs"><option value="">-- Origen --</option>{sources.map(s => <option key={s} value={s}>{s}</option>)}</Select>{role === 'ADMIN' && (<button type="button" onClick={openSourceEditor} className="absolute -top-1 right-0 text-[10px] font-bold text-primary hover:text-white hover:underline flex items-center gap-1 transition-colors"><Edit2 size={10} /> EDITAR LISTA</button>)}</div>
               </div>
-            )}
+          </form>
+      </Card>
+
+      {/* 2. DIRECTORIO */}
+      <div className="flex flex-col gap-4">
+          <div className="flex flex-col md:flex-row justify-between items-end border-b border-border pb-2 gap-4">
+              <div>
+                  <h1 className="text-2xl font-bold text-white">Directorio</h1>
+                  <p className="text-textMuted text-xs uppercase tracking-wider">Total: {safePatients.length} Expedientes</p>
+              </div>
+              <div className="flex gap-2 w-full md:w-auto items-center">
+                  <Button variant="ghost" onClick={refresh} title="Recargar Lista">🔄</Button>
+                  <div className="relative w-full md:w-80"><Input placeholder="Buscar paciente..." value={q} onChange={e => setQ(e.target.value)} className="pl-9 py-1.5 text-sm border-blue-500/30 focus:border-blue-500 bg-surface rounded-full" /><Search className="absolute left-3 top-2.5 text-textMuted" size={16} /></div>
+              </div>
           </div>
 
-          {/* FORMULARIO DE REGISTRO */}
-          <Card className="sticky top-6 border-l-4 border-l-primary shadow-glow">
-            <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
-                <span>➕</span> Nuevo Paciente
-            </h3>
-            
-            <form onSubmit={onSubmit} className="space-y-4">
-                <div className="grid grid-cols-2 gap-3">
-                    <Input label="Nombre(s)" value={form.firstName} onChange={(e) => setForm(f => ({ ...f, firstName: e.target.value }))} error={errors.firstName} />
-                    <Input label="Apellidos" value={form.lastName} onChange={(e) => setForm(f => ({ ...f, lastName: e.target.value }))} error={errors.lastName} />
-                </div>
-
-                {/* ✅ INPUT CURP */}
-                <Input 
-                    label="CURP" 
-                    value={form.curp} 
-                    onChange={(e) => setForm(f => ({ ...f, curp: e.target.value.toUpperCase() }))} 
-                    placeholder="CLAVE ÚNICA..."
-                    maxLength={18}
-                />
-
-                <div className="grid grid-cols-2 gap-3">
-                    <Input 
-                        label="Móvil (10 dígitos)"
-                        type="tel"
-                        maxLength={10}
-                        value={form.phone} 
-                        onChange={(e) => {
-                            const clean = handlePhoneInput(e.target.value);
-                            setForm(f => ({ ...f, phone: clean }));
-                        }} 
-                        error={errors.phone}
-                    />
-                    <Input label="Email" value={form.email} onChange={(e) => setForm(f => ({ ...f, email: e.target.value }))} placeholder="Opcional" />
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                    <Input label="Fecha Nac." type="date" value={form.dob} onChange={(e) => setForm(f => ({ ...f, dob: e.target.value }))} />
-                    
-                    {/* ✅ INPUT SEXO CORREGIDO (Usa assignedSex) */}
-                    <Select label="Sexo" value={form.assignedSex} onChange={(e) => setForm(f => ({ ...f, assignedSex: e.target.value }))}>
-                        <option value="NO_ESPECIFICADO">Prefiero no decir</option>
-                        <option value="MUJER">Mujer</option>
-                        <option value="HOMBRE">Hombre</option>
-                    </Select>
-                </div>
-
-                <Input label="Ocupación" placeholder="Ej. Estudiante" value={form.occupation} onChange={(e) => setForm(f => ({ ...f, occupation: e.target.value }))} />
-
-                {/* MARKETING */}
-                <div className="p-3 bg-surfaceHighlight rounded-xl border border-border/50 space-y-3 relative group/marketing">
-                    <div className="relative">
-                        <Select label="¿Cómo se enteró?" value={form.referralSource} onChange={(e) => setForm(f => ({ ...f, referralSource: e.target.value }))}>
-                            <option value="">-- Origen --</option>
-                            {Array.isArray(sources) && sources.map(s => <option key={s} value={s}>{s}</option>)}
-                        </Select>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+              {filtered.map(patient => {
+                  const age = getPatientAge(patient.dob);
+                  // Detectar si hay solicitud de eliminación pendiente
+                  const isPendingDelete = patient.deletionStatus === "REQUESTED";
+                  
+                  return (
+                    // Si está pendiente, ponemos borde rojo y fondo rojizo suave
+                    <div key={patient.id} className={`relative group rounded-xl transition-all ${isPendingDelete ? "bg-red-900/10 border border-red-500/50" : "bg-transparent"}`}>
                         
-                        {role === "ADMIN" && (
-                            <button 
-                                type="button"
-                                onClick={openSourceEditor}
-                                className="absolute top-0 right-0 text-[10px] text-primary hover:text-white uppercase font-bold tracking-wider hover:underline py-1"
-                            >
-                                ✏️ Editar Lista
-                            </button>
-                        )}
-                    </div>
-
-                    {form.referralSource === "Recomendación" && (
-                        <div className="relative">
-                            {selectedReferrer ? (
-                                <div className="flex justify-between items-center bg-blue-500/20 p-2 rounded-lg border border-blue-500/30">
-                                    <span className="text-xs text-blue-200 truncate font-bold">Por: {selectedReferrer.firstName} {selectedReferrer.lastName}</span>
-                                    <button type="button" onClick={() => setSelectedReferrer(null)} className="text-white hover:text-red-400 px-2">✕</button>
-                                </div>
-                            ) : (
-                                <>
-                                    <Input placeholder="Buscar quién recomendó..." value={referrerQuery} onChange={e => setReferrerQuery(e.target.value)} className="text-xs py-2 bg-background" />
-                                    {referrerQuery && filteredReferrers.length > 0 && (
-                                        <div className="absolute top-full w-full bg-surface border border-border z-10 rounded-lg mt-1 shadow-xl overflow-hidden">
-                                            {filteredReferrers.map(p => (
-                                                <div key={p.id} onClick={() => { setSelectedReferrer(p); setReferrerQuery(""); }} className="p-2 hover:bg-primary hover:text-white cursor-pointer text-xs border-b border-border last:border-0 truncate">
-                                                    {p.firstName} {p.lastName}
-                                                </div>
-                                            ))}
+                        <Link to={`/patients/${patient.id}`} className="block h-full">
+                            <Card className={`hover:border-primary/50 transition-all duration-200 h-full relative overflow-hidden ${isPendingDelete ? "opacity-75" : ""}`} noPadding>
+                                <div className="p-4 flex items-start gap-3">
+                                    <div className="w-10 h-10 rounded-full bg-surfaceHighlight flex items-center justify-center font-bold text-primary group-hover:bg-primary group-hover:text-white transition-colors shrink-0 shadow-inner">
+                                        {patient.firstName.charAt(0)}
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                        <div className="flex justify-between items-start gap-2">
+                                            <h3 className="font-bold text-white text-sm truncate group-hover:text-primary transition-colors">{patient.firstName} {patient.lastName}</h3>
+                                            {age !== null && (<Badge color="blue" className="text-[9px] px-1.5 py-0.5 shrink-0 whitespace-nowrap">{age} Años</Badge>)}
                                         </div>
-                                    )}
-                                </>
-                            )}
-                        </div>
-                    )}
-                </div>
+                                        <div className="text-xs text-textMuted font-mono mt-1 flex items-center gap-1">📱 {patient.phone}</div>
+                                        
+                                        {/* AVISO DE SOLICITUD PENDIENTE */}
+                                        {isPendingDelete ? (
+                                            <div className="mt-2 text-[10px] bg-red-500/20 text-red-200 px-2 py-1 rounded flex items-center gap-1 border border-red-500/30">
+                                                <AlertTriangle size={10} /> Solicitud Eliminación
+                                            </div>
+                                        ) : (
+                                            <div className="flex justify-between items-center mt-2">
+                                                <Badge color={patient.lastVisit ? "green" : "gray"} className="text-[9px] py-0 px-1.5">{patient.lastVisit ? "Recurrente" : "Nuevo"}</Badge>
+                                                <span className="text-[9px] text-textMuted opacity-60">{new Date(patient.createdAt).toLocaleDateString()}</span>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            </Card>
+                        </Link>
 
-                <Button type="submit" variant="primary" className="w-full mt-2 py-3">
-                    Guardar Paciente
-                </Button>
-            </form>
-          </Card>
-      </div>
-
-      {isSourceModalOpen && (
-        <ModalWrapper title="Editar Orígenes de Clientes" onClose={() => setIsSourceModalOpen(false)} width="400px">
-            <div className="space-y-4">
-                <p className="text-sm text-textMuted">
-                    Agrega o elimina opciones de la lista. "Recomendación" es obligatorio.
-                </p>
-                <div className="flex gap-2">
-                    <Input 
-                        placeholder="Nuevo origen..." 
-                        value={newSourceInput} 
-                        onChange={(e) => setNewSourceInput(e.target.value)} 
-                    />
-                    <Button onClick={handleAddSource} variant="secondary">Agregar</Button>
-                </div>
-                <div className="max-h-60 overflow-y-auto space-y-2 border border-border rounded-lg p-2 bg-background">
-                    {editingSources.map((source, idx) => (
-                        <div key={idx} className="flex justify-between items-center p-2 bg-surfaceHighlight rounded border border-transparent hover:border-border transition-colors">
-                            <span className="text-sm text-white">{source}</span>
-                            {source === "Recomendación" ? (
-                                <span className="text-xs text-textMuted italic select-none">Fijo</span>
+                        {/* BOTONES FLOTANTES DE ACCIÓN (Fuera del Link para no clickearlo) */}
+                        <div className="absolute top-2 right-2 flex gap-1 z-10 opacity-0 group-hover:opacity-100 transition-opacity">
+                            {isPendingDelete ? (
+                                // CASO 1: HAY SOLICITUD PENDIENTE
+                                role === 'ADMIN' ? (
+                                    // Admin ve botones de Aprobar/Rechazar
+                                    <>
+                                        <button onClick={() => handleAdminApprove(patient.id)} className="bg-green-500 text-white p-1.5 rounded-full shadow-lg hover:scale-110 transition-transform" title={`Aprobar Eliminación.\nMotivo: ${patient.deletionReason}`}>
+                                            <CheckCircle size={14} />
+                                        </button>
+                                        <button onClick={() => handleAdminReject(patient.id)} className="bg-gray-500 text-white p-1.5 rounded-full shadow-lg hover:scale-110 transition-transform" title="Cancelar Solicitud">
+                                            <XCircle size={14} />
+                                        </button>
+                                    </>
+                                ) : (
+                                    // Usuario normal solo ve "Pendiente" (sin acción)
+                                    <span className="bg-black/50 text-white text-[9px] px-2 py-1 rounded backdrop-blur">Esperando Admin...</span>
+                                )
                             ) : (
+                                // CASO 2: NORMAL (Botón de Basura para solicitar)
                                 <button 
-                                    onClick={() => handleRemoveSource(source)}
-                                    className="text-textMuted hover:text-red-400 px-2 transition-colors"
+                                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleRequestDelete(patient); }} 
+                                    className="bg-surface border border-border text-textMuted hover:text-red-400 hover:border-red-400 p-1.5 rounded-lg shadow-lg transition-colors"
+                                    title={role === 'ADMIN' ? "Eliminar Directamente" : "Solicitar Eliminación"}
                                 >
-                                    ✕
+                                    <Trash2 size={14} />
                                 </button>
                             )}
                         </div>
+                    </div>
+                  );
+              })}
+          </div>
+          {filtered.length === 0 && (<div className="text-center py-12 border-2 border-dashed border-border rounded-xl bg-surface/50"><p className="text-textMuted italic">No se encontraron pacientes.</p></div>)}
+      </div>
+
+      {/* MODAL SOLICITUD DE ELIMINACIÓN */}
+      {deleteRequestModal.open && (
+          <ModalWrapper title="Solicitar Eliminación de Expediente" onClose={() => setDeleteRequestModal({ open: false, patientId: null, patientName: "" })} width="450px">
+              <div className="space-y-4">
+                  <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg text-amber-200 text-sm flex gap-3 items-start">
+                      <AlertTriangle className="shrink-0 mt-0.5" size={18} />
+                      <div>
+                          <p className="font-bold">Acción Sensible</p>
+                          <p className="opacity-80 text-xs mt-1">
+                              Estás solicitando eliminar a <strong>{deleteRequestModal.patientName}</strong>. 
+                              Esto requiere autorización de un administrador para mantener la integridad de los registros médicos.
+                          </p>
+                      </div>
+                  </div>
+                  
+                  <div>
+                      <label className="block text-sm font-bold text-textMuted mb-2">Motivo de la eliminación:</label>
+                      <textarea 
+                        className="w-full bg-background border border-border rounded-lg p-3 text-white text-sm focus:border-red-500 outline-none transition-colors h-24 resize-none"
+                        placeholder="Ej. Registro duplicado, error de captura, solicitud del paciente..."
+                        value={deleteReason}
+                        onChange={e => setDeleteReason(e.target.value)}
+                        autoFocus
+                      />
+                  </div>
+
+                  <div className="flex justify-end gap-3 pt-2">
+                      <Button variant="ghost" onClick={() => setDeleteRequestModal({ open: false, patientId: null, patientName: "" })}>Cancelar</Button>
+                      <Button onClick={role === 'ADMIN' ? () => handleAdminApprove(deleteRequestModal.patientId) : submitDeleteRequest} variant="danger">
+                          {role === 'ADMIN' ? "Eliminar Directamente" : "Enviar Solicitud"}
+                      </Button>
+                  </div>
+              </div>
+          </ModalWrapper>
+      )}
+
+      {/* MODAL EDITAR FUENTES */}
+      {isSourceModalOpen && (
+        <ModalWrapper title="Editar Orígenes" onClose={() => setIsSourceModalOpen(false)} width="400px">
+            <div className="space-y-4">
+                <div className="flex gap-2"><Input placeholder="Nuevo origen..." value={newSourceInput} onChange={(e) => setNewSourceInput(e.target.value)} /><Button onClick={handleAddSource} variant="secondary">Agregar</Button></div>
+                <div className="max-h-60 overflow-y-auto space-y-2 border border-border rounded-lg p-2 bg-background custom-scrollbar">
+                    {editingSources.map((source, idx) => (
+                        <div key={idx} className="flex justify-between items-center p-2 bg-surfaceHighlight rounded border border-transparent hover:border-border transition-colors">
+                            <span className="text-sm text-white">{source}</span>
+                            {source === "Recomendación" ? (<span className="text-xs text-textMuted italic select-none">Fijo</span>) : (<button onClick={() => handleRemoveSource(source)} className="text-textMuted hover:text-red-400 px-2 transition-colors font-bold">×</button>)}
+                        </div>
                     ))}
                 </div>
-                <div className="pt-4 flex justify-end gap-2 border-t border-border">
-                    <Button variant="ghost" onClick={() => setIsSourceModalOpen(false)}>Cancelar</Button>
-                    <Button variant="primary" onClick={handleSaveSources}>Guardar Cambios</Button>
-                </div>
+                <div className="pt-4 flex justify-end gap-2 border-t border-border"><Button variant="ghost" onClick={() => setIsSourceModalOpen(false)}>Cancelar</Button><Button variant="primary" onClick={handleSaveSources}>Guardar</Button></div>
             </div>
         </ModalWrapper>
       )}

@@ -68,7 +68,7 @@ function getRelativeTime(dateString) {
 
 export default function PatientDetailPage() {
   const { id } = useParams();
-  const { currentBranch } = useAuth(); 
+  const { currentBranch, role } = useAuth(); // 👈 1. OBTENEMOS EL ROL
   
   const [loading, setLoading] = useState(true);
   const [patient, setPatient] = useState(null);
@@ -95,7 +95,7 @@ export default function PatientDetailPage() {
                 getReferralSources()
             ]);
             setPatient(p);
-            setSources(sourcesData);
+            setSources(Array.isArray(sourcesData) ? sourcesData : []);
             
             if (p) {
                 touchPatientView(id);
@@ -146,8 +146,10 @@ export default function PatientDetailPage() {
   }, [id]);
 
   const onSave = async () => {
+    // Lógica para detectar cambio en fecha de alta
     let finalCreatedAt = patient.createdAt;
     if (form.createdAt !== toDateInput(patient.createdAt)) {
+       // Si el admin cambió la fecha, la guardamos con la hora 12:00 para evitar cambios de zona horaria
        finalCreatedAt = new Date(form.createdAt + "T12:00:00").toISOString();
     }
     
@@ -242,7 +244,7 @@ export default function PatientDetailPage() {
                 </div>
              </div>
              
-             {/* 2. DATOS DE AUDITORÍA Y ORIGEN (RESTAURADO) */}
+             {/* 2. DATOS DE AUDITORÍA Y ORIGEN */}
              <div className="flex flex-col gap-2 border-l border-white/10 pl-6 lg:ml-auto text-sm">
                 <div className="flex items-center gap-2 text-textMuted" title="Último Acceso al Expediente">
                     <Clock size={14} className="text-blue-400" /> 
@@ -317,21 +319,40 @@ export default function PatientDetailPage() {
                                 <Input label="Apellidos" value={form.lastName} onChange={e => setForm({...form, lastName: e.target.value})} />
                                 <Input label="CURP" value={form.curp} onChange={e => setForm({...form, curp: e.target.value.toUpperCase()})} maxLength={18} placeholder="CLAVE ÚNICA..." />
                                 <Input label="Email" value={form.email} onChange={e => setForm({...form, email: e.target.value})} />
+                                
+                                {/* 🟢 INPUT DE ADMIN: FECHA DE ALTA (SOLO ADMIN) */}
+                                {role === 'ADMIN' && (
+                                    <Input 
+                                        label="Fecha de Alta (Admin)" 
+                                        type="date" 
+                                        value={form.createdAt} 
+                                        onChange={e => setForm({...form, createdAt: e.target.value})} 
+                                        className="border-red-500/30 text-red-200"
+                                    />
+                                )}
                             </div>
                         </section>
+                        
                         <section className="bg-surfaceHighlight/30 p-5 rounded-xl border border-border/50">
-                            <div className="grid grid-cols-1 md:grid-cols-4 gap-5">
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-5">
                                 <Input label="Móvil" value={form.phone} onChange={e => setForm({...form, phone: handlePhoneInput(e.target.value)})} />
                                 <Input label="Tel. Casa" value={form.homePhone} onChange={e => setForm({...form, homePhone: handlePhoneInput(e.target.value)})} />
-                                <Input label="Fecha Nacimiento" type="date" value={form.dob} onChange={e => setForm(f => ({ ...f, dob: e.target.value }))} />
+                                <Input label="Fecha Nac." type="date" value={form.dob} onChange={e => setForm(f => ({ ...f, dob: e.target.value }))} />
                                 <Select label="Sexo Asignado" value={form.assignedSex} onChange={e => setForm({...form, assignedSex: e.target.value})}>
                                     <option value="NO_ESPECIFICADO">--</option>
                                     <option value="MUJER">Mujer</option>
                                     <option value="HOMBRE">Hombre</option>
                                     <option value="INTERSEXUAL">Intersexual</option>
                                 </Select>
+                                
+                                <Input label="Ocupación" value={form.occupation} onChange={e => setForm({...form, occupation: e.target.value})} />
+                                <Select label="¿Cómo se enteró?" value={form.referralSource} onChange={e => setForm({...form, referralSource: e.target.value})}>
+                                    <option value="">-- Origen --</option>
+                                    {sources.map(s => <option key={s} value={s}>{s}</option>)}
+                                </Select>
                             </div>
                         </section>
+
                         <section className="pt-4 border-t border-border grid grid-cols-1 md:grid-cols-2 gap-8">
                              <div>
                                 <h4 className="text-sm font-bold text-textMuted uppercase mb-4 tracking-wider">Dirección</h4>

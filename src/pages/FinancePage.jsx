@@ -11,7 +11,10 @@ import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
 import Badge from "@/components/ui/Badge";
 
-// Iconos simples (puedes cambiarlos por Lucide/Heroicons si ya usas)
+// 🟢 IMPORTAMOS EL GESTOR DE TERMINALES (NUEVO)
+import TerminalsManager from "@/components/settings/TerminalsManager";
+
+// Iconos simples
 const ICONS = {
   money: "💰",
   chart: "📊",
@@ -19,7 +22,8 @@ const ICONS = {
   warn: "⚠️",
   check: "✅",
   in: "↗️",
-  out: "↘️"
+  out: "↘️",
+  card: "💳" // 🟢 Nuevo icono para el botón
 };
 
 export default function FinancePage() {
@@ -27,6 +31,9 @@ export default function FinancePage() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("DASHBOARD"); // DASHBOARD, LEDGER, AUDIT
   
+  // 🟢 ESTADO PARA EL MODAL DE COMISIONES
+  const [showTerminalsModal, setShowTerminalsModal] = useState(false);
+
   // Por defecto: Mes actual para ver datos si existen
   const today = new Date();
   const firstDay = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().slice(0, 10);
@@ -87,25 +94,33 @@ export default function FinancePage() {
           </p>
         </div>
         
-        <div className="flex gap-2 items-center bg-surface border border-border p-1.5 rounded-xl shadow-sm">
-          <input 
-            type="date" 
-            name="start" 
-            value={dateRange.start} 
-            onChange={handleDateChange}
-            className="bg-surfaceHighlight text-white border-transparent rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-primary outline-none"
-          />
-          <span className="text-textMuted text-xs">a</span>
-          <input 
-            type="date" 
-            name="end" 
-            value={dateRange.end} 
-            onChange={handleDateChange}
-            className="bg-surfaceHighlight text-white border-transparent rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-primary outline-none"
-          />
-          <Button onClick={loadData} size="sm" variant="primary">
-            Refrescar
+        <div className="flex flex-wrap items-center gap-2">
+          
+          {/* 🟢 BOTÓN NUEVO: COMISIONES TPV */}
+          <Button variant="secondary" onClick={() => setShowTerminalsModal(true)} className="flex items-center gap-2 mr-2">
+              <span className="text-lg">{ICONS.card}</span> Comisiones TPV
           </Button>
+
+          <div className="flex gap-2 items-center bg-surface border border-border p-1.5 rounded-xl shadow-sm">
+            <input 
+                type="date" 
+                name="start" 
+                value={dateRange.start} 
+                onChange={handleDateChange}
+                className="bg-surfaceHighlight text-white border-transparent rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-primary outline-none"
+            />
+            <span className="text-textMuted text-xs">a</span>
+            <input 
+                type="date" 
+                name="end" 
+                value={dateRange.end} 
+                onChange={handleDateChange}
+                className="bg-surfaceHighlight text-white border-transparent rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-primary outline-none"
+            />
+            <Button onClick={loadData} size="sm" variant="primary">
+                Refrescar
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -334,11 +349,17 @@ export default function FinancePage() {
             </div>
         </Card>
       )}
+
+      {/* 🟢 MODAL CORREGIDO: Usamos TerminalsManager directo, sin doble ModalWrapper */}
+      {showTerminalsModal && (
+          <TerminalsManager onClose={() => setShowTerminalsModal(false)} />
+      )}
+
     </div>
   );
 }
 
-// --- SUB-COMPONENTES VISUALES ---
+// --- SUB-COMPONENTES VISUALES (PRESERVADOS) ---
 
 function TabButton({ active, onClick, label, icon }) {
     return (

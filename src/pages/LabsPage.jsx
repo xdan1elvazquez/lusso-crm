@@ -138,6 +138,10 @@ export default function LabsPage() {
   const [tempService, setTempService] = useState({ name: "", price: "", type: "GENERIC" });
   
   const [editingLens, setEditingLens] = useState(null);
+  
+  // 🟢 NUEVO STATE: Para saber qué rango estamos editando (si es null, es modo creación)
+  const [editingRangeId, setEditingRangeId] = useState(null);
+  
   const [tempRange, setTempRange] = useState({ sphMin: -20, sphMax: 20, cylMin: -6, cylMax: 0, cost: 0, price: 0 });
   
   const [materials, setMaterials] = useState([]);
@@ -159,19 +163,14 @@ export default function LabsPage() {
 
   useEffect(() => { refreshData(); }, [showConfig, showTreatmentsConfig]); 
 
-  // 🟢 CORRECCIÓN: Lógica unificada de guardado
   const handleSaveLab = async () => {
-    // Creamos una copia fresca del formulario para manipularla antes de enviar
     const finalForm = { ...form };
 
-    // Si hay una mica en edición que no se ha "guardado" en la lista, la guardamos ahora mismo
     if (editingLens && editingLens.name) {
         let newCatalog = [...(finalForm.lensCatalog || [])]; 
         const index = newCatalog.findIndex(l => l.id === editingLens.id); 
         if (index >= 0) newCatalog[index] = editingLens; 
         else newCatalog.push(editingLens); 
-        
-        // Actualizamos la copia final (Esto evita el problema de asincronía)
         finalForm.lensCatalog = newCatalog;
     }
 
@@ -181,7 +180,6 @@ export default function LabsPage() {
         await createLab(finalForm);
     }
 
-    // Limpieza
     setIsEditing(false); 
     setEditingLens(null); 
     setForm({ id: null, name: "", services: [], lensCatalog: [] });
@@ -200,7 +198,9 @@ export default function LabsPage() {
   const handleNewLens = () => { 
       const defaultMat = materials.find(m => m.active)?.name || "CR-39";
       const defaultTreat = treatments.find(t => t.active)?.name || "Blanco";
-      setEditingLens({ id: crypto.randomUUID(), name: "", design: "Monofocal", material: defaultMat, treatment: defaultTreat, ranges: [] }); 
+      setEditingLens({ id: crypto.randomUUID(), name: "", design: "Monofocal", material: defaultMat, treatment: defaultTreat, ranges: [] });
+      setTempRange({ sphMin: -20, sphMax: 20, cylMin: -6, cylMax: 0, cost: 0, price: 0 }); // Reset rangos
+      setEditingRangeId(null);
   };
 
   const saveLensToCatalog = () => { 
@@ -215,11 +215,38 @@ export default function LabsPage() {
   const handleRangeChange = (field, value) => { setTempRange(prev => ({ ...prev, [field]: value })); };
   const handleRangeBlur = (field) => { if (field === 'cost' || field === 'price') setTempRange(prev => ({ ...prev, [field]: Number(prev[field]) || 0 })); else setTempRange(prev => ({ ...prev, [field]: parseDiopter(prev[field]) })); };
   
-  const addRangeToLens = () => { 
+  // 🟢 CORRECCIÓN: Función unificada Agregar / Editar Rango
+  const handleSaveRange = () => { 
       if (!editingLens) return; 
       if (Number(tempRange.sphMin) > Number(tempRange.sphMax)) return alert("Esfera Min > Max"); 
       if (Number(tempRange.cylMin) > Number(tempRange.cylMax)) return alert("Cilindro Min > Max"); 
-      setEditingLens(prev => ({ ...prev, ranges: [...prev.ranges, { ...tempRange, id: crypto.randomUUID() }] })); 
+      
+      if (editingRangeId) {
+          // MODO EDICIÓN: Actualizar el rango existente
+          setEditingLens(prev => ({
+              ...prev,
+              ranges: prev.ranges.map(r => r.id === editingRangeId ? { ...tempRange, id: editingRangeId } : r)
+          }));
+          setEditingRangeId(null); // Salir de modo edición
+      } else {
+          // MODO CREACIÓN: Agregar nuevo rango
+          setEditingLens(prev => ({ ...prev, ranges: [...prev.ranges, { ...tempRange, id: crypto.randomUUID() }] })); 
+      }
+
+      // Resetear inputs a valores por defecto
+      setTempRange({ sphMin: -20, sphMax: 20, cylMin: -6, cylMax: 0, cost: 0, price: 0 });
+  };
+
+  // 🟢 NUEVA FUNCIÓN: Cargar datos en el form para editar
+  const prepareEditRange = (range) => {
+      setTempRange({ ...range });
+      setEditingRangeId(range.id);
+  };
+
+  // 🟢 NUEVA FUNCIÓN: Cancelar edición
+  const cancelEditRange = () => {
+      setEditingRangeId(null);
+      setTempRange({ sphMin: -20, sphMax: 20, cylMin: -6, cylMax: 0, cost: 0, price: 0 });
   };
   
   const removeRange = (idx) => { setEditingLens(prev => ({ ...prev, ranges: prev.ranges.filter((_, i) => i !== idx) })); };
@@ -336,7 +363,7 @@ export default function LabsPage() {
                           <div className="flex justify-between items-center mb-4 pb-4 border-b border-border">
                               <h4 className="font-bold text-amber-400">Configurando Mica</h4>
                               <div className="flex gap-2">
-                                <Button variant="ghost" onClick={() => setEditingLens(null)}>Atrás</Button>
+                                <Button variant="ghost" onClick={() => { setEditingLens(null); setEditingRangeId(null); }}>Atrás</Button>
                                 <Button onClick={saveLensToCatalog} variant="secondary">Confirmar Mica</Button>
                               </div>
                           </div>
@@ -358,14 +385,34 @@ export default function LabsPage() {
 
                           <div className="p-4 bg-surface rounded-xl border border-border">
                               <h5 className="text-xs font-bold text-textMuted uppercase mb-3">Rangos de Graduación y Precio</h5>
-                              <div className="grid grid-cols-2 md:grid-cols-7 gap-2 items-end mb-4">
+                              
+                              {/* 🟢 PANEL DE INPUTS DINÁMICO */}
+                              <div className="grid grid-cols-2 md:grid-cols-7 gap-2 items-end mb-4 relative">
                                   <Input label="Esf Min" type="number" step="0.25" value={tempRange.sphMin} onChange={e=>handleRangeChange('sphMin', e.target.value)} onBlur={()=>handleRangeBlur('sphMin')} />
                                   <Input label="Esf Max" type="number" step="0.25" value={tempRange.sphMax} onChange={e=>handleRangeChange('sphMax', e.target.value)} onBlur={()=>handleRangeBlur('sphMax')} />
                                   <Input label="Cil Min" type="number" step="0.25" value={tempRange.cylMin} onChange={e=>handleRangeChange('cylMin', e.target.value)} onBlur={()=>handleRangeBlur('cylMin')} />
                                   <Input label="Cil Max" type="number" step="0.25" value={tempRange.cylMax} onChange={e=>handleRangeChange('cylMax', e.target.value)} onBlur={()=>handleRangeBlur('cylMax')} />
                                   <Input label="Costo" type="number" value={tempRange.cost} onChange={e=>handleRangeChange('cost', e.target.value)} className="text-red-400 font-bold" />
                                   <Input label="Precio Venta" type="number" value={tempRange.price} onChange={e=>handleRangeChange('price', e.target.value)} className="text-green-400 font-bold" />
-                                  <Button onClick={addRangeToLens} className="h-[42px] mb-[1px]">+</Button>
+                                  
+                                  {/* Botón Cambiante: Agregar o Actualizar */}
+                                  <div className="flex flex-col gap-1 mb-[1px]">
+                                      <Button 
+                                        onClick={handleSaveRange} 
+                                        className={`h-[42px] ${editingRangeId ? "bg-amber-500 hover:bg-amber-600" : ""}`}
+                                        title={editingRangeId ? "Actualizar Rango" : "Agregar Rango"}
+                                      >
+                                        {editingRangeId ? "💾" : "+"}
+                                      </Button>
+                                      {editingRangeId && (
+                                          <button 
+                                            onClick={cancelEditRange} 
+                                            className="text-[10px] text-red-400 hover:underline text-center"
+                                          >
+                                            Cancelar
+                                          </button>
+                                      )}
+                                  </div>
                               </div>
 
                               <div className="max-h-60 overflow-y-auto custom-scrollbar border border-border rounded-lg">
@@ -376,17 +423,27 @@ export default function LabsPage() {
                                               <th className="p-3">Cilindro</th>
                                               <th className="p-3 text-red-400">Costo</th>
                                               <th className="p-3 text-green-400">Precio</th>
-                                              <th className="p-3"></th>
+                                              <th className="p-3 text-right">Acciones</th>
                                           </tr>
                                       </thead>
                                       <tbody className="divide-y divide-border">
                                           {editingLens.ranges.map((r, i) => (
-                                            <tr key={i} className="hover:bg-white/5">
+                                            <tr key={i} className={`hover:bg-white/5 transition-colors ${editingRangeId === r.id ? "bg-amber-500/10 border-l-2 border-amber-500" : ""}`}>
                                                 <td className="p-3 text-textMain">{r.sphMin} a {r.sphMax}</td>
                                                 <td className="p-3 text-textMain">{r.cylMin} a {r.cylMax}</td>
                                                 <td className="p-3 text-red-400">${r.cost}</td>
                                                 <td className="p-3 text-green-400 font-bold">${r.price}</td>
-                                                <td className="p-3 text-right"><button onClick={() => removeRange(i)} className="text-textMuted hover:text-red-400 px-2">×</button></td>
+                                                <td className="p-3 text-right flex justify-end gap-2">
+                                                    {/* 🟢 NUEVO: Botón Editar */}
+                                                    <button 
+                                                        onClick={() => prepareEditRange(r)} 
+                                                        className="text-textMuted hover:text-amber-400 p-1 rounded hover:bg-amber-500/10" 
+                                                        title="Editar rango"
+                                                    >
+                                                        ✏️
+                                                    </button>
+                                                    <button onClick={() => removeRange(i)} className="text-textMuted hover:text-red-400 p-1 rounded hover:bg-red-500/10" title="Eliminar">🗑️</button>
+                                                </td>
                                             </tr>
                                           ))}
                                       </tbody>

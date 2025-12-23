@@ -5,25 +5,33 @@ export function checkLensCompatibility(lens, rx) {
     return { compatible: false, reason: "Sin configuración de rangos", cost: 0, price: 0 };
   }
 
-  // 1. Normalización estricta
+  // 1. Normalización estricta (Manejo de 0 y nulos)
   const odSph = parseDiopter(rx.od?.sph);
   const odCyl = parseDiopter(rx.od?.cyl);
   const osSph = parseDiopter(rx.os?.sph);
   const osCyl = parseDiopter(rx.os?.cyl);
 
-  // Helper para buscar TODOS los rangos compatibles, no solo el primero
+  // Helper para buscar TODOS los rangos compatibles
   const findCompatibleRanges = (sph, cyl) => {
+    // Si el valor es null/undefined (ej. paciente con un solo ojo o datos incompletos), lo saltamos
+    if (sph === null || cyl === null) return [];
+
     return lens.ranges.filter(r => 
       sph >= parseDiopter(r.sphMin) && sph <= parseDiopter(r.sphMax) &&
       cyl >= parseDiopter(r.cylMin) && cyl <= parseDiopter(r.cylMax)
     );
   };
 
-  // 2. Validación por Ojo (Busca todos los matches posibles)
+  // 2. Validación por Ojo
   const matchesOD = findCompatibleRanges(odSph, odCyl);
   const matchesOS = findCompatibleRanges(osSph, osCyl);
 
-  if (matchesOD.length === 0) {
+  // Validación: Si hay datos de RX pero no hay matches, es incompatible.
+  // Nota: Si la RX viene vacía (0.00 o null), asumimos que es neutro o balance y buscamos rango 0.
+  const hasRxOD = rx.od && (rx.od.sph !== "" || rx.od.cyl !== "");
+  const hasRxOS = rx.os && (rx.os.sph !== "" || rx.os.cyl !== "");
+
+  if (hasRxOD && matchesOD.length === 0) {
     return { 
       compatible: false, 
       reason: `OD fuera de rango (Esfera ${odSph}, Cil ${odCyl}).`,
@@ -31,7 +39,7 @@ export function checkLensCompatibility(lens, rx) {
     };
   }
 
-  if (matchesOS.length === 0) {
+  if (hasRxOS && matchesOS.length === 0) {
     return { 
       compatible: false, 
       reason: `OI fuera de rango (Esfera ${osSph}, Cil ${osCyl}).`,
@@ -39,7 +47,12 @@ export function checkLensCompatibility(lens, rx) {
     };
   }
 
-  // 3. Validación de Adición
+  // Si no se encontró nada para ningún ojo (ej. rx vacía), retorno seguro
+  if (matchesOD.length === 0 && matchesOS.length === 0) {
+      return { compatible: false, reason: "Sin graduación válida para evaluar.", cost: 0, price: 0 };
+  }
+
+  // 3. Validación de Adición (Progresivos/Bifocales)
   const design = (lens.design || "").toUpperCase();
   const needsAdd = design.includes("PROG") || design.includes("BIFOCAL") || design.includes("OCUPACIONAL");
   
@@ -50,13 +63,20 @@ export function checkLensCompatibility(lens, rx) {
     }
   }
 
-  // ESTRATEGIA DE PRECIOS INTELIGENTE:
-  matchesOD.sort((a, b) => (Number(a.cost) || 0) - (Number(b.cost) || 0));
-  matchesOS.sort((a, b) => (Number(a.cost) || 0) - (Number(b.cost) || 0));
+  // 4. ESTRATEGIA DE PRECIOS: EL MÁS ALTO GANA
+  // Ordenamos Descendente (b - a) por PRECIO para asegurar la venta de mayor valor en caso de overlap
+  const sortByHighestPrice = (a, b) => (Number(b.price) || 0) - (Number(a.price) || 0);
 
-  const bestRangeOD = matchesOD[0];
-  const bestRangeOS = matchesOS[0];
+  matchesOD.sort(sortByHighestPrice);
+  matchesOS.sort(sortByHighestPrice);
 
+  // Tomamos el mejor candidato de cada ojo (o un objeto dummy con precio 0 si no aplica ese ojo)
+  const bestRangeOD = matchesOD.length > 0 ? matchesOD[0] : { cost: 0, price: 0 };
+  const bestRangeOS = matchesOS.length > 0 ? matchesOS[0] : { cost: 0, price: 0 };
+
+  // 🟢 LÓGICA ANISOMETROPÍA:
+  // Tomamos el costo y precio MÁXIMO entre los dos ojos.
+  // Si OD cae en rango de $500 y OI en rango de $1200, el par cuesta $1200.
   const finalCost = Math.max(Number(bestRangeOD.cost) || 0, Number(bestRangeOS.cost) || 0);
   const finalPrice = Math.max(Number(bestRangeOD.price) || 0, Number(bestRangeOS.price) || 0);
 
@@ -77,32 +97,25 @@ export function getSuggestions(allLenses, rx, currentFilters) {
     return suggestions;
 }
 
-// --- NUEVAS FUNCIONES PARA CENTRALIZAR LÓGICA (Recomendación Estructurada) ---
-
-// 1. Normalización profunda de un lente (limpia mayúsculas/minúsculas)
+// 1. Normalización profunda de un lente
 export function normalizeLensData(rawLens) {
     if (!rawLens) return rawLens;
     
-    // Función para buscar valor ignorando mayúsculas en las llaves
     const get = (obj, keyName) => {
         if (!obj) return undefined;
         const key = Object.keys(obj).find(k => k.toLowerCase() === keyName.toLowerCase());
         return key ? obj[key] : undefined;
     };
 
-    // Construimos un objeto limpio estándar
     const normalized = { ...rawLens }; 
 
-    // Propiedades raíz críticas normalizadas
     if (get(rawLens, 'design')) normalized.design = get(rawLens, 'design');
     if (get(rawLens, 'material')) normalized.material = get(rawLens, 'material');
     if (get(rawLens, 'treatment')) normalized.treatment = get(rawLens, 'treatment');
-    // Mapeamos 'coating' a 'treatment' si es necesario para compatibilidad
     if (get(rawLens, 'coating')) normalized.treatment = get(rawLens, 'coating');
     if (get(rawLens, 'name')) normalized.name = get(rawLens, 'name');
     if (get(rawLens, 'labname')) normalized.labName = get(rawLens, 'labname'); 
 
-    // Normalizar Rangos (CRÍTICO para el precio/compatibilidad)
     const rawRanges = get(rawLens, 'ranges');
     if (Array.isArray(rawRanges)) {
         normalized.ranges = rawRanges.map(r => ({
@@ -119,7 +132,7 @@ export function normalizeLensData(rawLens) {
     return normalized;
 }
 
-// 2. Extraer opciones únicas del catálogo (para llenar los Selects)
+// 2. Extraer opciones únicas del catálogo
 export function getCatalogOptions(catalog) {
     if (!Array.isArray(catalog)) return { designs: [], materials: [], treatments: [] };
     
