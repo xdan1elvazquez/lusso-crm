@@ -14,14 +14,12 @@ import SpecialDiseaseForm from "./SpecialDiseaseForm";
 import FamilyHistoryForm from "./consultation/FamilyHistoryForm";
 import OcularHistoryForm from "./consultation/OcularHistoryForm";
 
-// 👇 UI Kit Nuevo
+// UI Kit Nuevo
 import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
 import Input from "@/components/ui/Input";
 import Badge from "@/components/ui/Badge";
 import ModalWrapper from "@/components/ui/ModalWrapper";
-
-// 👇 ESTA LÍNEA ES LA QUE FALTABA Y CAUSA EL ERROR
 import LoadingState from "@/components/LoadingState";
 
 // --- CALCULADORA DE VIGENCIA ---
@@ -139,13 +137,15 @@ const DynamicField = ({ field, value, onChange }) => {
     );
 };
 
-export default function AnamnesisPanel({ patientId }) {
+// 🟢 AHORA RECIBE className PARA AJUSTARSE AL GRID
+export default function AnamnesisPanel({ patientId, className = "" }) {
   const [loading, setLoading] = useState(true);
   const [historyList, setHistoryList] = useState([]);
   
+  // Modales
   const [viewAnamnesis, setViewAnamnesis] = useState(null); 
+  const [formMode, setFormMode] = useState(null); // 'CREATE' | 'UPDATE' | null
 
-  const [formMode, setFormMode] = useState(null); 
   const [targetRecord, setTargetRecord] = useState(null); 
   const [summaryNote, setSummaryNote] = useState(""); 
 
@@ -249,10 +249,11 @@ export default function AnamnesisPanel({ patientId }) {
   };
 
   return (
-    <Card className="border-t-4 border-t-amber-500 shadow-glow transition-all duration-300">
+    // 🟢 Panel principal: Muestra resumen y botones. Se adapta al grid.
+    <Card className={`border-t-4 border-t-amber-500 shadow-glow transition-all duration-300 flex flex-col ${className}`}>
       
-      {/* HEADER Y BOTONES */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
+      {/* HEADER Y BOTONES (Siempre visible) */}
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-4 p-4 border-b border-border bg-surfaceHighlight/5 shrink-0">
         <div>
             <h2 className="text-xl font-bold text-white flex items-center gap-3">
                 Antecedentes Clínicos
@@ -268,11 +269,12 @@ export default function AnamnesisPanel({ patientId }) {
             )}
         </div>
 
+        {/* Los botones ahora abren el MODAL */}
         {!formMode && (
             <div className="flex gap-2">
-                {!latestRecord && <Button onClick={handleNew} variant="primary">+ Nuevo Historial</Button>}
-                {latestRecord && vigencia.isExpired && <Button onClick={handleRenew} variant="primary" className="bg-amber-600 hover:bg-amber-700">↻ Renovar</Button>}
-                {latestRecord && !vigencia.isExpired && <Button onClick={handleEditLatest} variant="ghost" className="border border-border">✎ Editar Vigente</Button>}
+                {!latestRecord && <Button onClick={handleNew} variant="primary" size="sm">+ Nuevo</Button>}
+                {latestRecord && vigencia.isExpired && <Button onClick={handleRenew} variant="primary" className="bg-amber-600 hover:bg-amber-700" size="sm">↻ Renovar</Button>}
+                {latestRecord && !vigencia.isExpired && <Button onClick={handleEditLatest} variant="ghost" className="border border-border" size="sm">✎ Editar</Button>}
             </div>
         )}
       </div>
@@ -283,19 +285,52 @@ export default function AnamnesisPanel({ patientId }) {
             <LoadingState />
         </div>
       ) : (
-        <>
-            {/* FORMULARIO (EDICIÓN/CREACIÓN) */}
-            {formMode && (
-                <form onSubmit={onSubmit} className="space-y-6 animate-[fadeIn_0.3s_ease-out]">
-                <div className={`p-4 rounded-xl border border-dashed flex justify-between items-center ${formMode==="UPDATE" ? "bg-emerald-900/10 border-emerald-500/30" : "bg-amber-900/10 border-amber-500/30"}`}>
-                    <div className={`font-bold text-sm ${formMode==="UPDATE" ? "text-emerald-400" : "text-amber-400"}`}>
-                        {formMode === "UPDATE" ? "EDITANDO REGISTRO VIGENTE" : "CREANDO NUEVA VERSIÓN"}
-                    </div>
-                    <Button onClick={handleCancel} variant="ghost" className="text-xs py-1 px-3 h-auto">Cancelar</Button>
+        // 🟢 LISTA DE HISTORIAL (Visible en el panel del grid)
+        <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
+            {historyList.length === 0 ? (
+                <div className="h-full flex flex-col items-center justify-center text-textMuted opacity-50 italic">
+                    <p>Sin antecedentes registrados.</p>
                 </div>
+            ) : (
+                <div className="space-y-2">
+                    {historyList.map((entry, index) => {
+                        const isLatest = index === 0;
+                        return (
+                            <div 
+                                key={entry.id} 
+                                onClick={() => handleViewHistory(entry)} 
+                                className={`p-3 rounded-lg border flex justify-between items-center cursor-pointer transition-all group ${isLatest ? "bg-surface border-primary/30" : "bg-transparent border-border hover:bg-surfaceHighlight"}`}
+                            >
+                                <div>
+                                    <div className={`text-sm font-medium ${isLatest ? "text-white" : "text-textMuted group-hover:text-gray-300"}`}>
+                                        Versión {entry.version || 1} {isLatest && <span className="text-xs text-emerald-400 font-bold ml-2">(Vigente)</span>}
+                                    </div>
+                                    <div className="text-xs text-textMuted opacity-70 mt-0.5">
+                                        {new Date(entry.createdAt).toLocaleDateString()} · {entry.summary || "Sin resumen"}
+                                    </div>
+                                </div>
+                                <span className="text-textMuted group-hover:text-white text-sm">Ver 👁️</span>
+                            </div>
+                        );
+                    })}
+                </div>
+            )}
+        </div>
+      )}
 
+      {/* 🟢 MODAL DE EDICIÓN / CREACIÓN (Se sobrepone al centro) */}
+      {formMode && (
+        <ModalWrapper 
+            title={formMode === "UPDATE" ? "Editar Antecedentes (Vigente)" : "Nueva Historia Clínica"} 
+            onClose={handleCancel} 
+            width="800px" // Modal ancho para comodidad
+        >
+            <form onSubmit={onSubmit} className="space-y-6 max-h-[70vh] overflow-y-auto pr-2 custom-scrollbar">
+                
                 {formMode === "CREATE" && (
-                    <Input label="Motivo de actualización / Resumen" value={summaryNote} onChange={e => setSummaryNote(e.target.value)} placeholder="Ej. Revisión anual..." autoFocus />
+                    <div className="bg-amber-900/20 p-4 rounded-xl border border-amber-500/30 mb-4">
+                        <Input label="Motivo de actualización" value={summaryNote} onChange={e => setSummaryNote(e.target.value)} placeholder="Ej. Revisión anual, Primera vez..." autoFocus />
+                    </div>
                 )}
 
                 <Accordion title="1. Personales Patológicos" isOpen={openSections.path} onToggle={() => setOpenSections(p => ({...p, path: !p.path}))} activeCount={countActivePath(pathological)}>
@@ -380,41 +415,14 @@ export default function AnamnesisPanel({ patientId }) {
                     />
                 </div>
 
-                <Button type="submit" variant={formMode==="UPDATE"?"primary":"primary"} className={`w-full py-3 ${formMode==="UPDATE"?"bg-emerald-600 hover:bg-emerald-700":"bg-amber-600 hover:bg-amber-700"}`}>
-                    {formMode === "UPDATE" ? "Guardar Cambios" : "Guardar Nueva Versión"}
-                </Button>
-                </form>
-            )}
-
-            {/* --- LISTADO HISTÓRICO --- */}
-            {!formMode && historyList.length > 0 && (
-                <div className="mt-8 pt-6 border-t border-border">
-                    <div className="text-xs font-bold text-textMuted uppercase mb-4 tracking-wider">Historial de Versiones</div>
-                    <div className="space-y-2 max-h-60 overflow-y-auto custom-scrollbar pr-2">
-                        {historyList.map((entry, index) => {
-                            const isLatest = index === 0;
-                            return (
-                                <div 
-                                    key={entry.id} 
-                                    onClick={() => handleViewHistory(entry)} 
-                                    className={`p-3 rounded-lg border flex justify-between items-center cursor-pointer transition-all group ${isLatest ? "bg-surface border-primary/30" : "bg-transparent border-border hover:bg-surfaceHighlight"}`}
-                                >
-                                    <div>
-                                        <div className={`text-sm font-medium ${isLatest ? "text-white" : "text-textMuted group-hover:text-gray-300"}`}>
-                                            Versión {entry.version || 1} {isLatest && <span className="text-xs text-emerald-400 font-bold ml-2">(Vigente)</span>}
-                                        </div>
-                                        <div className="text-xs text-textMuted opacity-70 mt-0.5">
-                                            {new Date(entry.createdAt).toLocaleDateString()} · {entry.summary || "Sin resumen"}
-                                        </div>
-                                    </div>
-                                    <span className="text-textMuted group-hover:text-white text-sm">Ver 👁️</span>
-                                </div>
-                            );
-                        })}
-                    </div>
+                <div className="pt-4 border-t border-border flex justify-end gap-3">
+                    <Button variant="ghost" onClick={handleCancel} type="button">Cancelar</Button>
+                    <Button type="submit" variant="primary" className={`${formMode==="UPDATE"?"bg-emerald-600 hover:bg-emerald-700":"bg-amber-600 hover:bg-amber-700"}`}>
+                        {formMode === "UPDATE" ? "Guardar Cambios" : "Guardar Historial"}
+                    </Button>
                 </div>
-            )}
-        </>
+            </form>
+        </ModalWrapper>
       )}
 
       {/* --- MODAL LECTURA ESTRICTO --- */}
@@ -422,7 +430,7 @@ export default function AnamnesisPanel({ patientId }) {
         <ModalWrapper title={`Historial v${viewAnamnesis.version||1}`} onClose={()=>setViewAnamnesis(null)} width="700px">
            <div className="mb-4 text-xs text-textMuted">Creado: {new Date(viewAnamnesis.createdAt).toLocaleString()}</div>
            
-           <div className="space-y-4">
+           <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-2 custom-scrollbar">
                  {/* 1. Patológicos */}
                  {(() => {
                      const pathData = viewAnamnesis.pathological || viewAnamnesis.systemic || {};

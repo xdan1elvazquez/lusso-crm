@@ -114,7 +114,8 @@ const AvInput = ({ label, valOD, valOS, valAO, onChange, prevData, isNear = fals
   );
 };
 
-export default function EyeExamsPanel({ patientId, consultationId = null, onSell }) {
+// Recibimos className
+export default function EyeExamsPanel({ patientId, consultationId = null, onSell, className = "" }) {
   const [loading, setLoading] = useState(true);
   const [allExams, setAllExams] = useState([]);
   
@@ -128,7 +129,6 @@ export default function EyeExamsPanel({ patientId, consultationId = null, onSell
   const [formDate, setFormDate] = useState(new Date().toISOString().slice(0, 10));
   const [notes, setNotes] = useState("");
   
-  // Estado inicial completo con todas las secciones de AV
   const [prelim, setPrelim] = useState({ 
       avsc: { far: { od: "", os: "", ao: "" }, near: { od: "", os: "", ao: "" } }, 
       avcc: { far: { od: "", os: "", ao: "" }, near: { od: "", os: "", ao: "" } }, 
@@ -214,13 +214,13 @@ export default function EyeExamsPanel({ patientId, consultationId = null, onSell
   const handleDelete = async (id) => { if(confirm("¿Eliminar?")) { await deleteEyeExam(id); refreshData(); } };
 
   return (
-    <Card className={`transition-all duration-300 ${consultationId ? "border-dashed border-primary/30" : ""}`}>
-      <div className="flex justify-between items-center mb-6">
+    <Card className={`transition-all duration-300 flex flex-col ${consultationId ? "border-dashed border-primary/30" : ""} ${className}`}>
+      <div className="flex justify-between items-center mb-4 shrink-0">
         <h2 className="text-xl font-bold text-white flex items-center gap-2">
-            👁️ {consultationId ? "Examen de la Vista (Vinculado)" : `Exámenes de Vista (${allExams.length})`}
+            👁️ Exámenes ({allExams.length})
         </h2>
-        <Button onClick={handleOpenNew} variant="primary">
-          + Nuevo Examen
+        <Button onClick={handleOpenNew} variant="primary" size="sm">
+          + Nuevo
         </Button>
       </div>
 
@@ -232,16 +232,14 @@ export default function EyeExamsPanel({ patientId, consultationId = null, onSell
               <TabButton id={TABS.CONTACT} label="3. Lentes de Contacto" activeTab={activeTab} setActiveTab={setActiveTab} />
            </div>
            
-           <form onSubmit={handleSave} className="space-y-6 max-h-[70vh] overflow-y-auto px-1">
+           <form onSubmit={handleSave} className="space-y-6 max-h-[70vh] overflow-y-auto px-1 custom-scrollbar">
               <div className="flex gap-4">
                  <Input label="Fecha" type="date" value={formDate} onChange={e => setFormDate(e.target.value)} className="w-auto" />
               </div>
 
-              {/* 🟢 1. PRELIMINARES COMPLETO */}
               {activeTab === TABS.PRELIM && (
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6 animate-fadeIn">
                    
-                   {/* COLUMNA 1: AV SIN CORRECCIÓN (SC) */}
                    <div className="space-y-4">
                       <h4 className="text-sm font-bold text-amber-400 border-b border-amber-500/30 pb-2">AV Sin Corrección (SC)</h4>
                       <AvInput label="Lejos" valOD={prelim.avsc.far.od} valOS={prelim.avsc.far.os} valAO={prelim.avsc.far.ao} 
@@ -250,7 +248,6 @@ export default function EyeExamsPanel({ patientId, consultationId = null, onSell
                         onChange={(eye, v) => setPrelim(p => ({...p, avsc: {...p.avsc, near: {...p.avsc.near, [eye]: v}}}))} prevData={prevExam?.preliminary?.avsc?.near} isNear={true} />
                    </div>
 
-                   {/* COLUMNA 2: AV CON CORRECCIÓN (CC - ACTUALES) */}
                    <div className="space-y-4">
                       <h4 className="text-sm font-bold text-emerald-400 border-b border-emerald-500/30 pb-2">AV Con Lentes (CC)</h4>
                       <AvInput label="Lejos" valOD={prelim.avcc.far.od} valOS={prelim.avcc.far.os} valAO={prelim.avcc.far.ao} 
@@ -259,25 +256,19 @@ export default function EyeExamsPanel({ patientId, consultationId = null, onSell
                         onChange={(eye, v) => setPrelim(p => ({...p, avcc: {...p.avcc, near: {...p.avcc.near, [eye]: v}}}))} prevData={prevExam?.preliminary?.avcc?.near} isNear={true} />
                    </div>
 
-                   {/* COLUMNA 3: PIN HOLE + ISHIHARA */}
                    <div className="space-y-4">
                       <h4 className="text-sm font-bold text-blue-400 border-b border-blue-500/30 pb-2">Pin Hole / Capacidad Visual</h4>
                       <AvInput label="Lejos (PH)" valOD={prelim.cv.far.od} valOS={prelim.cv.far.os} valAO={prelim.cv.far.ao} 
                         onChange={(eye, v) => setPrelim(p => ({...p, cv: {...p.cv, far: {...p.cv.far, [eye]: v}}}))} prevData={prevExam?.preliminary?.cv?.far} />
-                      
-                      {/* Agregado Cerca en PinHole por solicitud */}
                       <AvInput label="Cerca (PH)" valOD={prelim.cv.near.od} valOS={prelim.cv.near.os} valAO={prelim.cv.near.ao} 
                         onChange={(eye, v) => setPrelim(p => ({...p, cv: {...p.cv, near: {...p.cv.near, [eye]: v}}}))} prevData={prevExam?.preliminary?.cv?.near} isNear={true} />
-                      
                       <div className="pt-2">
                         <Input label="Ishihara / Test Color" value={prelim.ishihara} onChange={e => setPrelim(p => ({...p, ishihara: e.target.value}))} />
                       </div>
                    </div>
-
                 </div>
               )}
 
-              {/* 2. REFRACCIÓN */}
               {activeTab === TABS.REFRACTION && (
                 <div className="space-y-6 animate-fadeIn">
                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-surfaceHighlight/20 p-4 rounded-xl">
@@ -331,7 +322,6 @@ export default function EyeExamsPanel({ patientId, consultationId = null, onSell
                 </div>
               )}
 
-              {/* 3. LENTES DE CONTACTO */}
               {activeTab === TABS.CONTACT && (
                 <div className="space-y-6 animate-fadeIn">
                     <div className="bg-surfaceHighlight/20 p-4 rounded-xl border border-border">
@@ -385,41 +375,42 @@ export default function EyeExamsPanel({ patientId, consultationId = null, onSell
       )}
 
       {loading ? <LoadingState /> : (
-          <div className="space-y-3">
-            {paginated.length === 0 ? <p className="text-textMuted text-sm italic">No hay registros.</p> : 
-            paginated.map(exam => (
-                <div key={exam.id} className="border border-border rounded-xl p-4 bg-surface hover:border-primary/40 transition-colors group">
-                    <div className="flex justify-between items-start mb-2">
-                        <div>
-                            <strong className="text-white block">{new Date(exam.examDate).toLocaleDateString()}</strong>
-                            <div className="flex gap-2 mt-1">
-                                {!consultationId && <Badge color={exam.consultationId ? "blue" : "green"}>{exam.consultationId ? "Vinculado" : "Independiente"}</Badge>}
+          <div className="flex-1 flex flex-col min-h-0">
+            <div className="flex-1 overflow-y-auto space-y-3 pr-1 custom-scrollbar">
+                {paginated.length === 0 ? <p className="text-textMuted text-sm italic text-center py-4">No hay registros.</p> : 
+                paginated.map(exam => (
+                    <div key={exam.id} className="border border-border rounded-xl p-3 bg-surface hover:border-primary/40 transition-colors group">
+                        <div className="flex justify-between items-start mb-1">
+                            <div>
+                                <strong className="text-white block text-sm">{new Date(exam.examDate).toLocaleDateString()}</strong>
+                                <div className="flex gap-2 mt-0.5">
+                                    {!consultationId && <Badge color={exam.consultationId ? "blue" : "green"} className="text-[10px] py-0">{exam.consultationId ? "Vinculado" : "Independiente"}</Badge>}
+                                </div>
+                            </div>
+                            <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <Button variant="ghost" onClick={() => onSell && onSell(exam)} className="text-green-400 hover:text-green-300 py-1 px-2 text-[10px]">🛒 Vender</Button>
+                                <Button variant="ghost" onClick={() => handleEdit(exam)} className="py-1 px-2 text-[10px]">Editar</Button>
+                                <Button variant="ghost" onClick={() => handleDelete(exam.id)} className="text-red-400 py-1 px-2 text-[10px]">×</Button>
                             </div>
                         </div>
-                        <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <Button variant="ghost" onClick={() => onSell && onSell(exam)} className="text-green-400 hover:text-green-300 py-1 px-2 text-xs">🛒 Vender</Button>
-                            <Button variant="ghost" onClick={() => handleEdit(exam)} className="py-1 px-2 text-xs">Editar</Button>
-                            <Button variant="ghost" onClick={() => handleDelete(exam.id)} className="text-red-400 py-1 px-2 text-xs">×</Button>
+                        <div className="text-xs text-textMuted grid gap-1 font-mono bg-background p-2 rounded border border-border/50">
+                            <div className="flex gap-4">
+                                <span><span className="text-blue-400 font-bold">OD:</span> {exam.refraction?.finalRx?.od?.sph}</span>
+                                <span><span className="text-green-400 font-bold">OI:</span> {exam.refraction?.finalRx?.os?.sph}</span>
+                            </div>
                         </div>
                     </div>
-                    <div className="text-sm text-textMuted grid gap-1 font-mono bg-background p-2 rounded border border-border/50">
-                        <div className="flex gap-4">
-                            <span><span className="text-blue-400 font-bold">OD:</span> {exam.refraction?.finalRx?.od?.sph} / {exam.refraction?.finalRx?.od?.cyl}</span>
-                            <span><span className="text-green-400 font-bold">OI:</span> {exam.refraction?.finalRx?.os?.sph} / {exam.refraction?.finalRx?.os?.cyl}</span>
-                        </div>
-                        {exam.preliminary?.avsc?.far?.od && <div className="text-xs opacity-70 mt-1">AV Entrada: {exam.preliminary.avsc.far.od} (OD) / {exam.preliminary.avsc.far.os} (OS)</div>}
-                    </div>
+                ))}
+            </div>
+            
+            {totalPages > 1 && (
+                <div className="flex justify-between items-center mt-3 pt-2 border-t border-border shrink-0">
+                    <button disabled={page===1} onClick={()=>setPage(p=>p-1)} className="px-2 py-1 rounded hover:bg-white/5 disabled:opacity-30 text-xs text-textMuted">◀ Anterior</button>
+                    <span className="text-xs text-textMuted">{page} / {totalPages}</span>
+                    <button disabled={page===totalPages} onClick={()=>setPage(p=>p+1)} className="px-2 py-1 rounded hover:bg-white/5 disabled:opacity-30 text-xs text-textMuted">Siguiente ▶</button>
                 </div>
-            ))}
+            )}
           </div>
-      )}
-      
-      {totalPages > 1 && (
-        <div className="flex justify-center gap-2 mt-4">
-            <button disabled={page===1} onClick={()=>setPage(p=>p-1)} className="px-3 py-1 rounded bg-surface border border-border disabled:opacity-50">←</button>
-            <span className="text-sm self-center text-textMuted">{page} / {totalPages}</span>
-            <button disabled={page===totalPages} onClick={()=>setPage(p=>p+1)} className="px-3 py-1 rounded bg-surface border border-border disabled:opacity-50">→</button>
-        </div>
       )}
     </Card>
   );

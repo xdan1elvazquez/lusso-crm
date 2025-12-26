@@ -11,12 +11,18 @@ import {
 import { getReferralSources } from "@/services/settingsStorage";
 import { generateInformedConsentPDF } from "@/utils/pdfGenerator"; 
 
+// Servicios para Timeline (Nuevos imports)
+import { getConsultationsByPatient } from "@/services/consultationsStorage";
+import { getExamsByPatient } from "@/services/eyeExamStorage";
+
 // Paneles Clínicos
 import ConsultationsPanel from "@/components/ConsultationsPanel";
 import EyeExamsPanel from "@/components/EyeExamsPanel";
 import AnamnesisPanel from "@/components/AnamnesisPanel";
 import SalesPanel from "@/components/SalesPanel";
 import StudiesPanel from "@/components/StudiesPanel";
+import PatientTimeline from "@/components/PatientTimeline"; // 👈 Nuevo Componente
+
 import { handlePhoneInput } from "@/utils/inputHandlers";
 import LoadingState from "@/components/LoadingState";
 
@@ -53,7 +59,6 @@ function getPatientAge(dateString) {
   return age;
 }
 
-// Helper para "Hace X tiempo"
 function getRelativeTime(dateString) {
   if (!dateString) return "";
   const diff = Date.now() - new Date(dateString).getTime();
@@ -68,7 +73,7 @@ function getRelativeTime(dateString) {
 
 export default function PatientDetailPage() {
   const { id } = useParams();
-  const { currentBranch, role } = useAuth(); // 👈 1. OBTENEMOS EL ROL
+  const { currentBranch, role } = useAuth(); 
   
   const [loading, setLoading] = useState(true);
   const [patient, setPatient] = useState(null);
@@ -76,6 +81,10 @@ export default function PatientDetailPage() {
   const [recommendedList, setRecommendedList] = useState([]);
   const [salePrefill, setSalePrefill] = useState(null);
   
+  // Estados para Timeline
+  const [timelineConsultations, setTimelineConsultations] = useState([]);
+  const [timelineExams, setTimelineExams] = useState([]);
+
   const [isIdentityOpen, setIsIdentityOpen] = useState(false);
   const [activeTab, setActiveTab] = useState("general"); 
   const [form, setForm] = useState({});
@@ -129,12 +138,20 @@ export default function PatientDetailPage() {
                     zip: p.address?.zip || ""
                 });
 
+                // Carga de datos adicionales (Referidos + Historial Completo)
+                const [recs, cons, exams] = await Promise.all([
+                    getPatientsRecommendedBy(id),
+                    getConsultationsByPatient(id),
+                    getExamsByPatient(id)
+                ]);
+                setRecommendedList(recs);
+                setTimelineConsultations(cons);
+                setTimelineExams(exams);
+
                 if (p.referredBy) {
                     const refData = await getPatientById(p.referredBy);
                     setReferrer(refData);
                 }
-                const recs = await getPatientsRecommendedBy(id);
-                setRecommendedList(recs);
             }
         } catch (e) {
             console.error(e);
@@ -146,10 +163,8 @@ export default function PatientDetailPage() {
   }, [id]);
 
   const onSave = async () => {
-    // Lógica para detectar cambio en fecha de alta
     let finalCreatedAt = patient.createdAt;
     if (form.createdAt !== toDateInput(patient.createdAt)) {
-       // Si el admin cambió la fecha, la guardamos con la hora 12:00 para evitar cambios de zona horaria
        finalCreatedAt = new Date(form.createdAt + "T12:00:00").toISOString();
     }
     
@@ -284,7 +299,7 @@ export default function PatientDetailPage() {
          </div>
       </div>
 
-      {/* RESTO DE LA PÁGINA (Sin Cambios) */}
+      {/* FICHA EXPANDIBLE (DATOS, LEALTAD) */}
       <Card className="overflow-hidden">
         <div className="flex border-b border-border">
              <button 
@@ -320,7 +335,6 @@ export default function PatientDetailPage() {
                                 <Input label="CURP" value={form.curp} onChange={e => setForm({...form, curp: e.target.value.toUpperCase()})} maxLength={18} placeholder="CLAVE ÚNICA..." />
                                 <Input label="Email" value={form.email} onChange={e => setForm({...form, email: e.target.value})} />
                                 
-                                {/* 🟢 INPUT DE ADMIN: FECHA DE ALTA (SOLO ADMIN) */}
                                 {role === 'ADMIN' && (
                                     <Input 
                                         label="Fecha de Alta (Admin)" 
@@ -432,13 +446,32 @@ export default function PatientDetailPage() {
         )}
       </Card>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
-          <div className="h-full"><AnamnesisPanel patientId={id} /></div>
-          <div className="h-full"><ConsultationsPanel patientId={id} /></div>
-          <div className="h-full"><EyeExamsPanel patientId={id} onSell={handleSellFromExam} /></div>
-          <div className="h-full"><StudiesPanel patientId={id} /></div>
+      {/* 🟢 NUEVO LAYOUT (TIMELINE IZQ + PANELES DERECHA) */}
+      <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">
+          
+          {/* COLUMNA IZQUIERDA: LÍNEA DE TIEMPO (Ancho 3/12) */}
+          <div className="xl:col-span-3 h-[1030px]"> {/* Altura equivalente a 2 bloques + gap */}
+             <PatientTimeline consultations={timelineConsultations} exams={timelineExams} />
+          </div>
+
+          {/* COLUMNA DERECHA: PANELES CLÍNICOS (Ancho 9/12) */}
+          <div className="xl:col-span-9 space-y-6">
+              
+              {/* FILA SUPERIOR: ANAMNESIS Y ESTUDIOS (Altura Fija 500px) */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 h-[500px]">
+                  <AnamnesisPanel patientId={id} className="h-full" />
+                  <StudiesPanel patientId={id} className="h-full" />
+              </div>
+
+              {/* FILA INFERIOR: CONSULTAS Y EXÁMENES (Altura Fija 500px) */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 h-[500px]">
+                  <ConsultationsPanel patientId={id} className="h-full" />
+                  <EyeExamsPanel patientId={id} onSell={handleSellFromExam} className="h-full" />
+              </div>
+          </div>
       </div>
       
+      {/* SECCIÓN VENTAS */}
       <div className="border-t border-border pt-8" id="sales-section">
            <h2 className="text-xl font-bold text-white mb-6 flex items-center gap-2">🛒 Generar Venta <span className="text-sm font-normal text-textMuted ml-2">(Paciente Vinculado)</span></h2>
            <SalesPanel patientId={id} prefillData={salePrefill} onClearPrefill={() => setSalePrefill(null)} />
