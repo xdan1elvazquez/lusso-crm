@@ -33,6 +33,8 @@ const COLLECTION_PATIENTS = "patients";
 const COLLECTION_LOGS = "inventory_logs";
 const COLLECTION_EXPENSES = "expenses"; 
 const COLLECTION_WORK_ORDERS = "work_orders";
+// Referencia directa al ledger para reportes exactos
+const COLLECTION_LEDGER = "finance_ledger"; 
 
 // --- LECTURA ---
 export async function getAllSales(branchId = "lusso_main") {
@@ -60,29 +62,34 @@ export async function getSalesByPatientId(id) {
     .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 }
 
+// 🟢 FUNCIÓN CORREGIDA: Ahora consulta el Ledger para obtener el dinero REAL del turno
 export async function getSalesMetricsByShift(shiftId) {
     if (!shiftId) return { totalIncome: 0, incomeByMethod: {} };
-    const q = query(collection(db, COLLECTION_NAME), where("shiftId", "==", shiftId));
+
+    // Consultamos el 'finance_ledger' donde se registran todos los movimientos
+    // (Ventas nuevas, abonos a ventas viejas, devoluciones, etc.) asociados a este turno.
+    const q = query(collection(db, COLLECTION_LEDGER), where("shiftId", "==", shiftId));
     const snapshot = await getDocs(q);
+
     let totalIncome = 0;
     const incomeByMethod = { EFECTIVO: 0, TARJETA: 0, TRANSFERENCIA: 0, CHEQUE: 0, PUNTOS: 0, OTRO: 0 };
     
     snapshot.forEach(doc => {
-        const sale = doc.data();
-        if (sale.status === "CANCELLED") return;
+        const entry = doc.data();
+        const amount = roundMoney(entry.amount || 0);
 
-        if (Array.isArray(sale.payments)) {
-            sale.payments.forEach(pay => {
-                if (pay.shiftId === shiftId) {
-                    const amount = roundMoney(pay.amount);
-                    totalIncome += amount;
-                    const m = (pay.method || "OTRO").toUpperCase();
-                    if (incomeByMethod[m] !== undefined) incomeByMethod[m] += amount;
-                    else incomeByMethod["OTRO"] = (incomeByMethod["OTRO"] || 0) + amount;
-                }
-            });
+        // Sumamos al total (incluye negativos si son devoluciones)
+        totalIncome += amount;
+
+        // Clasificación por método
+        const m = (entry.method || "OTRO").toUpperCase();
+        if (incomeByMethod[m] !== undefined) {
+            incomeByMethod[m] += amount;
+        } else {
+            incomeByMethod["OTRO"] = (incomeByMethod["OTRO"] || 0) + amount;
         }
     });
+
     return { totalIncome: roundMoney(totalIncome), incomeByMethod };
 }
 

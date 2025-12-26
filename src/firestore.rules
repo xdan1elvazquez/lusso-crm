@@ -133,6 +133,12 @@ service cloud.firestore {
       allow update, delete: if isAdmin();
     }
 
+    match /ledger/{entryId} {
+      allow read: if isAuthenticated();   // Necesario para que el cajero calcule el corte
+      allow create: if isAuthenticated(); // Necesario para registrar ventas/pagos
+      allow update, delete: if isAdmin(); // Solo admin puede corregir
+    }
+
     // 15. MESA DE AYUDA (TICKETS)
     match /internal_tickets/{ticketId} {
       allow read, create, update: if isAuthenticated();
