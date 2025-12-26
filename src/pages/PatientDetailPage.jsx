@@ -6,12 +6,13 @@ import {
   updatePatient, 
   getPatientsRecommendedBy,
   touchPatientView,
-  setPatientPoints 
+  setPatientPoints,
+  getPatients // Para buscador de referidos
 } from "@/services/patientsStorage";
 import { getReferralSources } from "@/services/settingsStorage";
 import { generateInformedConsentPDF } from "@/utils/pdfGenerator"; 
 
-// Servicios para Timeline (Nuevos imports)
+// Servicios para Timeline
 import { getConsultationsByPatient } from "@/services/consultationsStorage";
 import { getExamsByPatient } from "@/services/eyeExamStorage";
 
@@ -21,7 +22,7 @@ import EyeExamsPanel from "@/components/EyeExamsPanel";
 import AnamnesisPanel from "@/components/AnamnesisPanel";
 import SalesPanel from "@/components/SalesPanel";
 import StudiesPanel from "@/components/StudiesPanel";
-import PatientTimeline from "@/components/PatientTimeline"; // 👈 Nuevo Componente
+import PatientTimeline from "@/components/PatientTimeline"; // Timeline Visual
 
 import { handlePhoneInput } from "@/utils/inputHandlers";
 import LoadingState from "@/components/LoadingState";
@@ -34,7 +35,7 @@ import Select from "@/components/ui/Select";
 import Badge from "@/components/ui/Badge";
 
 // Iconos
-import { Users, Gift, Copy, FileText, Clock, Calendar, Activity } from "lucide-react"; 
+import { Users, Gift, Copy, FileText, Clock, Calendar, Activity, Edit2, UserCheck } from "lucide-react"; 
 
 // --- HELPERS ---
 function toDateInput(isoString) {
@@ -81,7 +82,7 @@ export default function PatientDetailPage() {
   const [recommendedList, setRecommendedList] = useState([]);
   const [salePrefill, setSalePrefill] = useState(null);
   
-  // Estados para Timeline
+  // Datos Timeline
   const [timelineConsultations, setTimelineConsultations] = useState([]);
   const [timelineExams, setTimelineExams] = useState([]);
 
@@ -92,6 +93,11 @@ export default function PatientDetailPage() {
 
   const [editingPoints, setEditingPoints] = useState(false);
   const [newPointsVal, setNewPointsVal] = useState("");
+
+  // Búsqueda de Referidos (En Edición)
+  const [allPatients, setAllPatients] = useState([]);
+  const [referrerSearch, setReferrerSearch] = useState("");
+  const [showReferrerList, setShowReferrerList] = useState(false);
 
   const calculatedAge = getPatientAge(form?.dob);
 
@@ -123,6 +129,7 @@ export default function PatientDetailPage() {
                     reliability: p.reliability || "BUENA",
                     occupation: p.occupation || "", 
                     referralSource: p.referralSource || "",
+                    referredBy: p.referredBy || "", 
                     createdAt: toDateInput(p.createdAt),
                     rfc: p.taxData?.rfc || "", 
                     razonSocial: p.taxData?.razonSocial || "",
@@ -138,7 +145,7 @@ export default function PatientDetailPage() {
                     zip: p.address?.zip || ""
                 });
 
-                // Carga de datos adicionales (Referidos + Historial Completo)
+                // Carga Historial (Paralelo para velocidad)
                 const [recs, cons, exams] = await Promise.all([
                     getPatientsRecommendedBy(id),
                     getConsultationsByPatient(id),
@@ -162,6 +169,22 @@ export default function PatientDetailPage() {
     loadData();
   }, [id]);
 
+  // Cargar directorio solo si va a buscar padrino
+  const loadAllPatientsForSearch = async () => {
+      if (allPatients.length > 0) return;
+      try {
+          const list = await getPatients();
+          setAllPatients(list);
+      } catch (e) { console.error(e); }
+  };
+
+  const potentialReferrers = allPatients.filter(p => {
+      if (!referrerSearch || referrerSearch.length < 2) return false;
+      const s = referrerSearch.toLowerCase();
+      if (p.id === id) return false; // No auto-referirse
+      return `${p.firstName} ${p.lastName}`.toLowerCase().includes(s) || p.phone?.includes(s);
+  }).slice(0, 5);
+
   const onSave = async () => {
     let finalCreatedAt = patient.createdAt;
     if (form.createdAt !== toDateInput(patient.createdAt)) {
@@ -182,9 +205,24 @@ export default function PatientDetailPage() {
         }
     };
 
-    await updatePatient(id, payload);
-    setPatient({ ...patient, ...payload }); 
-    alert("Ficha actualizada");
+    try {
+        await updatePatient(id, payload);
+        // Actualizamos estado local SIN recargar toda la página para evitar crash
+        setPatient(prev => ({ ...prev, ...payload }));
+        
+        // Actualizar visualmente el padrino si cambió
+        if (payload.referredBy && payload.referredBy !== patient.referredBy) {
+            const refData = await getPatientById(payload.referredBy);
+            setReferrer(refData);
+        } else if (!payload.referredBy) {
+            setReferrer(null);
+        }
+
+        alert("✅ Ficha actualizada correctamente");
+    } catch (e) {
+        console.error("Error saving patient:", e);
+        alert("Error al guardar cambios");
+    }
   };
 
   const handlePrintConsent = () => {
@@ -206,7 +244,7 @@ export default function PatientDetailPage() {
         await setPatientPoints(id, newPointsVal);
         setPatient(prev => ({ ...prev, points: Number(newPointsVal) }));
         setEditingPoints(false);
-        alert("Puntos actualizados manualmente.");
+        alert("Puntos actualizados.");
     } catch (e) {
         alert("Error: " + e.message);
     }
@@ -214,6 +252,11 @@ export default function PatientDetailPage() {
 
   if (loading) return <LoadingState />;
   if (!patient) return <div className="p-10 text-center text-textMuted">Paciente no encontrado.</div>;
+
+  // Helper para nombre del referido en edición
+  const selectedReferrerName = referrer ? `${referrer.firstName} ${referrer.lastName}` : (
+      form.referredBy && allPatients.find(p => p.id === form.referredBy) ? `${allPatients.find(p => p.id === form.referredBy).firstName} ${allPatients.find(p => p.id === form.referredBy).lastName}` : "Desconocido"
+  );
 
   return (
     <div className="page-container space-y-8">
@@ -248,7 +291,6 @@ export default function PatientDetailPage() {
                         )}
                         <span className="text-textMuted text-sm flex items-center gap-1">🎂 {form.dob || "N/A"}</span>
                         
-                        {/* Puntos */}
                         <div className="relative group cursor-pointer" onClick={() => { setNewPointsVal(patient.points); setEditingPoints(true); }}>
                             <Badge color="yellow" className="text-yellow-300 border-yellow-500/30 font-bold hover:bg-yellow-500/20 transition-colors flex items-center gap-2">
                                 💎 {patient.points?.toLocaleString() || 0} Puntos
@@ -261,15 +303,15 @@ export default function PatientDetailPage() {
              
              {/* 2. DATOS DE AUDITORÍA Y ORIGEN */}
              <div className="flex flex-col gap-2 border-l border-white/10 pl-6 lg:ml-auto text-sm">
-                <div className="flex items-center gap-2 text-textMuted" title="Último Acceso al Expediente">
+                <div className="flex items-center gap-2 text-textMuted">
                     <Clock size={14} className="text-blue-400" /> 
                     <span>Acceso: <span className="text-white font-mono">{formatDateTime(patient.lastViewed)}</span></span>
                 </div>
-                <div className="flex items-center gap-2 text-textMuted" title="Fecha de Creación">
+                <div className="flex items-center gap-2 text-textMuted">
                     <Calendar size={14} className="text-emerald-400" /> 
                     <span>Alta: <span className="text-white">{new Date(patient.createdAt).toLocaleDateString()}</span> <span className="text-xs opacity-60">({getRelativeTime(patient.createdAt)})</span></span>
                 </div>
-                <div className="flex items-center gap-2 text-textMuted" title="Última Actualización de Datos">
+                <div className="flex items-center gap-2 text-textMuted">
                     <Activity size={14} className="text-amber-400" /> 
                     <span>Actualizado: <span className="text-white">{formatDateTime(patient.updatedAt)}</span></span>
                 </div>
@@ -295,32 +337,15 @@ export default function PatientDetailPage() {
                      </div>
                 )}
              </div>
-
          </div>
       </div>
 
       {/* FICHA EXPANDIBLE (DATOS, LEALTAD) */}
       <Card className="overflow-hidden">
         <div className="flex border-b border-border">
-             <button 
-                onClick={() => { setActiveTab("general"); setIsIdentityOpen(true); }}
-                className={`flex-1 py-3 text-sm font-bold uppercase tracking-wider transition-colors ${activeTab === "general" && isIdentityOpen ? "bg-white/5 text-primary border-b-2 border-primary" : "text-textMuted hover:text-white"}`}
-             >
-                📋 Datos Generales
-             </button>
-             <button 
-                onClick={() => { setActiveTab("loyalty"); setIsIdentityOpen(true); }}
-                className={`flex-1 py-3 text-sm font-bold uppercase tracking-wider transition-colors ${activeTab === "loyalty" && isIdentityOpen ? "bg-white/5 text-amber-400 border-b-2 border-amber-400" : "text-textMuted hover:text-white"}`}
-             >
-                🤝 Red de Lealtad ({recommendedList.length})
-             </button>
-             <button 
-                onClick={() => setIsIdentityOpen(!isIdentityOpen)}
-                className="px-4 text-textMuted hover:text-white border-l border-border"
-                title="Colapsar/Expandir"
-             >
-                {isIdentityOpen ? "▲" : "▼"}
-             </button>
+             <button onClick={() => { setActiveTab("general"); setIsIdentityOpen(true); }} className={`flex-1 py-3 text-sm font-bold uppercase tracking-wider transition-colors ${activeTab === "general" && isIdentityOpen ? "bg-white/5 text-primary border-b-2 border-primary" : "text-textMuted hover:text-white"}`}>📋 Datos Generales</button>
+             <button onClick={() => { setActiveTab("loyalty"); setIsIdentityOpen(true); }} className={`flex-1 py-3 text-sm font-bold uppercase tracking-wider transition-colors ${activeTab === "loyalty" && isIdentityOpen ? "bg-white/5 text-amber-400 border-b-2 border-amber-400" : "text-textMuted hover:text-white"}`}>🤝 Red de Lealtad ({recommendedList.length})</button>
+             <button onClick={() => setIsIdentityOpen(!isIdentityOpen)} className="px-4 text-textMuted hover:text-white border-l border-border" title="Colapsar/Expandir">{isIdentityOpen ? "▲" : "▼"}</button>
         </div>
 
         {isIdentityOpen && (
@@ -336,13 +361,7 @@ export default function PatientDetailPage() {
                                 <Input label="Email" value={form.email} onChange={e => setForm({...form, email: e.target.value})} />
                                 
                                 {role === 'ADMIN' && (
-                                    <Input 
-                                        label="Fecha de Alta (Admin)" 
-                                        type="date" 
-                                        value={form.createdAt} 
-                                        onChange={e => setForm({...form, createdAt: e.target.value})} 
-                                        className="border-red-500/30 text-red-200"
-                                    />
+                                    <Input label="Fecha de Alta (Admin)" type="date" value={form.createdAt} onChange={e => setForm({...form, createdAt: e.target.value})} className="border-red-500/30 text-red-200" />
                                 )}
                             </div>
                         </section>
@@ -352,7 +371,7 @@ export default function PatientDetailPage() {
                                 <Input label="Móvil" value={form.phone} onChange={e => setForm({...form, phone: handlePhoneInput(e.target.value)})} />
                                 <Input label="Tel. Casa" value={form.homePhone} onChange={e => setForm({...form, homePhone: handlePhoneInput(e.target.value)})} />
                                 <Input label="Fecha Nac." type="date" value={form.dob} onChange={e => setForm(f => ({ ...f, dob: e.target.value }))} />
-                                <Select label="Sexo Asignado" value={form.assignedSex} onChange={e => setForm({...form, assignedSex: e.target.value})}>
+                                <Select label="Sexo" value={form.assignedSex} onChange={e => setForm({...form, assignedSex: e.target.value})}>
                                     <option value="NO_ESPECIFICADO">--</option>
                                     <option value="MUJER">Mujer</option>
                                     <option value="HOMBRE">Hombre</option>
@@ -360,11 +379,55 @@ export default function PatientDetailPage() {
                                 </Select>
                                 
                                 <Input label="Ocupación" value={form.occupation} onChange={e => setForm({...form, occupation: e.target.value})} />
-                                <Select label="¿Cómo se enteró?" value={form.referralSource} onChange={e => setForm({...form, referralSource: e.target.value})}>
+                                
+                                <Select label="¿Cómo se enteró?" value={form.referralSource} onChange={e => {
+                                    const val = e.target.value;
+                                    setForm({...form, referralSource: val, referredBy: val !== "Recomendación" ? "" : form.referredBy});
+                                    if (val === "Recomendación") loadAllPatientsForSearch();
+                                }}>
                                     <option value="">-- Origen --</option>
                                     {sources.map(s => <option key={s} value={s}>{s}</option>)}
                                 </Select>
                             </div>
+
+                            {/* CAMPO DE RECOMENDACIÓN (EDICIÓN) */}
+                            {form.referralSource === "Recomendación" && (
+                                <div className="mt-4 pt-4 border-t border-white/10 animate-fadeIn">
+                                    <label className="block text-xs font-bold text-textMuted uppercase mb-1">¿Quién lo recomendó?</label>
+                                    {form.referredBy ? (
+                                        <div className="flex items-center gap-2 bg-emerald-900/30 border border-emerald-500/50 rounded px-3 py-2 w-fit">
+                                            <UserCheck size={14} className="text-emerald-400" />
+                                            <span className="text-sm text-white">{selectedReferrerName || "Cargando..."}</span>
+                                            <button type="button" onClick={() => setForm({...form, referredBy: ""})} className="text-textMuted hover:text-white ml-2 text-lg">×</button>
+                                        </div>
+                                    ) : (
+                                        <div className="relative max-w-sm">
+                                            <Input 
+                                                placeholder="Buscar paciente..." 
+                                                value={referrerSearch} 
+                                                onChange={e => { setReferrerSearch(e.target.value); setShowReferrerList(true); }}
+                                                onFocus={() => { loadAllPatientsForSearch(); setShowReferrerList(true); }}
+                                                className="bg-background text-xs border-dashed border-amber-500/50"
+                                            />
+                                            {showReferrerList && referrerSearch.length > 1 && (
+                                                <div className="absolute top-full left-0 right-0 bg-surface border border-border rounded-lg shadow-xl z-50 mt-1 max-h-40 overflow-y-auto">
+                                                    {potentialReferrers.length === 0 ? (
+                                                        <div className="p-3 text-xs text-textMuted italic">No se encontraron.</div>
+                                                    ) : (
+                                                        potentialReferrers.map(p => (
+                                                            <div key={p.id} className="p-2 hover:bg-surfaceHighlight cursor-pointer border-b border-white/5 last:border-0" onClick={() => { setForm({...form, referredBy: p.id}); setReferrerSearch(""); setShowReferrerList(false); }}>
+                                                                <div className="text-xs font-bold text-white">{p.firstName} {p.lastName}</div>
+                                                                <div className="text-[10px] text-textMuted">{p.phone}</div>
+                                                            </div>
+                                                        ))
+                                                    )}
+                                                </div>
+                                            )}
+                                            {showReferrerList && <div className="fixed inset-0 z-40" onClick={() => setShowReferrerList(false)}></div>}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
                         </section>
 
                         <section className="pt-4 border-t border-border grid grid-cols-1 md:grid-cols-2 gap-8">
@@ -430,40 +493,30 @@ export default function PatientDetailPage() {
                                 </div>
                             )}
                         </div>
-                        <div className="col-span-1 md:col-span-2 mt-4 p-4 bg-purple-900/20 border border-purple-500/30 rounded-xl flex justify-between items-center">
-                            <div>
-                                <h5 className="font-bold text-purple-200">Código de Embajador</h5>
-                                <p className="text-xs text-purple-300/70">Comparte este código con el paciente para que invite amigos.</p>
-                            </div>
-                            <div className="flex items-center gap-3 bg-slate-900 p-2 rounded-lg border border-purple-500/30">
-                                <span className="font-mono text-xl font-bold text-purple-400 tracking-widest px-2">{patient.referralCode || "GENERANDO..."}</span>
-                                <button onClick={() => { navigator.clipboard.writeText(patient.referralCode); alert("Copiado!"); }} className="p-2 hover:bg-white/10 rounded-md text-purple-300"><Copy size={16} /></button>
-                            </div>
-                        </div>
                     </div>
                 )}
             </div>
         )}
       </Card>
 
-      {/* 🟢 NUEVO LAYOUT (TIMELINE IZQ + PANELES DERECHA) */}
+      {/* 🟢 NUEVO GRID ORGANIZADO ( Timeline Izq - Paneles Der ) */}
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">
           
-          {/* COLUMNA IZQUIERDA: LÍNEA DE TIEMPO (Ancho 3/12) */}
-          <div className="xl:col-span-3 h-[1030px]"> {/* Altura equivalente a 2 bloques + gap */}
+          {/* Columna Izquierda: Timeline */}
+          <div className="xl:col-span-3 h-[1030px]">
              <PatientTimeline consultations={timelineConsultations} exams={timelineExams} />
           </div>
 
-          {/* COLUMNA DERECHA: PANELES CLÍNICOS (Ancho 9/12) */}
+          {/* Columna Derecha: Paneles */}
           <div className="xl:col-span-9 space-y-6">
               
-              {/* FILA SUPERIOR: ANAMNESIS Y ESTUDIOS (Altura Fija 500px) */}
+              {/* Fila 1: Antecedentes + Estudios */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6 h-[500px]">
                   <AnamnesisPanel patientId={id} className="h-full" />
                   <StudiesPanel patientId={id} className="h-full" />
               </div>
 
-              {/* FILA INFERIOR: CONSULTAS Y EXÁMENES (Altura Fija 500px) */}
+              {/* Fila 2: Consultas + Exámenes */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6 h-[500px]">
                   <ConsultationsPanel patientId={id} className="h-full" />
                   <EyeExamsPanel patientId={id} onSell={handleSellFromExam} className="h-full" />
@@ -471,9 +524,9 @@ export default function PatientDetailPage() {
           </div>
       </div>
       
-      {/* SECCIÓN VENTAS */}
+      {/* Sección Ventas */}
       <div className="border-t border-border pt-8" id="sales-section">
-           <h2 className="text-xl font-bold text-white mb-6 flex items-center gap-2">🛒 Generar Venta <span className="text-sm font-normal text-textMuted ml-2">(Paciente Vinculado)</span></h2>
+           <h2 className="text-xl font-bold text-white mb-6 flex items-center gap-2">🛒 Generar Venta</h2>
            <SalesPanel patientId={id} prefillData={salePrefill} onClearPrefill={() => setSalePrefill(null)} />
       </div>
 
@@ -481,7 +534,6 @@ export default function PatientDetailPage() {
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
               <div className="bg-surface border border-border p-6 rounded-xl w-full max-w-sm shadow-2xl">
                   <h3 className="text-lg font-bold text-white mb-4">Ajuste Manual de Puntos</h3>
-                  <p className="text-sm text-textMuted mb-4">Usa esto para corregir errores o asignar bonificaciones manuales.</p>
                   <Input label="Nuevos Puntos Totales" type="number" value={newPointsVal} onChange={e => setNewPointsVal(e.target.value)} className="font-bold text-lg" />
                   <div className="flex justify-end gap-3 mt-6">
                       <Button variant="ghost" onClick={() => setEditingPoints(false)}>Cancelar</Button>

@@ -244,3 +244,71 @@ export async function seedPatientsIfEmpty() {
   });
   window.location.reload();
 }
+
+// 👇 NUEVO: FUNCIONES DE DETECCIÓN DE DUPLICADOS 👇
+
+// 1. Helper para "limpiar" texto (quita acentos, mayúsculas y espacios extra)
+export const normalizeString = (str) => {
+  if (!str) return "";
+  return str
+    .toLowerCase()
+    .normalize("NFD") // Descompone caracteres (ej. é -> e + ´)
+    .replace(/[\u0300-\u036f]/g, "") // Quita los acentos
+    .trim();
+};
+
+/**
+ * Busca posibles duplicados antes de crear un paciente.
+ * Criterios: Teléfono exacto, Email exacto, o Nombre similar.
+ */
+export async function findPotentialDuplicates(newPatientData) {
+  const duplicates = [];
+  const patientsRef = collection(db, COLLECTION_NAME);
+
+  // A. BÚSQUEDA POR TELÉFONO (Si existe y tiene longitud mínima)
+  // Limpiamos el teléfono entrante para comparar peras con peras
+  const phoneToSearch = cleanPhone(newPatientData.phone);
+  
+  if (phoneToSearch && phoneToSearch.length > 8) {
+    const qPhone = query(patientsRef, where("phone", "==", phoneToSearch), where("deletedAt", "==", null));
+    const snapPhone = await getDocs(qPhone);
+    snapPhone.forEach(doc => {
+      duplicates.push({ id: doc.id, ...doc.data(), matchType: "Teléfono idéntico" });
+    });
+  }
+
+  // B. BÚSQUEDA POR EMAIL (Si existe)
+  if (newPatientData.email) {
+    const qEmail = query(patientsRef, where("email", "==", newPatientData.email), where("deletedAt", "==", null));
+    const snapEmail = await getDocs(qEmail);
+    snapEmail.forEach(doc => {
+      // Evitar agregar el mismo si ya lo encontramos por teléfono
+      if (!duplicates.find(d => d.id === doc.id)) {
+        duplicates.push({ id: doc.id, ...doc.data(), matchType: "Email idéntico" });
+      }
+    });
+  }
+
+  // C. BÚSQUEDA POR NOMBRE (Aproximada)
+  // Firestore no tiene "fuzzy search", así que buscamos coincidencia exacta del NOMBRE DE PILA 
+  // y luego filtramos en JS el apellido normalizado.
+  if (newPatientData.firstName && newPatientData.lastName) {
+    // Normalizamos lo que el usuario escribió
+    const inputLast = normalizeString(newPatientData.lastName);
+
+    // Buscamos pacientes que tengan el mismo primer nombre (case sensitive en firestore)
+    // Intentamos buscar tal cual lo escribió, y tal vez capitalizado si prefieres
+    const qName = query(patientsRef, where("firstName", "==", newPatientData.firstName.trim()), where("deletedAt", "==", null)); 
+    const snapName = await getDocs(qName);
+    
+    snapName.forEach(doc => {
+        const p = doc.data();
+        // Comparamos apellidos normalizados
+        if (normalizeString(p.lastName) === inputLast && !duplicates.find(d => d.id === doc.id)) {
+             duplicates.push({ id: doc.id, ...p, matchType: "Nombre muy similar" });
+        }
+    });
+  }
+
+  return duplicates;
+}
