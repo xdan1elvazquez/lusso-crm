@@ -3,7 +3,7 @@ import { doc, getDoc, setDoc, updateDoc } from "firebase/firestore";
 
 const SETTINGS_DOC_REF = doc(db, "settings", "global");
 
-// 1. Definimos Materiales por defecto
+// 1. Definimos Materiales por defecto (Micas)
 const DEFAULT_LENS_MATERIALS = [
   "CR-39", "Policarbonato", "Hi-Index 1.56", "Hi-Index 1.60", 
   "Hi-Index 1.67", "Hi-Index 1.74", "Trivex", "Cristal"
@@ -16,7 +16,11 @@ const DEFAULT_LENS_TREATMENTS = [
   "Polarizado", "Espejeado", "Transitions"
 ].map(name => ({ id: name.toLowerCase().replace(/[^a-z0-9]/g, '_'), name: name, active: true }));
 
-// 3. Configuración Principal
+// 3. NUEVO: Definimos Materiales y Colores por defecto para ARMAZONES
+const DEFAULT_FRAME_MATERIALS = ["Acetato", "Metal", "Titanio", "TR90", "Ultem", "Acero Inoxidable", "Combinado", "Otro"];
+const DEFAULT_FRAME_COLORS = ["Negro", "Café", "Dorado", "Plateado", "Azul", "Rojo", "Rosa", "Morado", "Carey", "Transparente", "Gris", "Verde", "Bicolor", "Otro"];
+
+// 4. Configuración Principal
 const DEFAULT_SETTINGS = {
   organization: {
     name: "Lusso Visual",
@@ -39,7 +43,11 @@ const DEFAULT_SETTINGS = {
   diabetesMeds: ["Metformina", "Glibenclamida", "Insulina Glargina", "Sitagliptina", "Dapagliflozina"],
   hypertensionMeds: ["Losartán", "Captopril", "Enalapril", "Amlodipino", "Telmisartán"],
   lensMaterials: DEFAULT_LENS_MATERIALS,
-  lensTreatments: DEFAULT_LENS_TREATMENTS
+  lensTreatments: DEFAULT_LENS_TREATMENTS,
+  
+  // Agregamos las nuevas listas al settings global
+  frameMaterials: DEFAULT_FRAME_MATERIALS,
+  frameColors: DEFAULT_FRAME_COLORS
 };
 
 // --- LECTURA ---
@@ -74,7 +82,6 @@ export async function updateAlertSettings(alerts) { return updateSettings({ aler
 export async function getTerminals() { const s = await getSettings(); return s.terminals; }
 export async function updateTerminals(terminals) { return updateSettings({ terminals }); }
 
-// 👇 Corrección: Se agrega updateReferralSources para que PatientsPage no falle
 export async function getReferralSources() { const s = await getSettings(); return s.referralSources; }
 export async function updateReferralSources(list) { return updateSettings({ referralSources: list }); }
 
@@ -92,3 +99,19 @@ export async function updateLensMaterials(list) { return updateSettings({ lensMa
 
 export async function getLensTreatments() { const s = await getSettings(); return s.lensTreatments || DEFAULT_LENS_TREATMENTS; }
 export async function updateLensTreatments(list) { return updateSettings({ lensTreatments: list }); }
+
+// 👇 NUEVOS HELPERS PARA ARMAZONES
+export async function getFrameCatalogs() {
+    const s = await getSettings();
+    return {
+        materials: s.frameMaterials || DEFAULT_FRAME_MATERIALS,
+        colors: s.frameColors || DEFAULT_FRAME_COLORS
+    };
+}
+
+export async function updateFrameCatalogs(materials, colors) {
+    return updateSettings({
+        frameMaterials: materials,
+        frameColors: colors
+    });
+}

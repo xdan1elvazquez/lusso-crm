@@ -6,11 +6,11 @@ import {
   updateEyeExam, 
   deleteEyeExam 
 } from "@/services/eyeExamStorage"; 
-import { getLabs } from "@/services/labStorage"; // 👈 Importar Storage de Labs
-import { getCatalogOptions } from "@/utils/lensMatcher"; // 👈 Importar Helper
+import { getLabs } from "@/services/labStorage"; 
+import { getCatalogOptions } from "@/utils/lensMatcher"; 
 import RxPicker from "@/components/RxPicker";
 import { normalizeRxValue } from "@/utils/rxOptions";
-import { validateRx } from "@/utils/validators";
+import { VA_OPTIONS, VA_NEAR_OPTIONS } from "@/utils/ophthalmologyConfig"; 
 
 // UI Kit
 import Card from "@/components/ui/Card";
@@ -18,23 +18,22 @@ import Button from "@/components/ui/Button";
 import Input from "@/components/ui/Input";
 import Badge from "@/components/ui/Badge";
 import LoadingState from "@/components/LoadingState";
+import ModalWrapper from "@/components/ui/ModalWrapper"; 
 
 const TABS = { PRELIM: "prelim", REFRACTION: "refraction", CONTACT: "contact" };
 
 // Helper visual para Porcentajes AV
 function getVaPercentage(value) {
   if (!value || typeof value !== 'string') return null;
+  const match = value.match(/\((\d+)%\)/);
+  if (match) return parseInt(match[1]);
+
   const clean = value.trim().toLowerCase();
   if (clean.includes('/')) {
     const [num, den] = clean.split('/');
     const n = parseFloat(num);
     const d = parseFloat(den);
     if (!isNaN(n) && !isNaN(d) && d !== 0) return Math.min(Math.round((n / d) * 100), 100);
-  }
-  const decimal = parseFloat(clean);
-  if (!isNaN(decimal)) {
-    if (decimal <= 2.0) return Math.round(decimal * 100);
-    if (decimal >= 10) return Math.round((20 / decimal) * 100);
   }
   return null;
 }
@@ -55,16 +54,20 @@ const TabButton = ({ id, label, activeTab, setActiveTab }) => (
   </button>
 );
 
-const AvInput = ({ label, valOD, valOS, valAO, onChange, prevData }) => {
+const AvInput = ({ label, valOD, valOS, valAO, onChange, prevData, isNear = false }) => {
+  const options = isNear ? VA_NEAR_OPTIONS : VA_OPTIONS;
+
   const RenderDiff = ({ current, prev }) => {
     if (!prev) return null;
     const prevPct = getVaPercentage(prev);
-    if (!current) return <span className="text-xs text-textMuted ml-1 opacity-50">(Prev: {prev})</span>;
     const currPct = getVaPercentage(current);
+    
+    if (!current) return <span className="text-xs text-textMuted ml-1 opacity-50">(Prev: {prev})</span>;
+    
     if (prevPct !== null && currPct !== null) {
         const diff = currPct - prevPct;
-        if (diff > 0) return <span className="text-[10px] text-emerald-400 ml-1">▲{currPct}%</span>;
-        if (diff < 0) return <span className="text-[10px] text-red-400 ml-1">▼{currPct}%</span>;
+        if (diff > 0) return <span className="text-[10px] text-emerald-400 ml-1">▲ Mejoró</span>;
+        if (diff < 0) return <span className="text-[10px] text-red-400 ml-1">▼ Empeoró</span>;
     }
     return null;
   };
@@ -75,15 +78,36 @@ const AvInput = ({ label, valOD, valOS, valAO, onChange, prevData }) => {
       <div className="grid grid-cols-3 gap-3">
         <label>
            <span className="text-[10px] text-blue-400 font-bold block mb-1">OD <RenderDiff current={valOD} prev={prevData?.od} /></span>
-           <input value={valOD} onChange={e => onChange('od', e.target.value)} className="w-full bg-background border border-border rounded px-2 py-1 text-sm focus:border-blue-500 outline-none text-center text-white" placeholder="20/..." />
+           <select 
+              value={valOD} 
+              onChange={e => onChange('od', e.target.value)} 
+              className="w-full bg-background border border-border rounded px-2 py-1 text-sm focus:border-blue-500 outline-none text-center text-white appearance-none"
+           >
+              <option value="">--</option>
+              {options.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+           </select>
         </label>
         <label>
            <span className="text-[10px] text-green-400 font-bold block mb-1">OS <RenderDiff current={valOS} prev={prevData?.os} /></span>
-           <input value={valOS} onChange={e => onChange('os', e.target.value)} className="w-full bg-background border border-border rounded px-2 py-1 text-sm focus:border-green-500 outline-none text-center text-white" placeholder="20/..." />
+           <select 
+              value={valOS} 
+              onChange={e => onChange('os', e.target.value)} 
+              className="w-full bg-background border border-border rounded px-2 py-1 text-sm focus:border-green-500 outline-none text-center text-white appearance-none"
+           >
+              <option value="">--</option>
+              {options.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+           </select>
         </label>
         <label>
            <span className="text-[10px] text-white font-bold block mb-1">AO <RenderDiff current={valAO} prev={prevData?.ao} /></span>
-           <input value={valAO} onChange={e => onChange('ao', e.target.value)} className="w-full bg-background border border-border rounded px-2 py-1 text-sm focus:border-white outline-none text-center text-white" placeholder="20/..." />
+           <select 
+              value={valAO} 
+              onChange={e => onChange('ao', e.target.value)} 
+              className="w-full bg-background border border-border rounded px-2 py-1 text-sm focus:border-white outline-none text-center text-white appearance-none"
+           >
+              <option value="">--</option>
+              {options.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+           </select>
         </label>
       </div>
     </div>
@@ -93,8 +117,10 @@ const AvInput = ({ label, valOD, valOS, valAO, onChange, prevData }) => {
 export default function EyeExamsPanel({ patientId, consultationId = null, onSell }) {
   const [loading, setLoading] = useState(true);
   const [allExams, setAllExams] = useState([]);
-  const [isCreating, setIsCreating] = useState(false);
+  
+  const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
+  
   const [activeTab, setActiveTab] = useState(TABS.PRELIM);
   const [page, setPage] = useState(1);
   const ITEMS_PER_PAGE = 5;
@@ -102,20 +128,24 @@ export default function EyeExamsPanel({ patientId, consultationId = null, onSell
   const [formDate, setFormDate] = useState(new Date().toISOString().slice(0, 10));
   const [notes, setNotes] = useState("");
   
-  // Estados iniciales robustos
-  const [prelim, setPrelim] = useState({ avsc: { far: { od: "", os: "", ao: "" }, near: { od: "", os: "", ao: "" } }, avcc: { far: { od: "", os: "", ao: "" }, near: { od: "", os: "", ao: "" } }, cv: { far: { od: "", os: "", ao: "" }, near: { od: "", os: "", ao: "" } }, ishihara: "", motility: "", lensometry: normalizeRxValue() });
+  // Estado inicial completo con todas las secciones de AV
+  const [prelim, setPrelim] = useState({ 
+      avsc: { far: { od: "", os: "", ao: "" }, near: { od: "", os: "", ao: "" } }, 
+      avcc: { far: { od: "", os: "", ao: "" }, near: { od: "", os: "", ao: "" } }, 
+      cv: { far: { od: "", os: "", ao: "" }, near: { od: "", os: "", ao: "" } }, 
+      ishihara: "", motility: "", lensometry: normalizeRxValue() 
+  });
+  
   const [refraction, setRefraction] = useState({ autorefrac: { od: "", os: "" }, finalRx: normalizeRxValue(), finalAv: { far: { od: "", os: "", ao: "" }, near: { od: "", os: "", ao: "" } } });
   const [cl, setCl] = useState({ keratometry: { od: { k1:"", k2:"", axis:"" }, os: { k1:"", k2:"", axis:"" } }, trial: { od: { baseCurve:"", diameter:"", power:"", av:"", overRefraction:"" }, os: { baseCurve:"", diameter:"", power:"", av:"", overRefraction:"" }, notes: "" }, final: { design: "", brand: "", od: { baseCurve:"", diameter:"", power:"" }, os: { baseCurve:"", diameter:"", power:"" } } });
   const [recs, setRecs] = useState({ design: "", material: "", coating: "", usage: "" });
 
-  // Estado para el catálogo
   const [catalogOptions, setCatalogOptions] = useState({ designs: [], materials: [], treatments: [] });
 
-  // 🔥 CORRECCIÓN: Cargar catálogo de forma ASÍNCRONA (Esto arregla el error de pantalla blanca)
   useEffect(() => {
     const loadCatalog = async () => {
         try {
-            const labs = await getLabs(); // Ahora esperamos a la promesa
+            const labs = await getLabs(); 
             const fullCatalog = labs.flatMap(l => l.lensCatalog || []);
             setCatalogOptions(getCatalogOptions(fullCatalog));
         } catch (error) {
@@ -149,13 +179,12 @@ export default function EyeExamsPanel({ patientId, consultationId = null, onSell
     setCl({ keratometry: { od: { k1:"", k2:"", axis:"" }, os: { k1:"", k2:"", axis:"" } }, trial: { od: { baseCurve:"", diameter:"", power:"", av:"", overRefraction:"" }, os: { baseCurve:"", diameter:"", power:"", av:"", overRefraction:"" }, notes: "" }, final: { design: "", brand: "", od: { baseCurve:"", diameter:"", power:"" }, os: { baseCurve:"", diameter:"", power:"" } } });
     setRecs({ design: "", material: "", coating: "", usage: "" });
     setEditingId(null);
+    setActiveTab(TABS.PRELIM);
   };
 
-  const handleSave = async (e) => {
-    e.preventDefault();
-    const payload = { patientId, consultationId: consultationId || null, examDate: formDate, preliminary: prelim, refraction: refraction, contactLens: cl, recommendations: recs, notes: notes };
-    if (editingId) await updateEyeExam(editingId, payload); else await createEyeExam(payload);
-    resetForm(); setIsCreating(false); refreshData();
+  const handleOpenNew = () => {
+      resetForm();
+      setIsModalOpen(true);
   };
 
   const handleEdit = (exam) => {
@@ -166,7 +195,20 @@ export default function EyeExamsPanel({ patientId, consultationId = null, onSell
     setRefraction(exam.refraction || refraction);
     setCl(exam.contactLens || cl);
     setRecs(exam.recommendations || recs);
-    setIsCreating(true);
+    setIsModalOpen(true);
+  };
+
+  const handleCloseModal = () => {
+      setIsModalOpen(false);
+      resetForm();
+  };
+
+  const handleSave = async (e) => {
+    e.preventDefault();
+    const payload = { patientId, consultationId: consultationId || null, examDate: formDate, preliminary: prelim, refraction: refraction, contactLens: cl, recommendations: recs, notes: notes };
+    if (editingId) await updateEyeExam(editingId, payload); else await createEyeExam(payload);
+    handleCloseModal();
+    refreshData();
   };
 
   const handleDelete = async (id) => { if(confirm("¿Eliminar?")) { await deleteEyeExam(id); refreshData(); } };
@@ -177,41 +219,61 @@ export default function EyeExamsPanel({ patientId, consultationId = null, onSell
         <h2 className="text-xl font-bold text-white flex items-center gap-2">
             👁️ {consultationId ? "Examen de la Vista (Vinculado)" : `Exámenes de Vista (${allExams.length})`}
         </h2>
-        <Button onClick={() => { resetForm(); setIsCreating(!isCreating); }} variant={isCreating ? "ghost" : "primary"}>
-          {isCreating ? "Cancelar" : "+ Nuevo Examen"}
+        <Button onClick={handleOpenNew} variant="primary">
+          + Nuevo Examen
         </Button>
       </div>
 
-      {isCreating && (
-        <div className="bg-background rounded-xl border border-border overflow-hidden mb-6 animate-fadeIn">
-           <div className="flex border-b border-border bg-surfaceHighlight/10">
+      {isModalOpen && (
+        <ModalWrapper title={editingId ? "Editar Examen" : "Nuevo Examen de la Vista"} onClose={handleCloseModal} width="900px">
+           <div className="flex border-b border-border bg-surfaceHighlight/10 mb-4">
               <TabButton id={TABS.PRELIM} label="1. Preliminares" activeTab={activeTab} setActiveTab={setActiveTab} />
               <TabButton id={TABS.REFRACTION} label="2. Refracción" activeTab={activeTab} setActiveTab={setActiveTab} />
               <TabButton id={TABS.CONTACT} label="3. Lentes de Contacto" activeTab={activeTab} setActiveTab={setActiveTab} />
            </div>
            
-           <form onSubmit={handleSave} className="p-6 space-y-6">
+           <form onSubmit={handleSave} className="space-y-6 max-h-[70vh] overflow-y-auto px-1">
               <div className="flex gap-4">
                  <Input label="Fecha" type="date" value={formDate} onChange={e => setFormDate(e.target.value)} className="w-auto" />
               </div>
 
-              {/* 1. PRELIMINARES */}
+              {/* 🟢 1. PRELIMINARES COMPLETO */}
               {activeTab === TABS.PRELIM && (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 animate-fadeIn">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 animate-fadeIn">
+                   
+                   {/* COLUMNA 1: AV SIN CORRECCIÓN (SC) */}
                    <div className="space-y-4">
-                      <h4 className="text-sm font-bold text-amber-400 border-b border-amber-500/30 pb-2">Agudeza Visual Entrada (SC)</h4>
+                      <h4 className="text-sm font-bold text-amber-400 border-b border-amber-500/30 pb-2">AV Sin Corrección (SC)</h4>
                       <AvInput label="Lejos" valOD={prelim.avsc.far.od} valOS={prelim.avsc.far.os} valAO={prelim.avsc.far.ao} 
                         onChange={(eye, v) => setPrelim(p => ({...p, avsc: {...p.avsc, far: {...p.avsc.far, [eye]: v}}}))} prevData={prevExam?.preliminary?.avsc?.far} />
                       <AvInput label="Cerca" valOD={prelim.avsc.near.od} valOS={prelim.avsc.near.os} valAO={prelim.avsc.near.ao} 
-                        onChange={(eye, v) => setPrelim(p => ({...p, avsc: {...p.avsc, near: {...p.avsc.near, [eye]: v}}}))} prevData={prevExam?.preliminary?.avsc?.near} />
+                        onChange={(eye, v) => setPrelim(p => ({...p, avsc: {...p.avsc, near: {...p.avsc.near, [eye]: v}}}))} prevData={prevExam?.preliminary?.avsc?.near} isNear={true} />
                    </div>
+
+                   {/* COLUMNA 2: AV CON CORRECCIÓN (CC - ACTUALES) */}
                    <div className="space-y-4">
-                      <h4 className="text-sm font-bold text-blue-400 border-b border-blue-500/30 pb-2">Capacidad Visual (Pin Hole)</h4>
-                      <AvInput label="Lejos" valOD={prelim.cv.far.od} valOS={prelim.cv.far.os} valAO={prelim.cv.far.ao} 
+                      <h4 className="text-sm font-bold text-emerald-400 border-b border-emerald-500/30 pb-2">AV Con Lentes (CC)</h4>
+                      <AvInput label="Lejos" valOD={prelim.avcc.far.od} valOS={prelim.avcc.far.os} valAO={prelim.avcc.far.ao} 
+                        onChange={(eye, v) => setPrelim(p => ({...p, avcc: {...p.avcc, far: {...p.avcc.far, [eye]: v}}}))} prevData={prevExam?.preliminary?.avcc?.far} />
+                      <AvInput label="Cerca" valOD={prelim.avcc.near.od} valOS={prelim.avcc.near.os} valAO={prelim.avcc.near.ao} 
+                        onChange={(eye, v) => setPrelim(p => ({...p, avcc: {...p.avcc, near: {...p.avcc.near, [eye]: v}}}))} prevData={prevExam?.preliminary?.avcc?.near} isNear={true} />
+                   </div>
+
+                   {/* COLUMNA 3: PIN HOLE + ISHIHARA */}
+                   <div className="space-y-4">
+                      <h4 className="text-sm font-bold text-blue-400 border-b border-blue-500/30 pb-2">Pin Hole / Capacidad Visual</h4>
+                      <AvInput label="Lejos (PH)" valOD={prelim.cv.far.od} valOS={prelim.cv.far.os} valAO={prelim.cv.far.ao} 
                         onChange={(eye, v) => setPrelim(p => ({...p, cv: {...p.cv, far: {...p.cv.far, [eye]: v}}}))} prevData={prevExam?.preliminary?.cv?.far} />
                       
-                      <Input label="Ishihara / Test Color" value={prelim.ishihara} onChange={e => setPrelim(p => ({...p, ishihara: e.target.value}))} />
+                      {/* Agregado Cerca en PinHole por solicitud */}
+                      <AvInput label="Cerca (PH)" valOD={prelim.cv.near.od} valOS={prelim.cv.near.os} valAO={prelim.cv.near.ao} 
+                        onChange={(eye, v) => setPrelim(p => ({...p, cv: {...p.cv, near: {...p.cv.near, [eye]: v}}}))} prevData={prevExam?.preliminary?.cv?.near} isNear={true} />
+                      
+                      <div className="pt-2">
+                        <Input label="Ishihara / Test Color" value={prelim.ishihara} onChange={e => setPrelim(p => ({...p, ishihara: e.target.value}))} />
+                      </div>
                    </div>
+
                 </div>
               )}
 
@@ -230,6 +292,8 @@ export default function EyeExamsPanel({ patientId, consultationId = null, onSell
                           <h5 className="text-xs font-bold text-emerald-300 mb-3">Agudeza Visual Final (Con Rx)</h5>
                           <AvInput label="Lejos" valOD={refraction.finalAv.far.od} valOS={refraction.finalAv.far.os} valAO={refraction.finalAv.far.ao} 
                             onChange={(eye, v) => setRefraction(r => ({...r, finalAv: {...r.finalAv, far: {...r.finalAv.far, [eye]: v}}}))} prevData={prevExam?.refraction?.finalAv?.far} />
+                           <AvInput label="Cerca" valOD={refraction.finalAv.near.od} valOS={refraction.finalAv.near.os} valAO={refraction.finalAv.near.ao} 
+                            onChange={(eye, v) => setRefraction(r => ({...r, finalAv: {...r.finalAv, near: {...r.finalAv.near, [eye]: v}}}))} prevData={prevExam?.refraction?.finalAv?.near} isNear={true} />
                       </div>
                    </div>
 
@@ -237,74 +301,47 @@ export default function EyeExamsPanel({ patientId, consultationId = null, onSell
                       <h4 className="text-indigo-300 font-bold mb-3">Recomendación (Catálogo)</h4>
                       <div className="grid grid-cols-2 gap-4">
                          
-                         {/* SELECTOR DISEÑO */}
                          <label className="block">
                              <span className="text-[10px] text-textMuted uppercase mb-1 block font-bold">Diseño</span>
-                             <select 
-                                 value={recs.design} 
-                                 onChange={e => setRecs({...recs, design: e.target.value})}
-                                 className="w-full bg-background border border-border rounded px-2 py-1.5 text-sm text-white focus:border-primary outline-none cursor-pointer"
-                             >
+                             <select value={recs.design} onChange={e => setRecs({...recs, design: e.target.value})} className="w-full bg-background border border-border rounded px-2 py-1.5 text-sm text-white focus:border-primary outline-none cursor-pointer">
                                  <option value="">-- Indistinto --</option>
                                  {catalogOptions.designs.map(d => <option key={d} value={d}>{d}</option>)}
                              </select>
                          </label>
 
-                         {/* SELECTOR MATERIAL */}
                          <label className="block">
                              <span className="text-[10px] text-textMuted uppercase mb-1 block font-bold">Material</span>
-                             <select 
-                                 value={recs.material} 
-                                 onChange={e => setRecs({...recs, material: e.target.value})}
-                                 className="w-full bg-background border border-border rounded px-2 py-1.5 text-sm text-white focus:border-primary outline-none cursor-pointer"
-                             >
+                             <select value={recs.material} onChange={e => setRecs({...recs, material: e.target.value})} className="w-full bg-background border border-border rounded px-2 py-1.5 text-sm text-white focus:border-primary outline-none cursor-pointer">
                                  <option value="">-- Indistinto --</option>
                                  {catalogOptions.materials.map(m => <option key={m} value={m}>{m}</option>)}
                              </select>
                          </label>
 
-                         {/* SELECTOR TRATAMIENTO */}
                          <label className="block">
                              <span className="text-[10px] text-textMuted uppercase mb-1 block font-bold">Tratamiento</span>
-                             <select 
-                                 value={recs.coating} 
-                                 onChange={e => setRecs({...recs, coating: e.target.value})}
-                                 className="w-full bg-background border border-border rounded px-2 py-1.5 text-sm text-white focus:border-primary outline-none cursor-pointer"
-                             >
+                             <select value={recs.coating} onChange={e => setRecs({...recs, coating: e.target.value})} className="w-full bg-background border border-border rounded px-2 py-1.5 text-sm text-white focus:border-primary outline-none cursor-pointer">
                                  <option value="">-- Indistinto --</option>
                                  {catalogOptions.treatments.map(t => <option key={t} value={t}>{t}</option>)}
                              </select>
                          </label>
                          
-                         {/* USO SUGERIDO (Mantenemos Input) */}
-                         <Input 
-                            label="Uso Sugerido" 
-                            placeholder="Ej. Permanente, Lectura..." 
-                            value={recs.usage} 
-                            onChange={e => setRecs({...recs, usage: e.target.value})} 
-                         />
+                         <Input label="Uso Sugerido" placeholder="Ej. Permanente, Lectura..." value={recs.usage} onChange={e => setRecs({...recs, usage: e.target.value})} />
                       </div>
                    </div>
                 </div>
               )}
 
-              {/* 3. LENTES DE CONTACTO (RESTAURADO Y ESTILIZADO) */}
+              {/* 3. LENTES DE CONTACTO */}
               {activeTab === TABS.CONTACT && (
                 <div className="space-y-6 animate-fadeIn">
-                    
-                    {/* QUERATOMETRÍA */}
                     <div className="bg-surfaceHighlight/20 p-4 rounded-xl border border-border">
                         <h4 className="text-sm font-bold text-pink-400 border-b border-pink-500/30 pb-2 mb-3">1. Queratometría</h4>
-                        
-                        {/* OD */}
                         <div className="grid grid-cols-[40px_1fr_1fr_1fr] gap-3 mb-3 items-center">
                             <span className="text-sm font-bold text-blue-400">OD</span>
                             <Input placeholder="K1" value={cl.keratometry.od.k1} onChange={e => setCl(c => ({...c, keratometry: {...c.keratometry, od: {...c.keratometry.od, k1: e.target.value}}}))} className="h-8 text-xs text-center" />
                             <Input placeholder="K2" value={cl.keratometry.od.k2} onChange={e => setCl(c => ({...c, keratometry: {...c.keratometry, od: {...c.keratometry.od, k2: e.target.value}}}))} className="h-8 text-xs text-center" />
                             <Input placeholder="Eje" value={cl.keratometry.od.axis} onChange={e => setCl(c => ({...c, keratometry: {...c.keratometry, od: {...c.keratometry.od, axis: e.target.value}}}))} className="h-8 text-xs text-center" />
                         </div>
-                        
-                        {/* OS */}
                         <div className="grid grid-cols-[40px_1fr_1fr_1fr] gap-3 items-center">
                             <span className="text-sm font-bold text-green-400">OS</span>
                             <Input placeholder="K1" value={cl.keratometry.os.k1} onChange={e => setCl(c => ({...c, keratometry: {...c.keratometry, os: {...c.keratometry.os, k1: e.target.value}}}))} className="h-8 text-xs text-center" />
@@ -313,20 +350,11 @@ export default function EyeExamsPanel({ patientId, consultationId = null, onSell
                         </div>
                     </div>
 
-                    {/* LENTE DE PRUEBA */}
                     <div className="bg-surfaceHighlight/10 p-4 rounded-xl border border-border">
                         <h4 className="text-sm font-bold text-pink-400 border-b border-pink-500/30 pb-2 mb-3">2. Lente de Prueba</h4>
-                        
-                        {/* HEADER TABLA */}
                         <div className="grid grid-cols-[40px_1fr_1fr_1fr_1fr] gap-3 mb-2 text-[10px] text-textMuted font-bold uppercase text-center">
-                            <span></span>
-                            <span>Curva Base</span>
-                            <span>Diámetro</span>
-                            <span>Poder</span>
-                            <span>Sobre-Rx</span>
+                            <span></span><span>Curva Base</span><span>Diámetro</span><span>Poder</span><span>Sobre-Rx</span>
                         </div>
-
-                        {/* OD */}
                         <div className="grid grid-cols-[40px_1fr_1fr_1fr_1fr] gap-3 mb-3 items-center">
                             <span className="text-sm font-bold text-blue-400">OD</span>
                             <Input placeholder="CB" value={cl.trial.od.baseCurve} onChange={e => setCl(c => ({...c, trial: {...c.trial, od: {...c.trial.od, baseCurve: e.target.value}}}))} className="h-8 text-xs text-center" />
@@ -334,8 +362,6 @@ export default function EyeExamsPanel({ patientId, consultationId = null, onSell
                             <Input placeholder="PWR" value={cl.trial.od.power} onChange={e => setCl(c => ({...c, trial: {...c.trial, od: {...c.trial.od, power: e.target.value}}}))} className="h-8 text-xs text-center" />
                             <Input placeholder="S-Rx" value={cl.trial.od.overRefraction} onChange={e => setCl(c => ({...c, trial: {...c.trial, od: {...c.trial.od, overRefraction: e.target.value}}}))} className="h-8 text-xs text-center" />
                         </div>
-
-                        {/* OS */}
                         <div className="grid grid-cols-[40px_1fr_1fr_1fr_1fr] gap-3 items-center mb-4">
                             <span className="text-sm font-bold text-green-400">OS</span>
                             <Input placeholder="CB" value={cl.trial.os.baseCurve} onChange={e => setCl(c => ({...c, trial: {...c.trial, os: {...c.trial.os, baseCurve: e.target.value}}}))} className="h-8 text-xs text-center" />
@@ -343,21 +369,19 @@ export default function EyeExamsPanel({ patientId, consultationId = null, onSell
                             <Input placeholder="PWR" value={cl.trial.os.power} onChange={e => setCl(c => ({...c, trial: {...c.trial, os: {...c.trial.os, power: e.target.value}}}))} className="h-8 text-xs text-center" />
                             <Input placeholder="S-Rx" value={cl.trial.os.overRefraction} onChange={e => setCl(c => ({...c, trial: {...c.trial, os: {...c.trial.os, overRefraction: e.target.value}}}))} className="h-8 text-xs text-center" />
                         </div>
-
                         <Input label="Notas de Adaptación" value={cl.trial.notes} onChange={e => setCl(c => ({...c, trial: {...c.trial, notes: e.target.value}}))} placeholder="Movimiento, centrado, comodidad..." />
                     </div>
                 </div>
               )}
 
-              <div className="pt-4 border-t border-border">
-                 <label className="block text-xs font-bold text-textMuted uppercase mb-2">Observaciones Generales</label>
-                 <textarea rows={2} value={notes} onChange={e => setNotes(e.target.value)} className="w-full bg-surface border border-border rounded-xl p-3 text-textMain focus:border-primary outline-none resize-none" />
-                 <Button type="submit" variant="primary" className="w-full mt-4">
+              <div className="pt-4 border-t border-border flex justify-end gap-3">
+                 <Button type="button" variant="ghost" onClick={handleCloseModal}>Cancelar</Button>
+                 <Button type="submit" variant="primary">
                     {editingId ? "Actualizar Examen" : "Guardar Examen"}
                  </Button>
               </div>
            </form>
-        </div>
+        </ModalWrapper>
       )}
 
       {loading ? <LoadingState /> : (

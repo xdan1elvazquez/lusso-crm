@@ -1,6 +1,6 @@
 import { db } from "@/firebase/config";
 import { 
-  collection, getDocs, doc, runTransaction, query, where, orderBy, getDoc, setDoc, addDoc, updateDoc // 👈 AQUI FALTABA updateDoc
+  collection, getDocs, doc, runTransaction, query, where, orderBy, getDoc, setDoc, addDoc, updateDoc
 } from "firebase/firestore";
 
 const COLLECTION_NAME = "products";
@@ -28,12 +28,14 @@ export async function recalculateInventoryStats() {
     const stats = { totalFrames: 0, inventoryValue: 0, byGender: { HOMBRE:0, MUJER:0, UNISEX:0, NIÑO:0 } };
 
     all.forEach(p => {
+        // Solo contamos stock físico para "FRAMES" u otros físicos, ignoramos SERVICIOS
         if (p.category === "FRAMES") {
             stats.totalFrames += Number(p.stock) || 0;
             const g = p.tags?.gender || "UNISEX";
             if (stats.byGender[g] !== undefined) stats.byGender[g] += Number(p.stock) || 0;
         }
-        if (!p.isOnDemand) {
+        // Valor de inventario solo para productos físicos (no isOnDemand)
+        if (!p.isOnDemand && p.category !== "SERVICE") {
             stats.inventoryValue += (Number(p.cost) || 0) * (Number(p.stock) || 0);
         }
     });
@@ -44,7 +46,12 @@ export async function recalculateInventoryStats() {
 
 // --- ESCRITURA ---
 export async function createProduct(data) {
-  const initialStock = data.isOnDemand ? 9999 : (Number(data.stock) || 0);
+  // Lógica especial para SERVICIOS
+  const isService = data.category === "SERVICE";
+  
+  // Si es servicio, forzamos isOnDemand true y stock dummy alto
+  const isOnDemand = isService ? true : Boolean(data.isOnDemand);
+  const initialStock = isOnDemand ? 9999 : (Number(data.stock) || 0);
   const cost = Number(data.cost) || 0;
   
   const newProduct = {
@@ -54,20 +61,24 @@ export async function createProduct(data) {
     description: data.description?.trim() || "",
     price: Number(data.price) || 0,
     cost: cost,
-    isOnDemand: Boolean(data.isOnDemand), 
+    isOnDemand: isOnDemand, 
     stock: initialStock, 
     minStock: Number(data.minStock) || 1,
     taxable: Boolean(data.taxable),
     batch: data.batch || "", 
     expiry: data.expiry || "", 
     tags: data.tags || {},
+    
+    // Nuevo campo opcional para servicios
+    serviceProfile: isService ? (data.serviceProfile || {}) : null,
+
     deletedAt: null,
     createdAt: new Date().toISOString(),
   };
 
   const docRef = await addDoc(collection(db, COLLECTION_NAME), newProduct);
   
-  // Actualizar Stats en segundo plano
+  // Actualizar Stats en segundo plano (solo si afecta inventario físico)
   if (!newProduct.isOnDemand) recalculateInventoryStats();
   
   return { id: docRef.id, ...newProduct };
@@ -75,15 +86,24 @@ export async function createProduct(data) {
 
 export async function updateProduct(id, patch) {
   const docRef = doc(db, COLLECTION_NAME, id);
-  await updateDoc(docRef, patch); // 👈 Ahora sí funcionará
   
-  // Recalcular stats si se tocó stock o costo
-  if (patch.stock !== undefined || patch.cost !== undefined) recalculateInventoryStats();
+  // Si estamos convirtiendo a servicio o editando uno, aseguramos reglas
+  if (patch.category === "SERVICE") {
+      patch.isOnDemand = true;
+      patch.stock = 9999;
+  }
+
+  await updateDoc(docRef, patch);
+  
+  // Recalcular stats si se tocó stock o costo y NO es un servicio/onDemand
+  if ((patch.stock !== undefined || patch.cost !== undefined) && !patch.isOnDemand) {
+      recalculateInventoryStats();
+  }
 }
 
 export async function deleteProduct(id) {
   const docRef = doc(db, COLLECTION_NAME, id);
-  await updateDoc(docRef, { deletedAt: new Date().toISOString() }); // 👈 Y aquí también
+  await updateDoc(docRef, { deletedAt: new Date().toISOString() });
   recalculateInventoryStats();
 }
 
@@ -98,8 +118,8 @@ export async function adjustStock(id, amount, reason = "Movimiento") {
         if (!snap.exists()) throw new Error(`Producto con ID ${id} no encontrado en inventario.`);
         const p = snap.data();
 
-        // Si es sobre pedido, no ajustamos stock numérico real
-        if (p.isOnDemand) return;
+        // Si es sobre pedido o SERVICIO, no ajustamos stock numérico real
+        if (p.isOnDemand || p.category === "SERVICE") return;
 
         const newStock = (Number(p.stock) || 0) + Number(amount);
         

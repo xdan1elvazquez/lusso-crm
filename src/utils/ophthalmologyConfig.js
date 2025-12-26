@@ -88,7 +88,7 @@ export const getOphthalmoDefaults = () => {
     state[key] = {
       od: {},
       os: {},
-      isNormal: true // Regla de excepción: True por defecto
+      isNormal: true 
     };
     OPHTHALMO_CONFIG[key].sections.forEach(sec => {
       state[key].od[sec.id] = sec.default || "";
@@ -97,3 +97,35 @@ export const getOphthalmoDefaults = () => {
   });
   return state;
 };
+
+// 👇 NUEVAS CONSTANTES PARA AGUDEZA VISUAL (Híbridas)
+export const VA_OPTIONS = [
+  "20/10 (200%)",
+  "20/15 (133%)",
+  "20/20 (100%)",
+  "20/25 (80%)",
+  "20/30 (66%)",
+  "20/40 (50%)",
+  "20/50 (40%)",
+  "20/60 (33%)",
+  "20/70 (28%)",
+  "20/80 (25%)",
+  "20/100 (20%)",
+  "20/150 (13%)",
+  "20/200 (10%)",
+  "20/300 (6%)",
+  "20/400 (5%)",
+  "PL (Proyección Luz)",
+  "MM (Movimiento Manos)",
+  "NPL (No Percibe Luz)"
+];
+
+export const VA_NEAR_OPTIONS = [
+  "J1 (100%)",
+  "J2 (85%)",
+  "J3 (70%)",
+  "J4 (60%)",
+  "J5 (50%)",
+  "J6 (40%)",
+  "J7", "J8", "J9", "J10", "J12", "J14"
+];
