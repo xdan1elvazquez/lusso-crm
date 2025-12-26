@@ -32,7 +32,7 @@ export default function SaleDetailModal({ sale: initialSale, patient: initialPat
   
   // State for patient data
   const [patient, setPatient] = useState(initialPatient || null);
-  const [loadingPatient, setLoadingPatient] = useState(false); // 🟢 New loading state
+  const [loadingPatient, setLoadingPatient] = useState(false); 
 
   const [activeTab, setActiveTab] = useState("GENERAL");
   
@@ -58,6 +58,9 @@ export default function SaleDetailModal({ sale: initialSale, patient: initialPat
   const [editingWO, setEditingWO] = useState(null); 
 
   const isLabSale = sale.saleType === "LAB" || (!sale.saleType && sale.items.some(i => i.requiresLab));
+
+  // 🟢 CALCULAR FOLIO VISUAL (Prioridad Folio Secuencial > ID Corto)
+  const folioDisplay = sale.folio || (sale.id ? sale.id.slice(0, 8).toUpperCase() : '---');
 
   // 🟢 ENHANCED LOAD EFFECT
   useEffect(() => {
@@ -218,7 +221,8 @@ export default function SaleDetailModal({ sale: initialSale, patient: initialPat
   );
 
   return (
-    <ModalWrapper title={`Ticket #${sale.id.slice(0,6).toUpperCase()}`} onClose={onClose} width="800px">
+    // 🟢 TÍTULO DEL MODAL ACTUALIZADO
+    <ModalWrapper title={`Ticket #${folioDisplay}`} onClose={onClose} width="800px">
         <div className="flex justify-between items-center mb-4 -mt-2">
             <div className="flex gap-2">
                 <Badge color={isLabSale ? "blue" : "purple"}>{isLabSale ? "👓 Óptica" : "🛍️ Mostrador"}</Badge>

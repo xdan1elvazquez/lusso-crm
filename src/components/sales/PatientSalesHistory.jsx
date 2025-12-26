@@ -80,6 +80,9 @@ export default function PatientSalesHistory({ sales = [], onViewSale, onPrint })
             visibleSales.map((sale) => {
                 const isExpanded = expandedId === sale.id;
                 const isLab = sale.saleType === "LAB";
+                
+                // 🟢 LÓGICA FOLIO: Priorizamos el folio secuencial, si no, el ID corto
+                const folioDisplay = sale.folio || sale.id.slice(0, 8).toUpperCase();
 
                 return (
                     <div key={sale.id} className={`bg-surface border ${isExpanded ? "border-primary/50" : "border-border"} rounded-xl transition-all hover:border-border/80 overflow-hidden`}>
@@ -98,7 +101,12 @@ export default function PatientSalesHistory({ sales = [], onViewSale, onPrint })
                                 <div className="font-bold text-white truncate">
                                     {sale.description || (isLab ? "Venta Óptica" : "Venta Mostrador")}
                                 </div>
-                                <div className="text-xs text-textMuted flex flex-col md:flex-row gap-1 md:gap-3">
+                                <div className="text-xs text-textMuted flex flex-col md:flex-row gap-1 md:gap-3 items-center md:items-start justify-center md:justify-start mt-1">
+                                    {/* 🟢 MOSTRAR FOLIO AQUÍ */}
+                                    <span className="font-mono font-bold text-blue-300 bg-blue-500/10 px-1.5 rounded border border-blue-500/20">
+                                        #{folioDisplay}
+                                    </span>
+                                    <span className="hidden md:inline">•</span>
                                     <span>📅 {formatDate(sale.createdAt)}</span>
                                     <span className="hidden md:inline">•</span>
                                     <span>👤 {sale.soldBy || "Desconocido"}</span>

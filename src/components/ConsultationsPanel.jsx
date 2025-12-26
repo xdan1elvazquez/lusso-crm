@@ -50,7 +50,8 @@ export default function ConsultationsPanel({ patientId }) {
     return allConsultations.filter(c => 
       (c.diagnosis || "").toLowerCase().includes(s) ||
       (c.reason || "").toLowerCase().includes(s) ||
-      (c.notes || "").toLowerCase().includes(s)
+      (c.notes || "").toLowerCase().includes(s) ||
+      (c.folio || "").toLowerCase().includes(s) // 🟢 Búsqueda por Folio
     );
   }, [allConsultations, search]);
 
@@ -106,7 +107,7 @@ export default function ConsultationsPanel({ patientId }) {
           <>
             {allConsultations.length > 0 && (
                 <Input 
-                    placeholder="🔍 Buscar en historial..." 
+                    placeholder="🔍 Buscar por folio, diagnóstico..." 
                     value={search}
                     onChange={e => { setSearch(e.target.value); setPage(1); }}
                     className="mb-4 bg-surface"
@@ -121,7 +122,13 @@ export default function ConsultationsPanel({ patientId }) {
                         <div key={c.id} className="border border-border rounded-xl p-4 bg-surface hover:border-primary/40 transition-colors">
                             <div className="flex justify-between mb-2">
                                 <div>
-                                    <span className="font-bold text-white block">{new Date(c.visitDate || c.createdAt).toLocaleDateString()}</span>
+                                    <div className="flex items-center gap-2">
+                                        <span className="font-bold text-white block">{new Date(c.visitDate || c.createdAt).toLocaleDateString()}</span>
+                                        {/* 🟢 AQUÍ MOSTRAMOS EL FOLIO EXP-XXX */}
+                                        <span className="text-xs font-mono text-blue-300 bg-blue-900/30 px-1.5 rounded">
+                                            {c.folio || c.id.slice(0,6)}
+                                        </span>
+                                    </div>
                                     <div className="mt-1">
                                         <Badge color={c.type==="OPHTHALMO"?"blue":"green"}>{c.type === "OPHTHALMO" ? "Médica" : "Optometría"}</Badge>
                                     </div>

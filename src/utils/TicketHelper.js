@@ -4,7 +4,7 @@ import { printTicketQZ, printOpticalTicketQZ } from '../services/QZService';
 import { jsPDF } from "jspdf";
 import { sendTicketPdf } from "@/services/whatsappService";
 
-// 👇 CORRECCIÓN: Definimos las constantes aquí para que existan en todo el archivo
+// 👇 CONSTANTES DE IMPRESIÓN ESC/POS
 const ESC = '\x1B';
 const GS = '\x1D';
 const CENTER = ESC + 'a' + '\x01';
@@ -52,6 +52,9 @@ export const imprimirTicket = async (venta, branchConfig) => {
   
   const fecha = new Date().toLocaleString();
   const total = parseFloat(venta.total || 0).toFixed(2);
+  
+  // 🟢 CORRECCIÓN: USAR FOLIO SECUENCIAL SI EXISTE
+  const folioDisplay = venta.folio || (venta.id ? venta.id.slice(0, 8).toUpperCase() : '---');
   
   const itemsHtml = (venta.items || []).map(item => `
     <tr style="vertical-align: top;">
@@ -114,7 +117,8 @@ export const imprimirTicket = async (venta, branchConfig) => {
         </div>
         
         <div class="center small" style="margin-top: 5px;">${fecha}</div>
-        <div class="center bold">Folio: ${venta.id ? venta.id.slice(0, 8).toUpperCase() : '---'}</div>
+        
+        <div class="center bold" style="font-size: 12px; margin: 5px 0;">Folio: ${folioDisplay}</div>
         
         <div class="line"></div>
         
@@ -199,6 +203,9 @@ export const enviarTicketWhatsapp = async (venta, paciente, branchConfig) => {
         let y = 10;
         const fiscal = branchConfig.fiscalData || {}; // Obtenemos datos fiscales
         
+        // 🟢 CORRECCIÓN: USAR FOLIO SECUENCIAL
+        const folioDisplay = venta.folio || (venta.id ? venta.id.slice(0, 8).toUpperCase() : '---');
+
         // --- ENCABEZADO FISCAL ---
         doc.setFontSize(12);
         doc.setFont("helvetica", "bold");
@@ -241,7 +248,8 @@ export const enviarTicketWhatsapp = async (venta, paciente, branchConfig) => {
         y += 5;
         
         doc.setFont("helvetica", "bold");
-        doc.text(`Folio: ${venta.id.slice(0,8).toUpperCase()}`, 40, y, { align: "center" });
+        // 🟢 Aquí usamos el folioDisplay
+        doc.text(`Folio: ${folioDisplay}`, 40, y, { align: "center" });
         doc.setFont("helvetica", "normal");
         y += 5;
         
@@ -285,7 +293,7 @@ export const enviarTicketWhatsapp = async (venta, paciente, branchConfig) => {
 };
 
 // ============================================================
-// 3. GENERADOR DE TICKET DE COTIZACIÓN (NUEVO - PARA QZ TRAY)
+// 3. GENERADOR DE TICKET DE COTIZACIÓN
 // ============================================================
 export const formatQuoteTicket = (quote, branchName = "LUSSO OPTOMETRIA") => {
     const date = new Date().toLocaleDateString('es-MX');
