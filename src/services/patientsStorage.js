@@ -11,7 +11,9 @@ import {
   where,
   increment,
   writeBatch,
-  deleteField // 👈 IMPORTANTE: Agregamos deleteField para limpiar campos
+  deleteField,
+  limit,      
+  startAfter  
 } from "firebase/firestore";
 
 const COLLECTION_NAME = "patients";
@@ -36,6 +38,18 @@ function generateReferralCode(firstName, lastName) {
     return `${f}${l}${rand}`;
 }
 
+// 🟢 HELPER: Capitalizar palabras (Juan carlos -> Juan Carlos)
+const capitalizeWords = (str) => {
+  if (!str) return "";
+  return str.toLowerCase().replace(/(?:^|\s|["'([{])+\S/g, match => match.toUpperCase());
+};
+
+// 🟢 HELPER: Normalizar texto para comparaciones internas
+export const normalizeString = (str) => {
+  if (!str) return "";
+  return str.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+};
+
 // --- PUNTOS ---
 export async function setPatientPoints(id, newTotal) {
   const docRef = doc(db, COLLECTION_NAME, id);
@@ -50,7 +64,94 @@ export async function adjustPatientPoints(id, amount) {
   });
 }
 
-// --- LECTURA ---
+// --- LECTURA OPTIMIZADA (Paginación y Búsqueda) ---
+
+/**
+ * 1. Cargar pacientes paginados (Lotes de X cantidad)
+ * @param {Object} lastDoc - Último documento visible (snapshot) de la página anterior
+ * @param {number} pageSize - Cantidad de registros a traer (default 20)
+ */
+export async function getPatientsPage(lastDoc = null, pageSize = 20) {
+    let q = query(
+        collection(db, COLLECTION_NAME), 
+        where("deletedAt", "==", null), 
+        orderBy("createdAt", "desc"),
+        limit(pageSize)
+    );
+
+    if (lastDoc) {
+        q = query(q, startAfter(lastDoc));
+    }
+
+    const snapshot = await getDocs(q);
+    // Guardamos el documento original en _doc para poder usarlo en la siguiente paginación
+    const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data(), _doc: doc })); 
+    const lastVisible = snapshot.docs[snapshot.docs.length - 1];
+    
+    return { data, lastVisible, hasMore: snapshot.docs.length === pageSize };
+}
+
+/**
+ * 2. Buscar pacientes en Servidor (CORREGIDO Y POTENTE)
+ * Busca por prefijo ("Starts With") en TODA la base de datos.
+ * Funciona escribiendo solo iniciales (ej. "cr" -> Encuentra "Cristian").
+ */
+export async function searchPatients(term) {
+    if (!term) return [];
+    const termClean = term.trim();
+    
+    // Capitalizamos para mejorar la coincidencia (ej: "juan" -> "Juan")
+    // Firestore es sensible a mayúsculas, así que intentamos ajustarnos al estándar de guardado.
+    const termCap = termClean.charAt(0).toUpperCase() + termClean.slice(1).toLowerCase();
+
+    // Mapa para evitar duplicados (si coincide nombre y apellido)
+    const results = new Map(); 
+
+    // A. Búsqueda por Teléfono (Prioridad Alta - Exacta)
+    const cleanPh = cleanPhone(termClean);
+    if (cleanPh.length > 5) {
+        const qPhone = query(
+            collection(db, COLLECTION_NAME), 
+            where("phone", "==", cleanPh), 
+            where("deletedAt", "==", null), 
+            limit(5)
+        );
+        const snapPhone = await getDocs(qPhone);
+        snapPhone.forEach(d => results.set(d.id, { id: d.id, ...d.data() }));
+    }
+
+    // B. Búsqueda por Nombre y Apellido (PREFIJO REAL)
+    // Usamos el truco de Unicode '\uf8ff' para simular "Empieza con..."
+    if (termClean.length >= 1) {
+        
+        // 1. Buscar por Nombre (firstName empieza con termCap)
+        const qFirst = query(
+            collection(db, COLLECTION_NAME), 
+            where("firstName", ">=", termCap), 
+            where("firstName", "<=", termCap + '\uf8ff'), 
+            where("deletedAt", "==", null),
+            limit(10)
+        );
+        const snapFirst = await getDocs(qFirst);
+        snapFirst.forEach(d => results.set(d.id, { id: d.id, ...d.data() }));
+
+        // 2. Buscar por Apellido (lastName empieza con termCap)
+        const qLast = query(
+            collection(db, COLLECTION_NAME), 
+            where("lastName", ">=", termCap), 
+            where("lastName", "<=", termCap + '\uf8ff'),
+            where("deletedAt", "==", null),
+            limit(10)
+        );
+        const snapLast = await getDocs(qLast);
+        snapLast.forEach(d => results.set(d.id, { id: d.id, ...d.data() }));
+    }
+
+    // Retornamos array de valores únicos
+    return Array.from(results.values());
+}
+
+// --- LECTURA GENERAL (Mantener para Estadísticas) ---
 export async function getPatients() {
   // Solo traemos los que NO están borrados (deletedAt == null)
   const q = query(
@@ -80,16 +181,20 @@ export async function getPatientsRecommendedBy(patientId) {
   return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 }
 
-// --- ESCRITURA ---
+// --- ESCRITURA (CON AUTO-CAPITALIZACIÓN) ---
 export async function createPatient(data) {
   const now = new Date().toISOString();
   const finalPhone = cleanPhone(data.phone);
+  
+  // 🟢 FORZAMOS CAPITALIZACIÓN AQUÍ
+  const finalFirstName = capitalizeWords(data.firstName?.trim());
+  const finalLastName = capitalizeWords(data.lastName?.trim());
 
-  const myReferralCode = data.referralCode || generateReferralCode(data.firstName, data.lastName);
+  const myReferralCode = data.referralCode || generateReferralCode(finalFirstName, finalLastName);
 
   const newPatient = {
-    firstName: data.firstName?.trim() || "", 
-    lastName: data.lastName?.trim() || "",
+    firstName: finalFirstName, 
+    lastName: finalLastName,
     
     curp: data.curp?.trim().toUpperCase() || "", 
     phone: finalPhone, 
@@ -148,6 +253,10 @@ export async function updatePatient(id, data) {
   
   const updatePayload = { ...data, updatedAt: now };
   
+  // 🟢 FORZAMOS CAPITALIZACIÓN AL EDITAR TAMBIÉN
+  if (updatePayload.firstName) updatePayload.firstName = capitalizeWords(updatePayload.firstName.trim());
+  if (updatePayload.lastName) updatePayload.lastName = capitalizeWords(updatePayload.lastName.trim());
+
   if (updatePayload.phone) {
       updatePayload.rawPhone = updatePayload.phone; 
       updatePayload.phone = cleanPhone(updatePayload.phone); 
@@ -245,30 +354,16 @@ export async function seedPatientsIfEmpty() {
   window.location.reload();
 }
 
-// 👇 NUEVO: FUNCIONES DE DETECCIÓN DE DUPLICADOS 👇
-
-// 1. Helper para "limpiar" texto (quita acentos, mayúsculas y espacios extra)
-export const normalizeString = (str) => {
-  if (!str) return "";
-  return str
-    .toLowerCase()
-    .normalize("NFD") // Descompone caracteres (ej. é -> e + ´)
-    .replace(/[\u0300-\u036f]/g, "") // Quita los acentos
-    .trim();
-};
-
 /**
- * Busca posibles duplicados antes de crear un paciente.
- * Criterios: Teléfono exacto, Email exacto, o Nombre similar.
+ * 🔍 DETECCIÓN DE DUPLICADOS MEJORADA
+ * Busca coincidencias exactas O capitalizadas para evitar duplicados por mayúsculas/minúsculas.
  */
 export async function findPotentialDuplicates(newPatientData) {
   const duplicates = [];
   const patientsRef = collection(db, COLLECTION_NAME);
 
-  // A. BÚSQUEDA POR TELÉFONO (Si existe y tiene longitud mínima)
-  // Limpiamos el teléfono entrante para comparar peras con peras
+  // 1. BÚSQUEDA POR TELÉFONO
   const phoneToSearch = cleanPhone(newPatientData.phone);
-  
   if (phoneToSearch && phoneToSearch.length > 8) {
     const qPhone = query(patientsRef, where("phone", "==", phoneToSearch), where("deletedAt", "==", null));
     const snapPhone = await getDocs(qPhone);
@@ -277,34 +372,36 @@ export async function findPotentialDuplicates(newPatientData) {
     });
   }
 
-  // B. BÚSQUEDA POR EMAIL (Si existe)
+  // 2. BÚSQUEDA POR EMAIL
   if (newPatientData.email) {
     const qEmail = query(patientsRef, where("email", "==", newPatientData.email), where("deletedAt", "==", null));
     const snapEmail = await getDocs(qEmail);
     snapEmail.forEach(doc => {
-      // Evitar agregar el mismo si ya lo encontramos por teléfono
       if (!duplicates.find(d => d.id === doc.id)) {
         duplicates.push({ id: doc.id, ...doc.data(), matchType: "Email idéntico" });
       }
     });
   }
 
-  // C. BÚSQUEDA POR NOMBRE (Aproximada)
-  // Firestore no tiene "fuzzy search", así que buscamos coincidencia exacta del NOMBRE DE PILA 
-  // y luego filtramos en JS el apellido normalizado.
+  // 3. BÚSQUEDA POR NOMBRE (FLEXIBLE)
   if (newPatientData.firstName && newPatientData.lastName) {
-    // Normalizamos lo que el usuario escribió
-    const inputLast = normalizeString(newPatientData.lastName);
+    const rawFirst = newPatientData.firstName.trim();
+    const capFirst = capitalizeWords(rawFirst); // "Juan"
+    
+    // Lista de versiones a buscar (ej: si escribiste "juan", buscamos ["juan", "Juan"])
+    const namesToCheck = [rawFirst];
+    if (rawFirst !== capFirst) namesToCheck.push(capFirst);
 
-    // Buscamos pacientes que tengan el mismo primer nombre (case sensitive en firestore)
-    // Intentamos buscar tal cual lo escribió, y tal vez capitalizado si prefieres
-    const qName = query(patientsRef, where("firstName", "==", newPatientData.firstName.trim()), where("deletedAt", "==", null)); 
+    // Usamos 'in' para buscar cualquiera de las dos versiones en la BD
+    const qName = query(patientsRef, where("firstName", "in", namesToCheck), where("deletedAt", "==", null)); 
     const snapName = await getDocs(qName);
     
+    const inputLastNorm = normalizeString(newPatientData.lastName);
+
     snapName.forEach(doc => {
         const p = doc.data();
-        // Comparamos apellidos normalizados
-        if (normalizeString(p.lastName) === inputLast && !duplicates.find(d => d.id === doc.id)) {
+        // Comparamos el apellido normalizado (sin acentos, minúsculas) para confirmar coincidencia
+        if (normalizeString(p.lastName) === inputLastNorm && !duplicates.find(d => d.id === doc.id)) {
              duplicates.push({ id: doc.id, ...p, matchType: "Nombre muy similar" });
         }
     });

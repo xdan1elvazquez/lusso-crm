@@ -1,8 +1,8 @@
 import { useMemo, useState, useEffect } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { getPatients } from "@/services/patientsStorage";
-import { getAllSales } from "@/services/salesStorage"; // 👈 Importamos ventas
-import { getAllProducts } from "@/services/inventoryStorage"; // 👈 Importamos productos para leer tags
+import { getAllSales } from "@/services/salesStorage"; 
+import { getAllProducts } from "@/services/inventoryStorage"; 
 import LoadingState from "@/components/LoadingState";
 import Card from "@/components/ui/Card";
 import Badge from "@/components/ui/Badge"; 
@@ -24,15 +24,14 @@ export default function StatisticsPage() {
   const { user } = useAuth();
   const [loading, setLoading] = useState(true);
   const [patients, setPatients] = useState([]); 
-  const [sales, setSales] = useState([]); // 👈 Estado para ventas
-  const [products, setProducts] = useState([]); // 👈 Estado para productos
+  const [sales, setSales] = useState([]); 
+  const [products, setProducts] = useState([]); 
 
   const refreshData = async () => {
       if (!user?.branchId) return;
 
       setLoading(true);
       try {
-          // Cargamos todo en paralelo
           const [pts, sls, prds] = await Promise.all([
               getPatients(),
               getAllSales(user.branchId),
@@ -45,7 +44,6 @@ export default function StatisticsPage() {
 
       } catch (error) { 
           console.error(error); 
-          // Fallback seguro
           setPatients([]); setSales([]); setProducts([]);
       } 
       finally { setLoading(false); }
@@ -57,9 +55,7 @@ export default function StatisticsPage() {
 
   const safePatients = Array.isArray(patients) ? patients : [];
 
-  // --- ANÁLISIS DEMOGRÁFICO ---
-
-  // 1. ESTADÍSTICAS GEO
+  // --- 1. ANÁLISIS DEMOGRÁFICO ---
   const zipStats = useMemo(() => {
     if (safePatients.length === 0) return [];
     const counts = {};
@@ -69,7 +65,6 @@ export default function StatisticsPage() {
       .sort((a, b) => b.count - a.count);
   }, [safePatients]);
 
-  // 2. ESTADÍSTICAS ORIGEN
   const sourceStats = useMemo(() => {
     if (safePatients.length === 0) return [];
     const counts = {};
@@ -79,7 +74,6 @@ export default function StatisticsPage() {
       .sort((a, b) => b.count - a.count);
   }, [safePatients]);
 
-  // 3. ESTADÍSTICAS SEXO PACIENTES
   const sexStats = useMemo(() => {
       if (safePatients.length === 0) return [];
       const counts = { MUJER: 0, HOMBRE: 0, OTRO: 0 };
@@ -98,7 +92,6 @@ export default function StatisticsPage() {
       ].filter(item => item.count > 0);
   }, [safePatients]);
 
-  // 4. ESTADÍSTICAS EDAD
   const ageStats = useMemo(() => {
       const validPatients = safePatients.filter(p => p.dob);
       if (validPatients.length === 0) return [];
@@ -125,12 +118,10 @@ export default function StatisticsPage() {
           .filter(i => i.count > 0); 
   }, [safePatients]);
 
-  // --- ANÁLISIS DE PRODUCTO (NUEVO) ---
+  // --- 2. ANÁLISIS DE PRODUCTO ---
   const productStats = useMemo(() => {
       if (sales.length === 0 || products.length === 0) return null;
 
-      // 1. Mapa rápido de Tags de Productos para buscar por ID
-      // Esto nos permite analizar ventas pasadas aunque el item guardado en venta no tuviera tags
       const productTagsMap = {};
       products.forEach(p => {
           if (p.tags) productTagsMap[p.id] = p.tags;
@@ -143,13 +134,11 @@ export default function StatisticsPage() {
           if (sale.status === 'CANCELLED') return;
           
           (sale.items || []).forEach(item => {
-              // Intentamos sacar tags del item de venta, o del catálogo actual
               let tags = item.tags;
               if (!tags && item.inventoryProductId) {
                   tags = productTagsMap[item.inventoryProductId];
               }
 
-              // Solo contamos si es un producto físico (tiene tags relevantes)
               if (tags && (tags.color || tags.material || tags.gender)) {
                   const qty = Number(item.qty) || 1;
                   totalItemsAnalyzed += qty;
@@ -168,10 +157,9 @@ export default function StatisticsPage() {
 
       if (totalItemsAnalyzed === 0) return null;
 
-      // Helper de formateo
       const format = (obj) => Object.entries(obj)
-          .sort((a,b) => b[1] - a[1]) // Ordenar mayor a menor
-          .slice(0, 6) // Top 6
+          .sort((a,b) => b[1] - a[1])
+          .slice(0, 6)
           .map(([name, count]) => ({
               name, 
               count, 
@@ -185,6 +173,50 @@ export default function StatisticsPage() {
           total: totalItemsAnalyzed
       };
   }, [sales, products]);
+
+  // --- 3. ANÁLISIS TEMPORAL (NUEVO) ---
+  const timeStats = useMemo(() => {
+      if (safePatients.length === 0) return { yearly: [], monthly: [] };
+
+      const yearCounts = {};
+      const monthCounts = {};
+      const monthNames = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
+
+      // Inicializar meses para tenerlos todos aunque sea en 0 (opcional, pero mejor si solo mostramos los que tienen datos en el top)
+      // En este caso, contaremos solo los existentes para el ranking.
+
+      safePatients.forEach(p => {
+          if (!p.createdAt) return;
+          const d = new Date(p.createdAt);
+          if (isNaN(d.getTime())) return;
+          
+          const year = d.getFullYear();
+          const monthName = monthNames[d.getMonth()];
+
+          yearCounts[year] = (yearCounts[year] || 0) + 1;
+          monthCounts[monthName] = (monthCounts[monthName] || 0) + 1;
+      });
+
+      // Anual: Ordenado por año descendente (2024, 2023...)
+      const yearly = Object.entries(yearCounts)
+          .map(([label, count]) => ({ 
+              label, 
+              count, 
+              percent: ((count / safePatients.length) * 100).toFixed(1) 
+          }))
+          .sort((a, b) => b.label - a.label);
+
+      // Mensual: Ordenado por cantidad (Ranking de mejores meses)
+      const monthly = Object.entries(monthCounts)
+          .map(([label, count]) => ({
+              label,
+              count,
+              percent: ((count / safePatients.length) * 100).toFixed(1)
+          }))
+          .sort((a, b) => b.count - a.count); // Top meses primero
+
+      return { yearly, monthly };
+  }, [safePatients]);
 
 
   if (loading) return <LoadingState />;
@@ -234,7 +266,27 @@ export default function StatisticsPage() {
         </div>
       </div>
 
-      {/* SECCIÓN 2: PRODUCTOS VENDIDOS (NUEVO) */}
+      {/* 🟢 SECCIÓN 2: CRECIMIENTO Y TEMPORALIDAD (NUEVO) */}
+      <div>
+        <h2 className="text-sm font-bold text-textMuted uppercase tracking-widest mb-4 mt-8 border-b border-border pb-2">📅 Crecimiento y Temporalidad</h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <StatCard title="Crecimiento Anual (Altas)" icon="📈" color="text-emerald-400">
+                {timeStats.yearly.map((item, i) => (
+                    <StatRow key={i} label={item.label} count={item.count} percent={item.percent} color="bg-emerald-500" />
+                ))}
+                {timeStats.yearly.length === 0 && <p className="text-textMuted italic text-xs">Sin datos registrados.</p>}
+            </StatCard>
+
+            <StatCard title="Meses con más Pacientes (Estacionalidad)" icon="📆" color="text-orange-400">
+                {timeStats.monthly.slice(0, 6).map((item, i) => (
+                    <StatRow key={i} label={item.label} count={item.count} percent={item.percent} color="bg-orange-500" />
+                ))}
+                {timeStats.monthly.length === 0 && <p className="text-textMuted italic text-xs">Sin datos suficientes.</p>}
+            </StatCard>
+        </div>
+      </div>
+
+      {/* SECCIÓN 3: PRODUCTOS VENDIDOS */}
       {productStats && (
           <div>
             <h2 className="text-sm font-bold text-textMuted uppercase tracking-widest mb-4 mt-8 border-b border-border pb-2">👓 Inteligencia de Producto (Top Ventas)</h2>
@@ -261,7 +313,7 @@ export default function StatisticsPage() {
           </div>
       )}
 
-      {/* SECCIÓN 3: GEO */}
+      {/* SECCIÓN 4: GEO */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <StatCard title="Top Zonas (Código Postal)" icon="📍" color="text-red-400">
              <div className="grid grid-cols-2 gap-x-8 gap-y-2">
